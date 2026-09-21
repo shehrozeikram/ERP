@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const { authMiddleware } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const LandMoza = require('../models/tajResidencia/LandMoza');
@@ -6,7 +7,7 @@ const LandMozaKhasraEntry = require('../models/tajResidencia/LandMozaKhasraEntry
 const LandPossession = require('../models/tajResidencia/LandPossession');
 const { buildMozaAcquisitionStatus } = require('../utils/landAcquisitionStatus');
 const {
-  parseAreaInput, addAreas, toSarsais, normalizeArea, subtractAreas
+  parseAreaInput, addAreas, toSarsais, normalizeArea, subtractAreas, formatKMS
 } = require('../utils/landAreaUnits');
 const { enrichPossessionLines } = require('../utils/syncKhasraFromMozaEntry');
 
@@ -30,6 +31,54 @@ const fetchPossessedTotalsByKhasra = async (moza, excludePossessionId) => {
   });
 
   return totals;
+};
+
+/**
+ * Cap each line's possessedArea to remaining khasra plot capacity.
+ * Prevents "registry acquired" defaults from blocking save when only a remnant remains.
+ * Returns list of human-readable cap notes (may be empty).
+ */
+const capPossessionLinesToPlot = async (moza, lines, excludePossessionId) => {
+  const totals = await fetchPossessedTotalsByKhasra(moza, excludePossessionId);
+  const ids = [...new Set(lines.map((l) => String(l.khasraEntry || '')).filter(Boolean))];
+  const entries = await LandMozaKhasraEntry.find({ _id: { $in: ids } })
+    .select('landInKhasra khasraNo')
+    .lean();
+  const plotById = Object.fromEntries(
+    entries.map((e) => [String(e._id), normalizeArea(e.landInKhasra)])
+  );
+  const running = { ...totals };
+  const notes = [];
+
+  for (const line of lines) {
+    const id = String(line.khasraEntry || '');
+    const plotArea = plotById[id];
+    if (!id || !toSarsais(plotArea)) continue;
+
+    const prior = running[id] || { kanal: 0, marla: 0, sarsai: 0 };
+    const remaining = subtractAreas(plotArea, prior);
+    const requested = normalizeArea(line.possessedArea);
+    const khasraLabel = line.khasraNo || entries.find((e) => String(e._id) === id)?.khasraNo || '';
+
+    if (toSarsais(requested) > 0.001 && toSarsais(remaining) <= 0) {
+      const err = new Error(
+        `Khasra ${khasraLabel} is already fully possessed. Maximum possessed area: 0-0-0`
+      );
+      err.status = 400;
+      throw err;
+    }
+
+    if (toSarsais(requested) - toSarsais(remaining) > 0.001) {
+      notes.push(
+        `Khasra ${khasraLabel}: possessed area capped from ${formatKMS(requested)} to ${formatKMS(remaining)} (plot remaining)`
+      );
+      line.possessedArea = remaining;
+    }
+
+    running[id] = addAreas(prior, line.possessedArea);
+  }
+
+  return notes;
 };
 
 const assertPossessionKhasraLimits = async (moza, lines, excludePossessionId) => {
@@ -88,13 +137,26 @@ const khasraEntryId = (val) => {
   return undefined;
 };
 
+/** Only real Mongo ObjectIds — reject synthetic registry ids like "exchange-in-<id>-0". */
+const toObjectIdString = (val) => {
+  const id = khasraEntryId(val);
+  if (!id) return undefined;
+  if (id.startsWith('exchange-in-') || id.startsWith('exchange-out-') || id.startsWith('in-line-')) {
+    return undefined;
+  }
+  if (!mongoose.Types.ObjectId.isValid(id)) return undefined;
+  // Guard against mongoose treating arbitrary 12-byte strings as valid
+  if (String(new mongoose.Types.ObjectId(id)) !== id) return undefined;
+  return id;
+};
+
 const parseLine = (line) => ({
-  registryKhasraEntry: khasraEntryId(line.registryKhasraEntry),
+  registryKhasraEntry: toObjectIdString(line.registryKhasraEntry),
   registryKhewatNo: String(line.registryKhewatNo || '').trim(),
   registryKhasraNo: String(line.registryKhasraNo || '').trim(),
   registeredArea: parseAreaInput(line.registeredArea),
-  khasraEntry: khasraEntryId(line.khasraEntry),
-  registry: khasraEntryId(line.registry),
+  khasraEntry: toObjectIdString(line.khasraEntry),
+  registry: toObjectIdString(line.registry),
   khewatNo: String(line.khewatNo || '').trim(),
   khasraNo: String(line.khasraNo || '').trim(),
   khasraArea: parseAreaInput(line.khasraArea),
@@ -133,7 +195,7 @@ const buildPossessionPayload = (body) => {
     khewatNo,
     totalArea,
     possessionRef: String(body.possessionRef || '').trim(),
-    registry: body.registry || undefined,
+    registry: toObjectIdString(body.registry),
     lines,
     linesTotal
   };
@@ -344,6 +406,14 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
     });
   }
 
+  let capNotes = [];
+  try {
+    capNotes = await capPossessionLinesToPlot(payload.moza, payload.lines);
+    payload.linesTotal = addAreas(...payload.lines.map((l) => l.possessedArea));
+  } catch (err) {
+    return res.status(err.status || 400).json({ success: false, message: err.message });
+  }
+
   const finalTotal = toSarsais(payload.totalArea) ? payload.totalArea : payload.linesTotal;
   if (toSarsais(payload.totalArea) && toSarsais(payload.linesTotal) > toSarsais(payload.totalArea)) {
     return res.status(400).json({
@@ -378,8 +448,11 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
 
   res.status(201).json({
     success: true,
-    message: 'Possession record created',
-    data: mapPossession(doc)
+    message: capNotes.length
+      ? `Possession record created. ${capNotes.join(' ')}`
+      : 'Possession record created',
+    data: mapPossession(doc),
+    warnings: capNotes
   });
 }));
 
@@ -421,6 +494,14 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
     }
   }
 
+  let capNotes = [];
+  try {
+    capNotes = await capPossessionLinesToPlot(doc.moza, payload.lines, doc._id);
+    payload.linesTotal = addAreas(...payload.lines.map((l) => l.possessedArea));
+  } catch (err) {
+    return res.status(err.status || 400).json({ success: false, message: err.message });
+  }
+
   const finalTotal = toSarsais(payload.totalArea) ? payload.totalArea : payload.linesTotal;
   if (toSarsais(payload.totalArea) && toSarsais(payload.linesTotal) > toSarsais(payload.totalArea)) {
     return res.status(400).json({
@@ -452,8 +533,11 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
 
   res.json({
     success: true,
-    message: 'Possession record updated',
-    data: mapPossession(doc)
+    message: capNotes.length
+      ? `Possession record updated. ${capNotes.join(' ')}`
+      : 'Possession record updated',
+    data: mapPossession(doc),
+    warnings: capNotes
   });
 }));
 

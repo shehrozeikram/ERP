@@ -88,6 +88,15 @@ const khasraEntryId = (entry) => {
   return str === '[object Object]' ? '' : str;
 };
 
+/** Real LandRegistry ObjectIds only — skip synthetic exchange-in-* list ids. */
+const toRegistryObjectId = (val) => {
+  const id = khasraEntryId(val);
+  if (!id) return undefined;
+  if (id.startsWith('exchange-in-') || id.startsWith('exchange-out-')) return undefined;
+  if (!/^[a-f\d]{24}$/i.test(id)) return undefined;
+  return id;
+};
+
 /** Build possession rows from a linked registry document. */
 const linesFromRegistry = (registry, registryId, mozaKhasras = [], possessedTotals = {}) => {
   if (!registry?.lines?.length) return [emptyLine()];
@@ -535,14 +544,14 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       khewatNo: khewatNos.join(', '),
       totalArea: parseAreaForm(form.totalArea),
       possessionRef: possession ? form.possessionRef.trim() : undefined,
-      registry: form.registry || undefined,
+      registry: toRegistryObjectId(form.registry),
       lines: form.lines.map((line) => ({
         registryKhasraEntry: khasraEntryId(line.registryKhasraEntry) || undefined,
         registryKhewatNo: line.registryKhewatNo.trim(),
         registryKhasraNo: line.registryKhasraNo.trim(),
         registeredArea: parseAreaForm(line.khasraArea),
         khasraEntry: khasraEntryId(line.khasraEntry) || undefined,
-        registry: khasraEntryId(line.registry) || khasraEntryId(form.registry) || undefined,
+        registry: toRegistryObjectId(line.registry) || toRegistryObjectId(form.registry) || undefined,
         khewatNo: line.khewatNo.trim(),
         khasraNo: line.khasraNo.trim(),
         khasraArea: parseAreaForm(line.khasraArea),
@@ -604,8 +613,10 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
                 if (!r) return '';
                 if (typeof r === 'string') return r;
                 const parts = [];
+                if (r.isExchangeIn) parts.push('Exchange In');
                 if (r.registryNo) parts.push(`Reg: ${r.registryNo}`);
-                if (r.inteqalNo) parts.push(`Inteqal: ${r.inteqalNo}`);
+                if (r.inteqalNo && r.inteqalNo !== '—') parts.push(`Inteqal: ${r.inteqalNo}`);
+                if (r.exchangeRef) parts.push(r.exchangeRef);
                 return parts.length > 0 ? parts.join(' | ') : (r._id || '');
               }}
               filterOptions={(options, state) => {

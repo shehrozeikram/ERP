@@ -1011,11 +1011,24 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
       .populate('purchaser', 'name cnic phoneNumber partyDate')
       .populate('dealer', 'name cnic phoneNumber partyDate')
       .lean(),
-    LandPossession.find({ moza: { $in: mozaIds }, isActive: true }).lean(),
+    LandPossession.find({ moza: { $in: mozaIds }, isActive: true })
+      .populate('registry', 'registryNo inteqalNo dealNo')
+      .populate('lines.registry', 'registryNo inteqalNo dealNo')
+      .lean(),
     LandExchange.find({ isActive: true })
       .populate('party', 'name cnic phoneNumber')
       .lean()
   ]);
+
+  const registryMetaById = new Map();
+  registries.forEach((reg) => {
+    registryMetaById.set(String(reg._id), {
+      registryNo: reg.registryNo,
+      inteqalNo: reg.inteqalNo,
+      dealNo: reg.dealNo,
+      registryDate: reg.registryDate
+    });
+  });
 
   const registriesByKhasra = new Map();
   registries.forEach((reg) => {
@@ -1117,13 +1130,31 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
     (pos.lines || []).forEach((line) => {
       const kId = String(line.khasraEntry || '');
       const kKey = `${String(pos.moza)}_${String(line.khewatNo || '').trim()}_${String(line.khasraNo || '').trim()}`;
+      const linkedRegistry = line.registry || pos.registry || null;
+      const linkedRegistryId = linkedRegistry
+        ? String(linkedRegistry._id || linkedRegistry)
+        : '';
+      const meta = linkedRegistryId ? registryMetaById.get(linkedRegistryId) : null;
       const item = {
         _id: pos._id,
         possessionRef: pos.possessionRef,
         possessionDate: pos.possessionDate,
         possessedArea: normalizeArea(line.possessedArea),
         transferPercent: line.transferPercent,
-        remarks: line.remarks
+        remarks: line.remarks,
+        registryId: linkedRegistryId || null,
+        registryNo:
+          (linkedRegistry && typeof linkedRegistry === 'object' && linkedRegistry.registryNo) ||
+          meta?.registryNo ||
+          '',
+        inteqalNo:
+          (linkedRegistry && typeof linkedRegistry === 'object' && linkedRegistry.inteqalNo) ||
+          meta?.inteqalNo ||
+          '',
+        dealNo:
+          (linkedRegistry && typeof linkedRegistry === 'object' && linkedRegistry.dealNo) ||
+          meta?.dealNo ||
+          ''
       };
 
       if (kId) {
@@ -1196,7 +1227,63 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
         transferPercent: 100,
         remarks: e.remarks
       }))
-    ];
+    ].sort((a, b) => {
+      const da = a.registryDate ? new Date(a.registryDate).getTime() : 0;
+      const db = b.registryDate ? new Date(b.registryDate).getTime() : 0;
+      return da - db;
+    });
+
+    // Attribute possession to registries (explicit link first, then FIFO for unlinked)
+    const possessedByRegistryId = new Map();
+    let unlinkedPossessed = { kanal: 0, marla: 0, sarsai: 0 };
+    uniquePossessions.forEach((p) => {
+      const area = normalizeArea(p.possessedArea);
+      if (p.registryId && combinedRegistries.some((r) => String(r._id) === String(p.registryId))) {
+        const prev = possessedByRegistryId.get(String(p.registryId)) || { kanal: 0, marla: 0, sarsai: 0 };
+        possessedByRegistryId.set(String(p.registryId), addAreas(prev, area));
+      } else {
+        unlinkedPossessed = addAreas(unlinkedPossessed, area);
+      }
+    });
+
+    const pendingByRegistry = [];
+    combinedRegistries.forEach((reg) => {
+      const id = String(reg._id);
+      const acquired = normalizeArea(reg.acquiredArea);
+      let attributed = possessedByRegistryId.get(id) || { kanal: 0, marla: 0, sarsai: 0 };
+      const stillNeeded = subtractAreas(acquired, attributed);
+      if (toSarsais(unlinkedPossessed) > 0 && toSarsais(stillNeeded) > 0) {
+        const take = toSarsais(unlinkedPossessed) <= toSarsais(stillNeeded)
+          ? unlinkedPossessed
+          : stillNeeded;
+        attributed = addAreas(attributed, take);
+        unlinkedPossessed = subtractAreas(unlinkedPossessed, take);
+        possessedByRegistryId.set(id, attributed);
+      }
+      const pendingPossession = subtractAreas(acquired, attributed);
+      pendingByRegistry.push({
+        _id: reg._id,
+        isExchangeIn: Boolean(reg.isExchangeIn),
+        registryNo: reg.registryNo || '—',
+        inteqalNo: reg.inteqalNo || '—',
+        dealNo: reg.dealNo || '',
+        registryDate: reg.registryDate || null,
+        sellerName: reg.seller?.name || '—',
+        acquiredArea: acquired,
+        possessedArea: attributed,
+        pendingPossession
+      });
+    });
+
+    // Attach per-registry pending onto linked registry rows for the detail table
+    const registriesWithPending = combinedRegistries.map((reg) => {
+      const row = pendingByRegistry.find((p) => String(p._id) === String(reg._id));
+      return {
+        ...reg,
+        possessedArea: row?.possessedArea || { kanal: 0, marla: 0, sarsai: 0 },
+        pendingPossession: row?.pendingPossession || { kanal: 0, marla: 0, sarsai: 0 }
+      };
+    });
 
     return {
       _id: entry._id,
@@ -1209,7 +1296,8 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
       remainingToRegister,
       totalPossessed: possessed,
       remainingToPossess,
-      registries: combinedRegistries,
+      registries: registriesWithPending,
+      pendingByRegistry: pendingByRegistry.filter((r) => toSarsais(r.pendingPossession) > 0),
       exchangesOut: uniqueExcOut,
       exchangesIn: uniqueExcIn,
       possessions: uniquePossessions,

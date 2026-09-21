@@ -53,6 +53,11 @@ const KhasraDetailDialog = ({ open, onClose, khasra }) => {
 
   const registries = khasra.registries || [];
   const possessions = khasra.possessions || [];
+  const pendingByRegistry = khasra.pendingByRegistry
+    || registries.filter((r) => {
+      const p = r.pendingPossession || {};
+      return (p.kanal || 0) > 0 || (p.marla || 0) > 0 || (p.sarsai || 0) > 0;
+    });
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -119,6 +124,81 @@ const KhasraDetailDialog = ({ open, onClose, khasra }) => {
           </Grid>
         </Grid>
 
+        {/* Pending Possession — which registries */}
+        <Box sx={{ mb: 3 }}>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+            <Typography variant="subtitle1" fontWeight={700} color="error.dark">
+              Pending Possession by Registry
+            </Typography>
+            <Chip
+              size="small"
+              label={`${pendingByRegistry.length} registries`}
+              color="error"
+              variant="outlined"
+            />
+            <Typography variant="caption" color="text.secondary">
+              Total pending: {formatKMS(khasra.remainingToPossess)}
+            </Typography>
+          </Stack>
+
+          {!pendingByRegistry.length ? (
+            <Paper variant="outlined" sx={{ p: 2, textAlign: 'center', bgcolor: 'background.paper' }}>
+              <Typography variant="body2" color="text.secondary">
+                No pending possession — all registered area for this khasra is possessed.
+              </Typography>
+            </Paper>
+          ) : (
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small">
+                <TableHead sx={{ bgcolor: '#fef2f2' }}>
+                  <TableRow>
+                    <TableCell><strong>Registry Date</strong></TableCell>
+                    <TableCell><strong>Deal No.</strong></TableCell>
+                    <TableCell><strong>Registry No.</strong></TableCell>
+                    <TableCell><strong>Inteqal No.</strong></TableCell>
+                    <TableCell><strong>Seller</strong></TableCell>
+                    <TableCell align="center"><strong>Acquired</strong></TableCell>
+                    <TableCell align="center"><strong>Possessed</strong></TableCell>
+                    <TableCell align="center"><strong>Pending Possession</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {pendingByRegistry.map((reg, idx) => (
+                    <TableRow key={reg._id || idx} hover>
+                      <TableCell>{formatDate(reg.registryDate)}</TableCell>
+                      <TableCell><strong>{reg.dealNo ? `#${reg.dealNo}` : '—'}</strong></TableCell>
+                      <TableCell>
+                        <strong>{reg.registryNo || '—'}</strong>
+                        {reg.isExchangeIn && (
+                          <Chip
+                            label="Exchange In"
+                            size="small"
+                            color="success"
+                            variant="filled"
+                            sx={{ fontSize: '0.65rem', height: 18, ml: 1, fontWeight: 700 }}
+                          />
+                        )}
+                      </TableCell>
+                      <TableCell>{reg.inteqalNo || '—'}</TableCell>
+                      <TableCell>{reg.sellerName || reg.seller?.name || '—'}</TableCell>
+                      <TableCell align="center">{formatKMS(reg.acquiredArea)}</TableCell>
+                      <TableCell align="center">{formatKMS(reg.possessedArea)}</TableCell>
+                      <TableCell align="center">
+                        <Chip
+                          label={formatKMS(reg.pendingPossession)}
+                          size="small"
+                          color="error"
+                          sx={{ fontWeight: 700 }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
+
         {/* Section 1: Linked Registries */}
         <Box sx={{ mb: 3 }}>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
@@ -147,66 +227,86 @@ const KhasraDetailDialog = ({ open, onClose, khasra }) => {
                     <TableCell><strong>Purchaser</strong></TableCell>
                     <TableCell><strong>Dealer</strong></TableCell>
                     <TableCell align="center"><strong>Acquired Area</strong></TableCell>
+                    <TableCell align="center"><strong>Pending Possession</strong></TableCell>
                     <TableCell><strong>Documents</strong></TableCell>
                     <TableCell><strong>Remarks</strong></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {registries.map((reg, idx) => (
-                    <TableRow key={reg._id || idx} hover>
-                      <TableCell>{formatDate(reg.registryDate)}</TableCell>
-                      <TableCell><strong>{reg.dealNo ? `#${reg.dealNo}` : '—'}</strong></TableCell>
-                      <TableCell>
-                        <strong>{reg.registryNo || '—'}</strong>
-                        {reg.isExchangeIn && (
+                  {registries.map((reg, idx) => {
+                    const pending = reg.pendingPossession || { kanal: 0, marla: 0, sarsai: 0 };
+                    const hasPending = (pending.kanal || 0) > 0 || (pending.marla || 0) > 0 || (pending.sarsai || 0) > 0;
+                    return (
+                      <TableRow key={reg._id || idx} hover>
+                        <TableCell>{formatDate(reg.registryDate)}</TableCell>
+                        <TableCell><strong>{reg.dealNo ? `#${reg.dealNo}` : '—'}</strong></TableCell>
+                        <TableCell>
+                          <strong>{reg.registryNo || '—'}</strong>
+                          {reg.isExchangeIn && (
+                            <Chip
+                              label="Exchange In"
+                              size="small"
+                              color="success"
+                              variant="filled"
+                              sx={{ fontSize: '0.65rem', height: 18, ml: 1, fontWeight: 700 }}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>{reg.inteqalNo || '—'}</TableCell>
+                        <TableCell>{reg.seller?.name || '—'}</TableCell>
+                        <TableCell>{reg.purchaser?.name || '—'}</TableCell>
+                        <TableCell>{reg.dealer?.name || '—'}</TableCell>
+                        <TableCell align="center">
                           <Chip
-                            label="Exchange In"
+                            label={formatKMS(reg.acquiredArea)}
                             size="small"
                             color="success"
-                            variant="filled"
-                            sx={{ fontSize: '0.65rem', height: 18, ml: 1, fontWeight: 700 }}
+                            sx={{ fontWeight: 700 }}
                           />
-                        )}
-                      </TableCell>
-                      <TableCell>{reg.inteqalNo || '—'}</TableCell>
-                      <TableCell>{reg.seller?.name || '—'}</TableCell>
-                      <TableCell>{reg.purchaser?.name || '—'}</TableCell>
-                      <TableCell>{reg.dealer?.name || '—'}</TableCell>
-                      <TableCell align="center">
-                        <Chip
-                          label={formatKMS(reg.acquiredArea)}
-                          size="small"
-                          color="success"
-                          sx={{ fontWeight: 700 }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                          {[...(reg.registryDocAttachments || []), ...(reg.inteqalDocAttachments || [])].map((att, i) => {
-                            const href = resolveUploadFileHref(att.path, att.mimetype);
-                            return href ? (
-                              <Chip
-                                key={att._id || i}
-                                icon={<AttachFile fontSize="small" />}
-                                label={att.originalName || `Doc ${i + 1}`}
-                                component="a"
-                                href={href}
-                                target="_blank"
-                                clickable
-                                size="small"
-                                color="primary"
-                                variant="outlined"
-                              />
-                            ) : null;
-                          })}
-                          {!(reg.registryDocAttachments || []).length && !(reg.inteqalDocAttachments || []).length && (
-                            <Typography variant="caption" color="text.secondary">—</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {hasPending ? (
+                            <Chip
+                              label={formatKMS(pending)}
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              sx={{ fontWeight: 700 }}
+                            />
+                          ) : (
+                            <Typography variant="caption" color="success.main" fontWeight={600}>
+                              Fully possessed
+                            </Typography>
                           )}
-                        </Stack>
-                      </TableCell>
-                      <TableCell>{reg.remarks || '—'}</TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell>
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                            {[...(reg.registryDocAttachments || []), ...(reg.inteqalDocAttachments || [])].map((att, i) => {
+                              const href = resolveUploadFileHref(att.path, att.mimetype);
+                              return href ? (
+                                <Chip
+                                  key={att._id || i}
+                                  icon={<AttachFile fontSize="small" />}
+                                  label={att.originalName || `Doc ${i + 1}`}
+                                  component="a"
+                                  href={href}
+                                  target="_blank"
+                                  clickable
+                                  size="small"
+                                  color="primary"
+                                  variant="outlined"
+                                />
+                              ) : null;
+                            })}
+                            {!(reg.registryDocAttachments || []).length && !(reg.inteqalDocAttachments || []).length && (
+                              <Typography variant="caption" color="text.secondary">—</Typography>
+                            )}
+                          </Stack>
+                        </TableCell>
+                        <TableCell>{reg.remarks || '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </TableContainer>
@@ -280,6 +380,7 @@ const KhasraDetailDialog = ({ open, onClose, khasra }) => {
                   <TableRow>
                     <TableCell><strong>Possession Date</strong></TableCell>
                     <TableCell><strong>Possession Ref</strong></TableCell>
+                    <TableCell><strong>Linked Registry</strong></TableCell>
                     <TableCell align="center"><strong>Possessed Area</strong></TableCell>
                     <TableCell><strong>Remarks</strong></TableCell>
                   </TableRow>
@@ -289,6 +390,22 @@ const KhasraDetailDialog = ({ open, onClose, khasra }) => {
                     <TableRow key={pos._id || idx} hover>
                       <TableCell>{formatDate(pos.possessionDate)}</TableCell>
                       <TableCell><strong>{pos.possessionRef || '—'}</strong></TableCell>
+                      <TableCell>
+                        {pos.registryNo ? (
+                          <Stack spacing={0.25}>
+                            <Typography variant="body2" fontWeight={600}>{pos.registryNo}</Typography>
+                            {(pos.inteqalNo || pos.dealNo) && (
+                              <Typography variant="caption" color="text.secondary">
+                                {[pos.inteqalNo && `Inteqal: ${pos.inteqalNo}`, pos.dealNo && `Deal: #${pos.dealNo}`]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </Typography>
+                            )}
+                          </Stack>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">Not linked</Typography>
+                        )}
+                      </TableCell>
                       <TableCell align="center">
                         <Chip
                           label={formatKMS(pos.possessedArea)}

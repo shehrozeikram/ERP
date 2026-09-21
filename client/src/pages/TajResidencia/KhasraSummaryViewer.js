@@ -108,6 +108,9 @@ const KhasraSummaryViewer = () => {
         'Pending Purchased': formatKMS(row.remainingToRegister),
         'Possession': formatKMS(row.totalPossessed),
         'Pending Possession': formatKMS(row.remainingToPossess),
+        'Pending Possession Registries': (row.pendingByRegistry || [])
+          .map((r) => `${r.registryNo || '—'} (${formatKMS(r.pendingPossession)})`)
+          .join('; ') || '—',
         'Registries Count': row.registriesCount || 0,
         'Linked Registries': (row.registries || []).map(r => `${r.registryNo || '—'} (${formatKMS(r.acquiredArea)})`).join('; '),
         'Possessions Count': row.possessionsCount || 0,
