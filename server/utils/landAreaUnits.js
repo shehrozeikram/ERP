@@ -31,6 +31,9 @@ const addAreas = (...areas) =>
 const subtractAreas = (a, b) =>
   fromSarsais(Math.max(0, toSarsais(a) - toSarsais(b)));
 
+const minAreas = (a, b) =>
+  toSarsais(a) <= toSarsais(b) ? normalizeArea(a) : normalizeArea(b);
+
 const parseAreaInput = (obj) => normalizeArea({
   kanal: obj?.kanal,
   marla: obj?.marla,
@@ -56,6 +59,7 @@ module.exports = {
   fromSarsais,
   addAreas,
   subtractAreas,
+  minAreas,
   formatKMS,
   toSqFt
 };

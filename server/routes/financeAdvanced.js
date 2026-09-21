@@ -1016,6 +1016,15 @@ router.get('/journal-entries/:id',
       const deptDoc = await Department.findById(normalized.department).select('name code').lean();
       if (deptDoc) normalized.department = deptDoc;
     }
+
+    // Resolve line-level party / department ObjectIds to names (refPath cannot
+    // populate Vendor→Supplier / Customer→SalesCustomer).
+    const { enrichPartyFields, enrichDepartmentFields } = require('../utils/financePartyResolve');
+    if (Array.isArray(normalized.lines) && normalized.lines.length) {
+      await enrichPartyFields(normalized.lines);
+      await enrichDepartmentFields(normalized.lines, 'department');
+    }
+
     if (normalized.module === 'payroll') {
       const PayrollPeriodPaymentHelper = require('../utils/payrollPeriodPayment');
       normalized.payrollVoucherSummary = await PayrollPeriodPaymentHelper.resolvePayrollVoucherSummaryForJournalEntry(entry._id);

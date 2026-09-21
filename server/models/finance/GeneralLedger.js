@@ -213,6 +213,9 @@ generalLedgerSchema.statics.buildLedgerRowsFromJournalEntries = async function(a
         debit: '$lines.debit',
         credit: '$lines.credit',
         department: { $ifNull: ['$lines.department', '$department'] },
+        project: '$project',
+        partyType: '$lines.partyType',
+        party: '$lines.party',
         module: 1,
         referenceId: '$referenceId',
         referenceType: '$referenceType',
@@ -227,6 +230,9 @@ generalLedgerSchema.statics.buildLedgerRowsFromJournalEntries = async function(a
     }
   ]);
 
+  const { enrichPartyFields, enrichDepartmentFields } = require('../../utils/financePartyResolve');
+  await enrichPartyFields(rows);
+  await enrichDepartmentFields(rows, 'department');
   return rows;
 };
 
@@ -248,7 +254,7 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
   }
 
   let entries = await this.find(query)
-    .populate('journalEntry', 'entryNumber reference description')
+    .populate('journalEntry', 'entryNumber reference description project department')
     .populate('account', 'accountNumber name type')
     .populate('createdBy', 'firstName lastName')
     .sort({ date: 1, entryNumber: 1 })
@@ -262,6 +268,38 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
 
   if (!entries.length) {
     entries = await this.buildLedgerRowsFromJournalEntries(accOid, startDate, endDate);
+  } else {
+    // Carry project from JE when GL row has none; resolve party/dept labels
+    for (const row of entries) {
+      if (!row.project && row.journalEntry?.project) row.project = row.journalEntry.project;
+    }
+    const { enrichPartyFields, enrichDepartmentFields } = require('../../utils/financePartyResolve');
+    await enrichPartyFields(entries);
+    await enrichDepartmentFields(entries, 'department');
+
+    // Populate project names
+    const projectIds = [
+      ...new Set(
+        entries
+          .map((r) => r.project)
+          .filter((p) => p && !(typeof p === 'object' && p.name))
+          .map((p) => String(p._id || p))
+          .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      )
+    ];
+    if (projectIds.length) {
+      try {
+        const Project = mongoose.model('Project');
+        const projects = await Project.find({ _id: { $in: projectIds } }).select('name code').lean();
+        const pmap = new Map(projects.map((p) => [String(p._id), p]));
+        for (const row of entries) {
+          const pid = row.project ? String(row.project._id || row.project) : '';
+          if (pid && pmap.has(pid)) row.project = pmap.get(pid);
+        }
+      } catch (_) {
+        /* Project model optional */
+      }
+    }
   }
 
   let runningBalance = 0;

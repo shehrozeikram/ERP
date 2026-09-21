@@ -31,6 +31,10 @@ export const addAreas = (...areas) =>
 export const subtractAreas = (a, b) =>
   fromSarsais(Math.max(0, toSarsais(a) - toSarsais(b)));
 
+/** Cap `area` so it does not exceed `maxArea` (by sarsai total). */
+export const minAreas = (a, b) =>
+  toSarsais(a) <= toSarsais(b) ? normalizeArea(a) : normalizeArea(b);
+
 export const parseAreaForm = (obj) => normalizeArea({
   kanal: obj?.kanal,
   marla: obj?.marla,

@@ -12,12 +12,23 @@ import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelec
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFmt = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 250];
+const looksLikeObjectId = (v) => typeof v === 'string' && /^[a-f\d]{24}$/i.test(v);
 
 const formatCellText = (val) => {
-  if (!val) return '—';
-  if (typeof val === 'string' || typeof val === 'number') return String(val);
+  if (val == null || val === '') return '—';
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'string') return looksLikeObjectId(val) ? '—' : val;
   if (typeof val === 'object') {
-    return val.name || val.code || val.title || val.departmentName || JSON.stringify(val);
+    if (val.name) return val.name;
+    if (val.firstName || val.lastName) {
+      const name = `${val.firstName || ''} ${val.lastName || ''}`.trim();
+      return name || val.employeeId || '—';
+    }
+    if (val.code) return val.code;
+    if (val.title) return val.title;
+    if (val.departmentName) return val.departmentName;
+    if (val._id && looksLikeObjectId(String(val._id)) && !val.name) return '—';
+    return '—';
   }
   return '—';
 };
@@ -395,8 +406,12 @@ export default function TrialBalance() {
                           <TableCell sx={{ py: 0.45, fontSize: 12 }}>{line.description || voucher.description || '—'}</TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }}>{voucher.reference || '—'}</TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(voucher.project)}</TableCell>
-                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(voucher.department)}</TableCell>
-                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>{formatCellText(voucher.party)}</TableCell>
+                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>
+                            {formatCellText(line.department || voucher.department)}
+                          </TableCell>
+                          <TableCell sx={{ py: 0.45, fontSize: 12 }}>
+                            {formatCellText(line.party || voucher.party)}
+                          </TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }} align="right">{fmt(line.debit || 0)}</TableCell>
                           <TableCell sx={{ py: 0.45, fontSize: 12 }} align="right">{fmt(line.credit || 0)}</TableCell>
                         </TableRow>

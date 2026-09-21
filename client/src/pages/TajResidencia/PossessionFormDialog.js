@@ -35,6 +35,7 @@ import {
   areaToForm,
   emptyArea,
   formatKMS,
+  minAreas,
   normalizeArea,
   parseAreaForm,
   subtractAreas,
@@ -88,12 +89,20 @@ const khasraEntryId = (entry) => {
 };
 
 /** Build possession rows from a linked registry document. */
-const linesFromRegistry = (registry, registryId, mozaKhasras = []) => {
+const linesFromRegistry = (registry, registryId, mozaKhasras = [], possessedTotals = {}) => {
   if (!registry?.lines?.length) return [emptyLine()];
   return registry.lines.map((line) => {
     const entryId = khasraEntryId(line.khasraEntry);
     const fields = resolveKhasraFields(entryId, mozaKhasras, line);
     const registeredArea = areaToForm(line.acquiredArea || {});
+    const entry = mozaKhasras.find((k) => String(k._id) === String(entryId));
+    const plot = normalizeArea(entry?.landInKhasra || {});
+    const prior = normalizeArea(possessedTotals[String(entryId)] || {});
+    const remaining = subtractAreas(plot, prior);
+    // Never default possessed area above remaining khasra plot capacity
+    const possessedCap = toSarsais(plot)
+      ? areaToForm(minAreas(parseAreaForm(registeredArea), remaining))
+      : registeredArea;
     return {
       registryKhasraEntry: entryId,
       registryKhewatNo: fields.khewatNo,
@@ -103,7 +112,7 @@ const linesFromRegistry = (registry, registryId, mozaKhasras = []) => {
       khewatNo: fields.khewatNo,
       khasraNo: fields.khasraNo,
       khasraArea: registeredArea,
-      possessedArea: registeredArea,
+      possessedArea: possessedCap,
       remarks: line.remarks || ''
     };
   });
@@ -414,7 +423,7 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       ...prev,
       registry: registryId,
       totalArea: regTotal,
-      lines: linesFromRegistry(registry, registryId, mozaKhasras)
+      lines: linesFromRegistry(registry, registryId, mozaKhasras, possessedTotals)
     }));
   };
 
@@ -464,10 +473,29 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       });
       return;
     }
+
+    const prior = normalizeArea(possessedTotals[String(entry._id)] || {});
+    const remaining = subtractAreas(normalizeArea(entry.landInKhasra || {}), prior);
+    const currentPossessed = parseAreaForm(form.lines[index]?.possessedArea);
+    let nextPossessed = form.lines[index]?.possessedArea;
+
+    if (!toSarsais(currentPossessed)) {
+      // Empty row → default to remaining plot (or keep empty if none left)
+      nextPossessed = toSarsais(remaining) ? areaToForm(remaining) : emptyArea();
+    } else if (toSarsais(currentPossessed) > toSarsais(remaining)) {
+      // Registry area / previous value larger than this khasra's remaining plot
+      nextPossessed = areaToForm(remaining);
+      toast(
+        `Possessed area capped at ${formatKMS(remaining)} for Khasra ${entry.khasraNo} (plot remaining).`,
+        { icon: 'ℹ️' }
+      );
+    }
+
     updateLine(index, {
       khasraEntry: entry._id,
       khewatNo: entry.khewatNo,
-      khasraNo: entry.khasraNo
+      khasraNo: entry.khasraNo,
+      possessedArea: nextPossessed
     });
   };
 
@@ -494,7 +522,10 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
     }
     const exceedingLine = form.lines.find(lineExceedsPlot);
     if (exceedingLine) {
-      toast.error(`Total land possessed for Khasra ${exceedingLine.khasraNo || ''} cannot exceed khasra plot area.`);
+      const rem = remainingPlotForLine(exceedingLine);
+      toast.error(
+        `Total land possessed for Khasra ${exceedingLine.khasraNo || ''} cannot exceed khasra plot area. Maximum possessed area: ${formatKMSOrZero(rem)}`
+      );
       return;
     }
     const khewatNos = uniqueKhewatNos(form.lines);

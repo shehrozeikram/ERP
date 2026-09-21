@@ -35,27 +35,33 @@ const fetchPossessedTotalsByKhasra = async (moza, excludePossessionId) => {
 const assertPossessionKhasraLimits = async (moza, lines, excludePossessionId) => {
   const totals = await fetchPossessedTotalsByKhasra(moza, excludePossessionId);
   const ids = [...new Set(lines.map((l) => String(l.khasraEntry || '')).filter(Boolean))];
-  const entries = await LandMozaKhasraEntry.find({ _id: { $in: ids } }).select('landInKhasra').lean();
+  const entries = await LandMozaKhasraEntry.find({ _id: { $in: ids } }).select('landInKhasra khasraNo').lean();
   const plotById = Object.fromEntries(
     entries.map((e) => [String(e._id), normalizeArea(e.landInKhasra)])
   );
+
+  // Running totals so multiple lines for the same khasra in one request are capped correctly
+  const running = { ...totals };
 
   for (const line of lines) {
     const id = String(line.khasraEntry || '');
     const plotArea = plotById[id];
     if (!id || !toSarsais(plotArea)) continue;
 
-    const prior = totals[id] || { kanal: 0, marla: 0, sarsai: 0 };
+    const prior = running[id] || { kanal: 0, marla: 0, sarsai: 0 };
     const owned = addAreas(prior, line.possessedArea);
 
-    if (toSarsais(owned) > toSarsais(plotArea)) {
+    // Allow tiny float noise; reject only when clearly over plot
+    if (toSarsais(owned) - toSarsais(plotArea) > 0.001) {
       const remArea = subtractAreas(plotArea, prior);
       const err = new Error(
-        `Total land possessed for Khasra ${line.khasraNo} cannot exceed khasra plot area. Maximum possessed area: ${remArea.kanal}-${remArea.marla}-${remArea.sarsai}`
+        `Total land possessed for Khasra ${line.khasraNo || ''} cannot exceed khasra plot area. Maximum possessed area: ${remArea.kanal}-${remArea.marla}-${remArea.sarsai}`
       );
       err.status = 400;
       throw err;
     }
+
+    running[id] = owned;
   }
 };
 
