@@ -1025,7 +1025,7 @@ router.get('/journal-entries/:id',
 );
 
 // @route   DELETE /api/finance/journal-entries/:id
-// @desc    Delete a voucher (Only for developers)
+// @desc    Delete a voucher and fully reverse its accounting + operational impact
 // @access  Private (Developer)
 router.delete('/journal-entries/:id',
   authorize('developer', 'super_admin', 'admin', 'finance_manager'),
@@ -1041,185 +1041,13 @@ router.delete('/journal-entries/:id',
       return res.status(404).json({ success: false, message: 'Voucher not found' });
     }
 
-    // Check if voucher is linked to an AP Bill Payment
-    const ApPaymentApplication = require('../models/finance/ApPaymentApplication');
-    const apPaymentApp = await ApPaymentApplication.findOne({ journalEntryId: entry._id });
-    if (apPaymentApp) {
-      if (apPaymentApp.sourceType === 'bank_payment') {
-        const AccountsPayable = require('../models/finance/AccountsPayable');
-        const FinanceHelper = require('../utils/financeHelper');
-        const refToMatch = apPaymentApp.paymentMeta?.reference;
-        
-        const billsToProcess = [];
-        if (apPaymentApp.bills && apPaymentApp.bills.length > 0) {
-          apPaymentApp.bills.forEach(b => billsToProcess.push({ id: b.billId, amount: b.amount }));
-        } else if (apPaymentApp.accountsPayableId) {
-          billsToProcess.push({ id: apPaymentApp.accountsPayableId, amount: apPaymentApp.amount });
-        }
+    const { unwindJournalEntryOnDelete } = require('../utils/journalEntryDeleteUnwind');
+    await unwindJournalEntryOnDelete(entry);
 
-        for (const item of billsToProcess) {
-          const bill = await AccountsPayable.findById(item.id);
-          if (bill) {
-            const amountToRemove = item.amount;
-            if (apPaymentApp.workflowStatus === 'fully_approved') {
-              if (Array.isArray(bill.payments)) {
-                const paymentIndex = bill.payments.findIndex(
-                  (p) => p.reference === refToMatch && p.amount === amountToRemove
-                );
-                if (paymentIndex > -1) {
-                  bill.payments.splice(paymentIndex, 1);
-                }
-              }
-              bill.amountPaid = Math.round((Number(bill.amountPaid || 0) - amountToRemove) * 100) / 100;
-              if (bill.amountPaid < 0) bill.amountPaid = 0;
-            } else {
-              bill.paymentPending = Math.round((Number(bill.paymentPending || 0) - amountToRemove) * 100) / 100;
-              if (bill.paymentPending < 0) bill.paymentPending = 0;
-            }
-            FinanceHelper._updateDocumentStatus(bill);
-            await bill.save();
-          }
-        }
-      }
-      await ApPaymentApplication.findByIdAndDelete(apPaymentApp._id);
-    }
-
-
-    // Reverse Accounts Receivable receipt + linked installment schedule
-    {
-      const AccountsReceivable = require('../models/finance/AccountsReceivable');
-      const FinanceHelper = require('../utils/financeHelper');
-      const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-      const isReceiptType = ['receipt', 'payment'].includes(String(entry.referenceType || ''));
-
-      let invoice = null;
-      if (entry.referenceId && isReceiptType) {
-        invoice = await AccountsReceivable.findById(entry.referenceId);
-      }
-      if (!invoice) {
-        invoice = await AccountsReceivable.findOne({ 'payments.journalEntry': entry._id });
-      }
-      if (!invoice) {
-        invoice = await AccountsReceivable.findOne({ 'installments.lastJournalEntry': entry._id });
-      }
-
-      if (invoice) {
-        if (!Array.isArray(invoice.payments)) invoice.payments = [];
-        if (!Array.isArray(invoice.installments)) invoice.installments = [];
-
-        let paymentIndex = invoice.payments.findIndex(
-          (p) => p.journalEntry && String(p.journalEntry) === String(entry._id)
-        );
-
-        // Fallback: match by amount from bank debit line + optional reference
-        if (paymentIndex < 0 && isReceiptType) {
-          const bankLine = (entry.lines || []).find((l) => Number(l.debit) > 0);
-          const amountToMatch = bankLine ? round2(bankLine.debit) : 0;
-          if (amountToMatch > 0) {
-            paymentIndex = invoice.payments.findIndex((p) => {
-              const amtOk = round2(p.amount) === amountToMatch;
-              if (!amtOk) return false;
-              if (entry.reference && p.reference) return String(p.reference) === String(entry.reference);
-              return !p.journalEntry; // prefer unmatched payment rows
-            });
-          }
-        }
-
-        let amountToRemove = 0;
-        let installmentId = null;
-        let touched = false;
-
-        if (paymentIndex > -1) {
-          const pay = invoice.payments[paymentIndex];
-          amountToRemove = round2(pay.amount);
-          installmentId = pay.installmentId || null;
-          invoice.payments.splice(paymentIndex, 1);
-          touched = true;
-        } else {
-          const bankLine = (entry.lines || []).find((l) => Number(l.debit) > 0);
-          amountToRemove = bankLine ? round2(bankLine.debit) : 0;
-        }
-
-        const reverseInstallment = (inst, { clearVoucher = true } = {}) => {
-          if (!inst) return false;
-          if (amountToRemove > 0) {
-            inst.paidAmount = round2(Math.max(0, Number(inst.paidAmount || 0) - amountToRemove));
-          } else if (clearVoucher && String(inst.lastJournalEntry || '') === String(entry._id)) {
-            // No amount on voucher lines — still wipe voucher link and treat as unpaid if it was fully tied to this JE
-            inst.paidAmount = 0;
-          }
-          if (clearVoucher) {
-            inst.lastJournalEntry = null;
-            inst.lastPaymentDate = null;
-          }
-          if (inst.paidAmount <= 0.01) {
-            inst.paidAmount = 0;
-            const due = inst.dueDate ? new Date(inst.dueDate) : null;
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            inst.status = due && due < today ? 'overdue' : 'pending';
-          } else {
-            inst.status = 'partial';
-          }
-          return true;
-        };
-
-        const reversedIds = new Set();
-
-        if (installmentId) {
-          const inst = invoice.installments.id
-            ? invoice.installments.id(installmentId)
-            : (invoice.installments || []).find((i) => String(i._id) === String(installmentId));
-          if (reverseInstallment(inst, { clearVoucher: true })) {
-            reversedIds.add(String(inst._id));
-            touched = true;
-          }
-        }
-
-        // Clear every installment still pointing at this voucher
-        (invoice.installments || []).forEach((inst) => {
-          if (reversedIds.has(String(inst._id))) return;
-          if (String(inst.lastJournalEntry || '') === String(entry._id)) {
-            if (reverseInstallment(inst, { clearVoucher: true })) {
-              reversedIds.add(String(inst._id));
-              touched = true;
-            }
-          }
-        });
-
-        // Also match by description hint "Installment #N" if still not reversed
-        if (reversedIds.size === 0 && amountToRemove > 0) {
-          const desc = `${entry.description || ''} ${(entry.lines || []).map((l) => l.description || '').join(' ')}`;
-          const m = desc.match(/Installment\s*#\s*(\d+)/i);
-          if (m) {
-            const seq = Number(m[1]);
-            const inst = (invoice.installments || []).find((i) => Number(i.sequence) === seq);
-            if (inst && reverseInstallment(inst, { clearVoucher: true })) {
-              reversedIds.add(String(inst._id));
-              touched = true;
-            }
-          }
-        }
-
-        if (touched || reversedIds.size > 0) {
-          if (amountToRemove > 0) {
-            invoice.amountPaid = round2(Math.max(0, Number(invoice.amountPaid || 0) - amountToRemove));
-          }
-          FinanceHelper._updateDocumentStatus(invoice);
-          invoice.markModified('payments');
-          invoice.markModified('installments');
-          await invoice.save();
-        }
-      }
-    }
-
-    // Delete associated General Ledger entries
-    await GeneralLedger.deleteMany({ journalEntry: entry._id });
-
-    // Delete the Journal Entry itself
-    await JournalEntry.findByIdAndDelete(entry._id);
-
-    res.json({ success: true, message: 'Voucher and its ledger entries have been successfully deleted.' });
+    res.json({
+      success: true,
+      message: 'Voucher deleted. Account balances, trial balance source, GL, and linked AR/AP/CA/banking/payroll records were reversed.'
+    });
   })
 );
 
