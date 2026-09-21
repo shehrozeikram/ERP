@@ -34,6 +34,8 @@
     "test:asset-tagging-e2e": "node tests/asset-tagging-e2e.test.js",
     "import:procurement-vendors": "node server/scripts/import-procurement-vendors-xlsx.js",
     "ensure:developer-user": "node server/scripts/ensure-developer-user.js",
+    "remediate:orphan-journal-impacts": "node server/scripts/remediate-orphan-journal-impacts.js --local",
+    "remediate:orphan-journal-impacts:apply": "node server/scripts/remediate-orphan-journal-impacts.js --local --apply --yes",
     "ensure:developer-user:droplet": "bash scripts/ensure-developer-on-droplet.sh",
     "link:developer-employee": "node server/scripts/link-developer-employee.js",
     "list:employees-without-gross": "node server/scripts/list-active-employees-without-gross-salary.js",

@@ -303,7 +303,7 @@ const FinanceHelper = {
           debit: line.debit,
           credit: line.credit,
           department: resolvedDeptString,
-          module: entry.module,
+          module: entry.module || 'general',
           referenceId: entry.referenceId,
           referenceType: entry.referenceType,
           costCenter: line.costCenter || entry.costCenter || null,

@@ -254,6 +254,12 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
     .sort({ date: 1, entryNumber: 1 })
     .lean();
 
+  // Drop GL rows whose JournalEntry was deleted (legacy incomplete deletes).
+  // Trial Balance is JE-sourced; ledger must not show ghost vouchers.
+  entries = (entries || []).filter(
+    (row) => row.journalEntry && typeof row.journalEntry === 'object' && row.journalEntry._id
+  );
+
   if (!entries.length) {
     entries = await this.buildLedgerRowsFromJournalEntries(accOid, startDate, endDate);
   }

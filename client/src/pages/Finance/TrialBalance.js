@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Button, Alert, Stack, TextField
+  TableHead, TableRow, Button, Alert, Stack, TextField, TablePagination
 } from '@mui/material';
 import { BalanceOutlined as TBIcon, Refresh as RefreshIcon, Print as PrintIcon, PictureAsPdf as PdfIcon, GridOn as ExcelIcon } from '@mui/icons-material';
 import api from '../../services/api';
@@ -11,6 +11,7 @@ import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelec
 
 const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dateFmt = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '—');
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 250];
 
 const formatCellText = (val) => {
   if (!val) return '—';
@@ -36,6 +37,10 @@ export default function TrialBalance() {
   const [voucher, setVoucher] = useState(null);
   const [voucherLoading, setVoucherLoading] = useState(false);
   const [voucherError, setVoucherError] = useState('');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
+  const [ledgerPage, setLedgerPage] = useState(0);
+  const [ledgerRowsPerPage, setLedgerRowsPerPage] = useState(25);
 
   const load = useCallback(async () => {
     if (!selectedCompanyId) return;
@@ -65,8 +70,10 @@ export default function TrialBalance() {
         fromDate: payload.fromDate,
         asOfDate: payload.asOfDate
       });
+      setPage(0);
       setSelectedAccount(null);
       setLedgerRows([]);
+      setLedgerPage(0);
       setSelectedLedgerRow(null);
       setVoucher(null);
     } catch (e) {
@@ -82,6 +89,7 @@ export default function TrialBalance() {
     setSelectedLedgerRow(null);
     setVoucher(null);
     setVoucherError('');
+    setLedgerPage(0);
     try {
       const res = await api.get(`/finance/general-ledger/account/${account._id}`, {
         params: { startDate: fromDate, endDate: asOfDate }
@@ -115,11 +123,25 @@ export default function TrialBalance() {
     }
   }, []);
 
-  const totalOpening = data?.accounts?.reduce((s, a) => s + (a.openingBalance || 0), 0) || 0;
-  const totalDebits  = data?.accounts?.reduce((s, a) => s + (a.totalDebit  || 0), 0) || 0;
-  const totalCredits = data?.accounts?.reduce((s, a) => s + (a.totalCredit || 0), 0) || 0;
-  const totalClosing = data?.accounts?.reduce((s, a) => s + (a.closingBalance || 0), 0) || 0;
+  const accounts = data?.accounts || [];
+  const totalOpening = accounts.reduce((s, a) => s + (a.openingBalance || 0), 0);
+  const totalDebits  = accounts.reduce((s, a) => s + (a.totalDebit  || 0), 0);
+  const totalCredits = accounts.reduce((s, a) => s + (a.totalCredit || 0), 0);
+  const totalClosing = accounts.reduce((s, a) => s + (a.closingBalance || 0), 0);
   const isBalanced   = Math.abs(totalDebits - totalCredits) < 1;
+
+  const pagedAccounts = useMemo(() => {
+    const start = page * rowsPerPage;
+    return accounts.slice(start, start + rowsPerPage);
+  }, [accounts, page, rowsPerPage]);
+
+  const pagedLedgerRows = useMemo(() => {
+    const start = ledgerPage * ledgerRowsPerPage;
+    return (ledgerRows || []).slice(start, start + ledgerRowsPerPage);
+  }, [ledgerRows, ledgerPage, ledgerRowsPerPage]);
+
+  const pageStart = accounts.length === 0 ? 0 : page * rowsPerPage + 1;
+  const pageEnd = Math.min((page + 1) * rowsPerPage, accounts.length);
 
   return (
     <Box sx={{ p: 2 }}>
@@ -155,14 +177,23 @@ export default function TrialBalance() {
       {data && (
         <>
           <Paper variant="outlined" sx={{ p: 1.5, mb: 1 }}>
-            <Typography fontWeight={700} sx={{ fontSize: 18 }}>Sardar Group of Companies</Typography>
-            <Typography variant="body2" fontWeight={700}>Trial Balance</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Period {new Date(fromDate).toLocaleDateString('en-PK')} to {new Date(asOfDate).toLocaleDateString('en-PK')}
-            </Typography>
-            <Typography variant="caption" color={isBalanced ? 'success.main' : 'error.main'}>
-              {isBalanced ? 'Balanced' : `Imbalanced by PKR ${fmt(Math.abs(totalDebits - totalCredits))}`}
-            </Typography>
+            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
+              <Box>
+                <Typography fontWeight={700} sx={{ fontSize: 18 }}>Sardar Group of Companies</Typography>
+                <Typography variant="body2" fontWeight={700}>Trial Balance</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Period {new Date(fromDate).toLocaleDateString('en-PK')} to {new Date(asOfDate).toLocaleDateString('en-PK')}
+                </Typography>
+                <Typography variant="caption" color={isBalanced ? 'success.main' : 'error.main'}>
+                  {isBalanced ? 'Balanced' : `Imbalanced by PKR ${fmt(Math.abs(totalDebits - totalCredits))}`}
+                </Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary" className="print-hide-toolbar">
+                {accounts.length > 0
+                  ? `Showing ${pageStart}–${pageEnd} of ${accounts.length} accounts`
+                  : 'No accounts'}
+              </Typography>
+            </Stack>
           </Paper>
 
           <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 380 }}>
@@ -179,7 +210,7 @@ export default function TrialBalance() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(data.accounts || []).map((acc, idx) => (
+                {pagedAccounts.map((acc, idx) => (
                   <TableRow
                     key={acc._id || acc.accountNumber}
                     hover
@@ -189,7 +220,7 @@ export default function TrialBalance() {
                     }}
                     sx={{
                       cursor: 'pointer',
-                      bgcolor: selectedAccount?._id === acc._id ? '#fff6bf' : idx % 2 ? '#fffef7' : 'inherit'
+                      bgcolor: selectedAccount?._id === acc._id ? '#fff6bf' : (page * rowsPerPage + idx) % 2 ? '#fffef7' : 'inherit'
                     }}
                   >
                     <TableCell sx={{ py: 0.45, fontSize: 12, textTransform: 'capitalize', color: 'text.secondary' }}>
@@ -212,7 +243,15 @@ export default function TrialBalance() {
                   </TableRow>
                 ))}
 
-                {/* Totals */}
+                {accounts.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                      No accounts in this period.
+                    </TableCell>
+                  </TableRow>
+                )}
+
+                {/* Totals — always full report totals, not page slice */}
                 <TableRow sx={{ bgcolor: '#eef3f8', fontWeight: 800 }}>
                   <TableCell colSpan={3} align="right"><b>TOTALS</b></TableCell>
                   <TableCell align="right" sx={{ fontWeight: 800 }}>
@@ -231,6 +270,21 @@ export default function TrialBalance() {
               </TableBody>
             </Table>
           </TableContainer>
+
+          <TablePagination
+            component="div"
+            className="print-hide-toolbar"
+            count={accounts.length}
+            page={page}
+            onPageChange={(_, next) => setPage(next)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={PAGE_SIZE_OPTIONS}
+            labelRowsPerPage="Accounts per page"
+          />
 
           {selectedAccount && (
             <Paper variant="outlined" sx={{ mt: 1.5, p: 1.25 }}>
@@ -253,7 +307,7 @@ export default function TrialBalance() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {(ledgerRows || []).map((row, idx) => (
+                  {pagedLedgerRows.map((row, idx) => (
                     <TableRow
                       key={row._id}
                       hover
@@ -263,7 +317,7 @@ export default function TrialBalance() {
                       }}
                       sx={{
                         cursor: 'pointer',
-                        bgcolor: selectedLedgerRow?._id === row._id ? '#fff6bf' : idx % 2 ? '#fffef7' : 'inherit'
+                        bgcolor: selectedLedgerRow?._id === row._id ? '#fff6bf' : (ledgerPage * ledgerRowsPerPage + idx) % 2 ? '#fffef7' : 'inherit'
                       }}
                     >
                       <TableCell sx={{ py: 0.45, fontSize: 12 }}>{dateFmt(row.date)}</TableCell>
@@ -289,6 +343,22 @@ export default function TrialBalance() {
                   )}
                 </TableBody>
               </Table>
+              {ledgerRows.length > 0 && (
+                <TablePagination
+                  component="div"
+                  className="print-hide-toolbar"
+                  count={ledgerRows.length}
+                  page={ledgerPage}
+                  onPageChange={(_, next) => setLedgerPage(next)}
+                  rowsPerPage={ledgerRowsPerPage}
+                  onRowsPerPageChange={(e) => {
+                    setLedgerRowsPerPage(parseInt(e.target.value, 10));
+                    setLedgerPage(0);
+                  }}
+                  rowsPerPageOptions={[10, 25, 50, 100]}
+                  labelRowsPerPage="Ledger rows"
+                />
+              )}
             </Paper>
           )}
 
