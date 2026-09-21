@@ -121,7 +121,24 @@ async function notifyChatApprovers(userIds, context = {}) {
         conversationId: String(conv._id)
       });
       
-      // TRIGGER PUSH NOTIFICATION FOR MOBILE APP (if offline)
+      // TRIGGER PUSH NOTIFICATION FOR MOBILE APP
+      try {
+        const { sendPushNotification } = require('../services/pushNotificationService');
+        await sendPushNotification([targetId], {
+          title: 'TOVUS ERP',
+          body: snippet,
+          data: {
+            type: 'chat_message',
+            conversationId: String(conv._id),
+            messageId: String(msgDoc._id),
+            senderId: systemUserId
+          }
+        });
+      } catch (e) {
+        console.warn('[ApprovalChat] Push notification dispatch error:', e.message || e);
+      }
+
+      // If they are offline, also send the standard realtime notification for the web tray
       if (!realtimeNotificationGateway.isUserOnline(targetId)) {
         try {
           await createAndEmitNotification({
@@ -141,7 +158,7 @@ async function notifyChatApprovers(userIds, context = {}) {
             createdBy: systemUserId
           });
         } catch (e) {
-          console.warn('[ApprovalChat] Push notification error:', e.message || e);
+          console.warn('[ApprovalChat] Standard notification error:', e.message || e);
         }
       }
       

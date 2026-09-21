@@ -90,15 +90,7 @@ const EMOJI_PICKER_LIST = [
 ];
 const ADMIN_ROLES = new Set(['super_admin', 'admin', 'developer']);
 
-/** WhatsApp-style outgoing bubble (not theme primary blue) */
-const WA_OUT_LIGHT = '#DCF8C6';
-const WA_OUT_DARK = '#056162';
-const WA_OUT_TEXT_LIGHT = 'rgba(0, 0, 0, 0.87)';
-const WA_OUT_TEXT_DARK = '#E8EDF0';
-const WA_OUT_MUTED_LIGHT = 'rgba(0, 0, 0, 0.55)';
-const WA_OUT_MUTED_DARK = 'rgba(232, 237, 240, 0.72)';
-const WA_OUT_LINK_LIGHT = '#075E54';
-const WA_READ_TICK = '#34B7F1';
+// Standard theme colors are now used instead of WhatsApp bubble colors
 
 function linkifyText(text) {
   if (!text) return null;
@@ -1048,10 +1040,10 @@ const ChatPage = () => {
                     };
                     const peerReadAt = meta?.peerReadMessageCreatedAt;
                     const isDark = theme.palette.mode === 'dark';
-                    const outBg = isDark ? WA_OUT_DARK : WA_OUT_LIGHT;
-                    const outFg = isDark ? WA_OUT_TEXT_DARK : WA_OUT_TEXT_LIGHT;
-                    const outMuted = isDark ? WA_OUT_MUTED_DARK : WA_OUT_MUTED_LIGHT;
-                    const outLink = isDark ? '#90CAF9' : WA_OUT_LINK_LIGHT;
+                    const outBg = isDark ? theme.palette.primary.dark : theme.palette.primary.main;
+                    const outFg = theme.palette.primary.contrastText;
+                    const outMuted = 'rgba(255, 255, 255, 0.7)';
+                    const outLink = '#BBDEFB';
                     const hasAttach = (m.attachments || []).length > 0;
                     const hasPreviews = (m.linkPreviews || []).length > 0;
                     const trimmedBody = (m.body || '').trim();
@@ -1070,7 +1062,7 @@ const ChatPage = () => {
                           ) : !readB ? (
                             <DoneAllIcon sx={{ fontSize: 15, opacity: 0.75, color: outMuted }} />
                           ) : (
-                            <DoneAllIcon sx={{ fontSize: 15, color: WA_READ_TICK }} />
+                            <DoneAllIcon sx={{ fontSize: 15, color: 'rgba(255,255,255,0.9)' }} />
                           )}
                         </Box>
                       ) : null;

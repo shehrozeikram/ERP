@@ -59,27 +59,49 @@ async function sendPushNotification(userIds, payload) {
     }
 
     const finalData = {
+      type: 'chat_message',
       ...(payload.data || {}),
       title: payload.title,
       body: payload.body,
     };
 
+    const dataPayload = Object.fromEntries(
+      Object.entries(finalData).filter(([_, v]) => v != null).map(([k, v]) => [k, String(v)])
+    );
+
     const message = {
-      data: Object.fromEntries(Object.entries(finalData).filter(([_, v]) => v != null).map(([k, v]) => [k, String(v)])),
-      android: {
-        priority: 'high'
+      tokens: tokens,
+      notification: {
+        title: String(payload.title),
+        body: String(payload.body)
       },
-      apns: {
-        payload: {
-          aps: {
-            'content-available': 1
-          }
-        },
-        headers: {
-          'apns-priority': '10'
+      data: dataPayload,
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'messages',
+          sound: 'default',
+          defaultVibrateTimings: true,
+          notificationCount: 1,
+          visibility: 'public'
         }
       },
-      tokens: tokens
+      apns: {
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert'
+        },
+        payload: {
+          aps: {
+            alert: {
+              title: String(payload.title),
+              body: String(payload.body)
+            },
+            sound: 'default',
+            badge: 1
+          }
+        }
+      }
     };
 
     const response = await admin.messaging().sendEachForMulticast(message);
@@ -92,7 +114,8 @@ async function sendPushNotification(userIds, payload) {
           const errCode = resp.error?.code;
           if (
             errCode === 'messaging/invalid-registration-token' ||
-            errCode === 'messaging/registration-token-not-registered'
+            errCode === 'messaging/registration-token-not-registered' ||
+            errCode === 'messaging/invalid-argument'
           ) {
             failedTokens.push(tokens[idx]);
           }
