@@ -215,9 +215,15 @@ export default function QuickbooksReceivePaymentModal({
             const paidAmount = Number(inst.paidAmount) || 0;
             let status = inst.status || 'pending';
             if (paidAmount >= amount - 0.01 && amount > 0) status = 'paid';
-            else if (paidAmount > 0) status = 'partial';
-            else if (inst.dueDate && new Date(inst.dueDate) < new Date(new Date().toDateString()) && status === 'pending') {
+            else if (
+              inst.dueDate &&
+              new Date(inst.dueDate) < new Date(new Date().toDateString()) &&
+              status !== 'paid' &&
+              status !== 'cancelled'
+            ) {
               status = 'overdue';
+            } else if (paidAmount > 0) {
+              status = 'partial';
             }
             // Prefer installment.lastJournalEntry; fallback to matching payment.journalEntry
             let journalEntryId = inst.lastJournalEntry?._id || inst.lastJournalEntry || null;

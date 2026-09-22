@@ -1988,6 +1988,99 @@ router.get('/accounts-receivable',
                 },
                 0
               ]
+            },
+            _hasInstallments: {
+              $gt: [{ $size: { $ifNull: ['$installments', []] } }, 0]
+            }
+          }
+        },
+        {
+          $addFields: {
+            // Overdue Amount mirrors Invoice Details:
+            // - with installments: sum of overdue/partial-past-due installment balances
+            // - without: full outstanding if the invoice itself is overdue
+            _overdueAmount: {
+              $cond: [
+                '$_hasInstallments',
+                {
+                  $reduce: {
+                    input: { $ifNull: ['$installments', []] },
+                    initialValue: 0,
+                    in: {
+                      $let: {
+                        vars: {
+                          instBal: {
+                            $max: [
+                              {
+                                $subtract: [
+                                  { $ifNull: ['$$this.amount', 0] },
+                                  { $ifNull: ['$$this.paidAmount', 0] }
+                                ]
+                              },
+                              0
+                            ]
+                          },
+                          instStatus: { $ifNull: ['$$this.status', 'pending'] },
+                          instDue: '$$this.dueDate'
+                        },
+                        in: {
+                          $add: [
+                            '$$value',
+                            {
+                              $cond: [
+                                {
+                                  $and: [
+                                    { $gt: ['$$instBal', 0] },
+                                    { $ne: ['$$instStatus', 'paid'] },
+                                    { $ne: ['$$instStatus', 'cancelled'] },
+                                    {
+                                      $or: [
+                                        { $eq: ['$$instStatus', 'overdue'] },
+                                        {
+                                          $and: [
+                                            { $ne: ['$$instDue', null] },
+                                            { $lt: ['$$instDue', today] }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                '$$instBal',
+                                0
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  $cond: [
+                    {
+                      $and: [
+                        { $ne: ['$status', 'cancelled'] },
+                        { $ne: ['$status', 'paid'] },
+                        { $gt: ['$_balance', 0] },
+                        {
+                          $or: [
+                            { $eq: ['$status', 'overdue'] },
+                            {
+                              $and: [
+                                { $ne: ['$dueDate', null] },
+                                { $lt: ['$dueDate', today] }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    '$_balance',
+                    0
+                  ]
+                }
+              ]
             }
           }
         },
@@ -2004,32 +2097,7 @@ router.get('/accounts-receivable',
               }
             },
             totalPaid: { $sum: '$_received' },
-            totalOverdue: {
-              $sum: {
-                $cond: [
-                  {
-                    $and: [
-                      { $ne: ['$status', 'cancelled'] },
-                      { $ne: ['$status', 'paid'] },
-                      { $gt: ['$_balance', 0] },
-                      {
-                        $or: [
-                          { $eq: ['$status', 'overdue'] },
-                          {
-                            $and: [
-                              { $ne: ['$dueDate', null] },
-                              { $lt: ['$dueDate', today] }
-                            ]
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  '$_balance',
-                  0
-                ]
-              }
-            }
+            totalOverdue: { $sum: '$_overdueAmount' }
           }
         }
       ])

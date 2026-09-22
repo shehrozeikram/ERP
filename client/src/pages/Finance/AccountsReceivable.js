@@ -293,20 +293,37 @@ const AccountsReceivable = () => {
 
   const syncInstallmentDraft = (invoice) => {
     const outstanding = Math.round(((invoice.totalAmount || 0) - (invoice.paidAmount || invoice.amountPaid || 0)) * 100) / 100;
-    const existing = (invoice.installments || []).map((i) => ({
-      _id: i._id,
-      sequence: i.sequence,
-      amount: Number(i.amount) || 0,
-      dueDate: i.dueDate ? new Date(i.dueDate).toISOString().split('T')[0] : '',
-      status: i.status || 'pending',
-      paidAmount: Number(i.paidAmount) || 0,
-      notes: i.notes || '',
-      lastJournalEntry: (() => {
-        const id = i.lastJournalEntry?._id || i.lastJournalEntry || null;
-        return /^[a-fA-F0-9]{24}$/.test(String(id || '')) ? String(id) : null;
-      })(),
-      locked: i.status === 'paid' || (Number(i.paidAmount) || 0) > 0
-    }));
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const existing = (invoice.installments || []).map((i) => {
+      const amount = Number(i.amount) || 0;
+      const paidAmount = Number(i.paidAmount) || 0;
+      let status = i.status || 'pending';
+      if (paidAmount >= amount - 0.01 && amount > 0) status = 'paid';
+      else if (paidAmount > 0) status = 'partial';
+      else if (
+        i.dueDate &&
+        new Date(i.dueDate) < todayStart &&
+        status !== 'paid' &&
+        status !== 'cancelled'
+      ) {
+        status = 'overdue';
+      }
+      return {
+        _id: i._id,
+        sequence: i.sequence,
+        amount,
+        dueDate: i.dueDate ? new Date(i.dueDate).toISOString().split('T')[0] : '',
+        status,
+        paidAmount,
+        notes: i.notes || '',
+        lastJournalEntry: (() => {
+          const id = i.lastJournalEntry?._id || i.lastJournalEntry || null;
+          return /^[a-fA-F0-9]{24}$/.test(String(id || '')) ? String(id) : null;
+        })(),
+        locked: status === 'paid' || paidAmount > 0
+      };
+    });
     if (existing.length) {
       setInstallmentDraft(existing);
       return;
@@ -1106,7 +1123,15 @@ const AccountsReceivable = () => {
                               <Chip
                                 size="small"
                                 label={row.status || 'pending'}
-                                color={row.status === 'paid' ? 'success' : row.status === 'partial' ? 'info' : 'default'}
+                                color={
+                                  row.status === 'paid'
+                                    ? 'success'
+                                    : row.status === 'overdue'
+                                      ? 'error'
+                                      : row.status === 'partial'
+                                        ? 'info'
+                                        : 'default'
+                                }
                               />
                               {isValidVoucherId(row.lastJournalEntry) && (
                                 <Tooltip title="View receipt voucher">
