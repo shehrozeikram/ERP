@@ -155,11 +155,13 @@ const PayrollTaxes = () => {
       </Typography>
 
       <Alert severity="info" sx={{ mb: 2 }}>
-        For employees in scope: salary medical exemption applies to <strong>gross salary only</strong> (not
-        allowances). Each of the 8 allowance types can be taxable, fully exempt, or partially exempt. Employees
-        outside scope keep the legacy rule (10% exemption on gross + allowances combined). Saving updates{' '}
-        <strong>Draft</strong> monthly payrolls only; Approved payrolls and General Payroll preview use these
-        rules immediately.
+        Taxable income = <strong>(gross salary − medical exemption %)</strong> + taxable portions of
+        allowances. Example: gross 312,000 with 10% medical → 280,800, then + house allowance 60,000
+        (if Fully taxable) → tax on 340,800. Each of the 8 allowance types can be taxable, fully
+        exempt, or partially exempt (from Payroll Taxes). Employees outside scope keep the legacy
+        rule (10% exemption on gross + allowances combined). Saving updates <strong>Draft</strong>{' '}
+        monthly payrolls only; Approved payrolls and General Payroll preview use these rules
+        immediately.
       </Alert>
 
       {error && (
@@ -190,7 +192,7 @@ const PayrollTaxes = () => {
             }
             inputProps={{ min: 0, max: 100, step: 0.1 }}
             sx={{ maxWidth: 320 }}
-            helperText="Default 10%. Applies to gross only, not allowance amounts."
+            helperText="Default 10%. Applied to gross salary only, then taxable allowances are added."
           />
         </CardContent>
       </Card>

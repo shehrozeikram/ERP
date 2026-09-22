@@ -108,18 +108,19 @@ const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMon
 /**
  * Dynamic tax calculation driven by PayrollTaxes page settings.
  *
- * Formula (when conveyance is Fully taxable and medical exempt is 10%):
- *   taxable = (grossSalary + conveyance + other taxable allowances) − 10%
+ * Formula (medical exempt 10%, house/other allowance fully taxable):
+ *   taxable = (grossSalary − 10% of gross) + taxable allowances
  *   tax     = FBR slab on taxable
  *
  * Steps:
  *   1. Each allowance → taxable / fully_exempt / partial_exempt from Payroll Taxes
- *   2. salaryBase = grossSalary + sum(taxable allowance amounts)
- *   3. Apply salaryMedicalExemptPercent on salaryBase (e.g. 10%)
+ *   2. Apply salaryMedicalExemptPercent on gross salary ONLY (e.g. 10%)
+ *   3. taxable = (gross − medicalExempt) + sum(taxable allowance amounts)
  *   4. Arrears taxed separately (no medical exempt on arrears)
  *
- * Example: gross=200,000 + conveyance=10,000 (taxable), food exempt
- *   → (210,000 − 21,000) = 189,000 taxable → FBR monthly tax
+ * Example (Faran Anwer): gross=312,000, houseRent=60,000 (taxable)
+ *   → 312,000 − 31,200 = 280,800
+ *   → 280,800 + 60,000 = 340,800 taxable → FBR monthly tax
  */
 const calculatePayrollTaxWithSettings = ({
   grossSalary = 0,
@@ -157,11 +158,13 @@ const calculatePayrollTaxWithSettings = ({
     };
   });
 
-  // Step 2–3: (gross + taxable allowances) − medical%  e.g. (gross + conveyance) − 10%
+  // Step 2–3: (gross − medical% of gross) + taxable allowances
+  // Medical exemption is on gross only — taxable allowances are added in full.
   const salaryExemptPercent = config.salaryMedicalExemptPercent;
-  const salaryBase = gross + allowanceTaxable;
-  const salaryExempt = Math.round((salaryBase * salaryExemptPercent) / 100);
-  const mainTaxableIncome = salaryBase - salaryExempt;
+  const salaryExempt = Math.round((gross * salaryExemptPercent) / 100);
+  const salaryAfterMedical = gross - salaryExempt;
+  const salaryBase = salaryAfterMedical + allowanceTaxable;
+  const mainTaxableIncome = salaryBase;
 
   const taxFor = (amount) =>
     hireDate && payrollMonth && payrollYear
@@ -190,6 +193,7 @@ const calculatePayrollTaxWithSettings = ({
     arrearsNetAmount: Math.round(arrearsAmt - arrearsTax),
     totalNetSalary: Math.round(totalIncome - totalTax),
     salaryMedicalExempt: salaryExempt,
+    salaryAfterMedical: Math.round(salaryAfterMedical),
     salaryBase: Math.round(salaryBase),
     allowanceTaxable: Math.round(allowanceTaxable),
     allowanceExempt: Math.round(allowanceExempt),
