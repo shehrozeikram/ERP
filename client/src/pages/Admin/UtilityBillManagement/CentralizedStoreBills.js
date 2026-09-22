@@ -48,6 +48,7 @@ import utilityBillService from '../../../services/utilityBillService';
 import centralizedStoreService from '../../../services/centralizedStoreService';
 import NarrationTableCell from '../../../components/common/NarrationTableCell';
 import { getBillNarrationDisplay } from '../../../utils/documentNarrationDisplay';
+import { getCurrentHolder } from '../../../utils/documentTracker';
 import {
   canApproveUtilityBillRow,
   isUtilityBillDeptApproved
@@ -361,6 +362,7 @@ const CentralizedStoreBills = () => {
                         <TableCell>Items</TableCell>
                         <TableCell>Amount</TableCell>
                         <TableCell>Workflow</TableCell>
+                        <TableCell>Currently With</TableCell>
                         <TableCell>Due date</TableCell>
                         <TableCell align="right">Actions</TableCell>
                       </TableRow>
@@ -396,6 +398,19 @@ const CentralizedStoreBills = () => {
                                 size="small"
                                 variant="outlined"
                               />
+                            </TableCell>
+                            <TableCell>
+                              {(() => {
+                                const tracker = getCurrentHolder('UtilityBill', bill);
+                                return (
+                                  <Chip 
+                                    label={tracker.holder}
+                                    color={tracker.type === 'authority' || tracker.type === 'user' ? 'secondary' : tracker.type === 'department' ? 'info' : 'default'}
+                                    variant="outlined"
+                                    size="small"
+                                  />
+                                );
+                              })()}
                             </TableCell>
                             <TableCell>{formatDate(bill.dueDate)}</TableCell>
                             <TableCell align="right">

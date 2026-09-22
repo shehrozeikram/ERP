@@ -59,6 +59,7 @@ import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
+import { getCurrentHolder } from '../../utils/documentTracker';
 
 const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'preparedBy', label: 'Prepared By' },
@@ -1095,6 +1096,7 @@ const PurchaseOrders = () => {
                 <TableCell><strong>Order Date</strong></TableCell>
                 <TableCell><strong>Expected Delivery</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
+                <TableCell><strong>Currently With</strong></TableCell>
                 <TableCell><strong>Priority</strong></TableCell>
                 <TableCell align="right"><strong>Total Amount</strong></TableCell>
                 <TableCell align="center"><strong>Actions</strong></TableCell>
@@ -1128,6 +1130,19 @@ const PurchaseOrders = () => {
                         color={getStatusColor(order.status)}
                         size="small"
                       />
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const tracker = getCurrentHolder('PO', order);
+                        return (
+                          <Chip 
+                            label={tracker.holder}
+                            color={tracker.type === 'authority' || tracker.type === 'user' ? 'secondary' : tracker.type === 'department' ? 'info' : 'default'}
+                            variant="outlined"
+                            size="small"
+                          />
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Chip 
