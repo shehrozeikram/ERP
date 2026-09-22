@@ -463,7 +463,8 @@ accountsReceivableSchema.methods.recordPayment = async function(paymentData) {
     department: this.department,
     module: this.module,
     referenceId: this._id,
-    referenceType: 'payment',
+    referenceType: 'receipt',
+    voucherSeries: 'RV',
     lines: [
       {
         account: cashAccount._id,

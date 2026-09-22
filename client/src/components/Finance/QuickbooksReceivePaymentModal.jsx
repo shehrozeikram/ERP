@@ -452,6 +452,8 @@ export default function QuickbooksReceivePaymentModal({
           bankAccountId: paymentForm.bankAccountId || null,
           paymentDate: paymentForm.paymentDate,
           reference: paymentForm.reference,
+          narration: (paymentForm.narration || '').trim() || undefined,
+          description: (paymentForm.narration || '').trim() || undefined,
           ...(b.installmentId ? { installmentId: b.installmentId } : {})
         };
         return api.post(`/finance/accounts-receivable/${b.billId}/payment`, payload);

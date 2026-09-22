@@ -657,7 +657,7 @@ const Payroll = () => {
 
       const headers = [
         'Sr No', 'ID', 'Name', 'CNIC', 'Bank', 'Account No', 'Project', 'Company', 'Department', 'Designation',
-        'Gross Salary', 'Total Earn', 'Total Ded', 'Net Payable'
+        'Gross Salary', 'Arrears', 'Total Earn', 'Total Ded', 'Net Payable'
       ];
 
       const rows = reportData.data.map((r, i) => [
@@ -672,6 +672,7 @@ const Payroll = () => {
         r.department || 'N/A',
         r.designation || 'N/A',
         Math.round(r.grossSalary || 0).toLocaleString('en-PK'),
+        Math.round(r.arrears || 0).toLocaleString('en-PK'),
         Math.round(r.totalEarnings || 0).toLocaleString('en-PK'),
         Math.round(r.deductions || 0).toLocaleString('en-PK'),
         Math.round(r.netPay || r.netPayable || 0).toLocaleString('en-PK')
@@ -1109,6 +1110,7 @@ const Payroll = () => {
       'Department',
       'Project',
       'Basic Salary',
+      'Arrears',
       'Gross Pay',
       'Net Pay'
     ];
@@ -1118,6 +1120,7 @@ const Payroll = () => {
       getGeneralEmployeeDeptName(emp),
       getGeneralEmployeeProjectName(emp),
       emp.basicSalary ?? 0,
+      emp.arrears ?? 0,
       emp.totalEarnings ?? 0,
       emp.netSalary ?? 0
     ]);

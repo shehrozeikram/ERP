@@ -2261,6 +2261,7 @@ router.post('/accounts-receivable/:id/payment',
         bankAccountId: req.body.bankAccountId || null,
         financeApprovalAuthorities: req.body.financeApprovalAuthorities || null,
         installmentId: req.body.installmentId || null,
+        narration: req.body.narration || req.body.description || '',
         createdBy: req.user._id
       });
 
@@ -6238,15 +6239,18 @@ router.get('/customers/:customerId',
 
     const journalEntries = customerJeIds.length
       ? await JournalEntry.find({ _id: { $in: customerJeIds }, status: 'posted' })
-          .select('entryNumber date description reference totalDebits totalCredits lines.partyType lines.party lines.debit lines.credit')
+          .select('entryNumber date description reference totalDebits totalCredits voucherSeries referenceType referenceId lines.partyType lines.party lines.debit lines.credit')
           .sort({ date: -1 })
-          .limit(100)
+          .limit(200)
           .lean()
       : [];
 
     const payments = [];
+    const paymentJeIds = [];
     invoices.forEach((inv) => {
       (inv.payments || []).forEach((p) => {
+        const jeId = p.journalEntry?._id || p.journalEntry || null;
+        if (jeId) paymentJeIds.push(jeId);
         payments.push({
           _id: p._id,
           invoiceNumber: inv.invoiceNumber,
@@ -6254,14 +6258,131 @@ router.get('/customers/:customerId',
           paymentDate: p.paymentDate,
           amount: p.amount,
           paymentMethod: p.paymentMethod,
-          reference: p.reference
+          reference: p.reference,
+          journalEntryId: jeId ? String(jeId) : null
         });
       });
     });
     payments.sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0));
 
-    const totalInvoiced = invoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
-    const totalReceived = invoices.reduce((s, i) => s + invoicePaidAmount(i), 0);
+    const invoiceIds = invoices.map((i) => i._id);
+    const receiptOr = [
+      ...(invoiceIds.length ? [{ referenceId: { $in: invoiceIds } }] : []),
+      ...(customerJeIds.length ? [{ _id: { $in: customerJeIds } }] : []),
+      {
+        lines: {
+          $elemMatch: {
+            partyType: 'Customer',
+            party: new mongoose.Types.ObjectId(String(customer._id))
+          }
+        }
+      },
+      ...(paymentJeIds.length ? [{ _id: { $in: paymentJeIds } }] : [])
+    ];
+    const receiptDocs = await JournalEntry.find({
+      status: 'posted',
+      $and: [
+        {
+          $or: [
+            { voucherSeries: 'RV' },
+            { referenceType: 'receipt' },
+            { entryNumber: { $regex: /^RV/i } }
+          ]
+        },
+        { $or: receiptOr }
+      ]
+    })
+      .select('entryNumber date description reference totalDebits totalCredits voucherSeries referenceType referenceId')
+      .sort({ date: -1 })
+      .limit(200)
+      .lean();
+
+    const invoiceById = new Map(invoices.map((i) => [String(i._id), i]));
+    const receipts = receiptDocs.map((je) => {
+      const inv = je.referenceId ? invoiceById.get(String(je.referenceId)) : null;
+      return {
+        _id: je._id,
+        entryNumber: je.entryNumber,
+        date: je.date,
+        description: je.description,
+        reference: je.reference,
+        amount: Math.round((Number(je.totalDebits) || Number(je.totalCredits) || 0) * 100) / 100,
+        invoiceNumber: inv?.invoiceNumber || null,
+        invoiceId: inv?._id || je.referenceId || null
+      };
+    });
+
+    // Cost Center P&L: Sales = open invoices; Cost of Sales = AP bills sharing invoice cost centers / customer name
+    const mappedInvoices = invoices.map((inv) => {
+      const paid = invoicePaidAmount(inv);
+      return {
+        _id: inv._id,
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: inv.invoiceDate || inv.createdAt,
+        dueDate: inv.dueDate,
+        totalAmount: inv.totalAmount,
+        paidAmount: paid,
+        amountPaid: paid,
+        balance: Math.round(((inv.totalAmount || 0) - paid) * 100) / 100,
+        status: inv.status,
+        costCenter: inv.costCenter || null
+      };
+    });
+
+    const openInvoices = mappedInvoices.filter(
+      (inv) =>
+        inv.status !== 'cancelled' &&
+        inv.status !== 'paid' &&
+        (Number(inv.balance) || 0) > 0.009
+    );
+
+    const ccIds = [
+      ...new Set(
+        invoices
+          .map((i) => (i.costCenter && i.costCenter._id ? i.costCenter._id : i.costCenter))
+          .filter(Boolean)
+          .map((id) => String(id))
+          .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      )
+    ].map((id) => new mongoose.Types.ObjectId(id));
+
+    const billOr = [];
+    if (ccIds.length) {
+      const billRefIds = await JournalEntry.find({
+        status: 'posted',
+        referenceType: { $in: ['bill', 'payment'] },
+        $or: [{ costCenter: { $in: ccIds } }, { 'lines.costCenter': { $in: ccIds } }]
+      }).distinct('referenceId');
+      const validBillRefs = billRefIds.filter((id) => id && mongoose.Types.ObjectId.isValid(String(id)));
+      if (validBillRefs.length) billOr.push({ _id: { $in: validBillRefs } });
+    }
+    const custName = String(customer.name || '').trim();
+    if (custName) {
+      const nameRx = new RegExp(custName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      billOr.push(
+        { company: nameRx },
+        { project: nameRx },
+        { notes: nameRx },
+        { forWhat: nameRx },
+        { description: nameRx }
+      );
+    }
+
+    let costBills = [];
+    if (billOr.length) {
+      costBills = await AccountsPayable.find(companyId ? { $and: [{ $or: billOr }, { $or: [{ companyId }, { companyId: null }, { companyId: { $exists: false } }] }] } : { $or: billOr })
+        .sort({ billDate: -1 })
+        .limit(200)
+        .lean();
+    }
+
+    const salesTotal = openInvoices.reduce((s, i) => s + (Number(i.totalAmount) || 0), 0);
+    const costOfSalesTotal = costBills.reduce((s, b) => s + (Number(b.totalAmount) || 0), 0);
+    const netProfit = Math.round((salesTotal - costOfSalesTotal) * 100) / 100;
+    const profitPercent = salesTotal > 0 ? Math.round((netProfit / salesTotal) * 10000) / 100 : 0;
+
+    const totalInvoiced = mappedInvoices.reduce((s, i) => s + (i.totalAmount || 0), 0);
+    const totalReceived = mappedInvoices.reduce((s, i) => s + (i.paidAmount || 0), 0);
     const totalPayments = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
 
     res.json({
@@ -6272,26 +6393,33 @@ router.get('/customers/:customerId',
           totalInvoiced: Math.round(totalInvoiced * 100) / 100,
           totalReceived: Math.round(totalReceived * 100) / 100,
           outstanding: Math.round((totalInvoiced - totalReceived) * 100) / 100,
-          invoiceCount: invoices.length,
+          invoiceCount: mappedInvoices.length,
           paymentCount: payments.length,
           paymentTotal: Math.round(totalPayments * 100) / 100,
-          journalEntryCount: journalEntries.length
+          journalEntryCount: journalEntries.length,
+          receiptCount: receipts.length
         },
-        invoices: invoices.map((inv) => {
-          const paid = invoicePaidAmount(inv);
-          return {
-            _id: inv._id,
-            invoiceNumber: inv.invoiceNumber,
-            invoiceDate: inv.invoiceDate || inv.createdAt,
-            dueDate: inv.dueDate,
-            totalAmount: inv.totalAmount,
-            paidAmount: paid,
-            amountPaid: paid,
-            balance: Math.round(((inv.totalAmount || 0) - paid) * 100) / 100,
-            status: inv.status
-          };
-        }),
+        invoices: mappedInvoices,
         payments: payments.slice(0, 200),
+        receipts,
+        costCenter: {
+          openInvoices,
+          bills: costBills.map((b) => ({
+            _id: b._id,
+            billNumber: b.billNumber,
+            billDate: b.billDate,
+            dueDate: b.dueDate,
+            vendorName: b.vendor?.name || b.vendorName || '—',
+            totalAmount: b.totalAmount || 0,
+            amountPaid: b.amountPaid || 0,
+            balanceDue: Math.round(((b.totalAmount || 0) - (b.amountPaid || 0) - (b.advanceApplied || 0)) * 100) / 100,
+            status: b.status
+          })),
+          sales: Math.round(salesTotal * 100) / 100,
+          costOfSales: Math.round(costOfSalesTotal * 100) / 100,
+          netProfit,
+          profitPercent
+        },
         journalEntries: journalEntries.map((je) => ({
           _id: je._id,
           entryNumber: je.entryNumber,

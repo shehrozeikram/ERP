@@ -332,7 +332,8 @@ class FinanceIntegrationService {
         department: invoice.department,
         module: invoice.module,
         referenceId: invoiceId,
-        referenceType: 'payment',
+        referenceType: 'receipt',
+        voucherSeries: 'RV',
         lines: [
           {
             account: cashAccount._id,

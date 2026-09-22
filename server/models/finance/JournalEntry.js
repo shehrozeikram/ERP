@@ -350,7 +350,7 @@ journalEntrySchema.pre('save', async function(next) {
       }
     }
 
-    // Auto-generate entry number if not provided (per-series: BPV-, GRN-, JV-, …)
+    // Auto-generate entry number if not provided (per-series: BPV-, GRN-, RV-, JV-, …)
     if (!this.entryNumber) {
       const { getNextJournalEntryNumber } = require('../../utils/journalEntryNumbering');
       let series =
@@ -359,8 +359,11 @@ journalEntrySchema.pre('save', async function(next) {
         if (this.referenceType === 'grn') series = 'GRN';
         else if (this.referenceType === 'sin') series = 'SIN';
         else if (this.referenceType === 'bill') series = 'BILL';
+        else if (this.referenceType === 'receipt') series = 'RV';
         else series = 'JV';
       }
+      // Persist series used for numbering (shown on vouchers / GL)
+      if (!this.voucherSeries) this.voucherSeries = series;
       let companyCode = '';
       if (this.companyId) {
         const PlacementCompany = mongoose.model('PlacementCompany');

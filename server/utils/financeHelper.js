@@ -870,7 +870,9 @@ const FinanceHelper = {
         createdBy,
         bankAccountId,
         payingCompanyId: optsPayingCompanyId = null,
-        installmentId = null
+        installmentId = null,
+        narration = '',
+        description = ''
       } = paymentData;
 
       const amountRounded = Math.round((Number(amount) || 0) * 100) / 100;
@@ -976,11 +978,17 @@ const FinanceHelper = {
         // Voucher date follows invoice/installment due date (not "today")
         const voucherDate = installment?.dueDate || invoice.dueDate || date || new Date();
 
+        // Receipt voucher narration = what the user typed (never reuse invoice notes like "testing")
+        const userNarration = String(narration || description || '').trim();
+        const voucherNarration =
+          userNarration ||
+          `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${instLabel}${isIntercompany ? ' (Intercompany Receipt)' : ''}`;
+
         const je = await FinanceHelper.createAndPostJournalEntry(
           withVoucherNarration(withCompany({
             date: voucherDate,
             reference: reference || '',
-            description: `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${instLabel}${isIntercompany ? ' (Intercompany Receipt)' : ''}`,
+            description: voucherNarration,
             department: invoice.department,
             costCenter: invoice.costCenter?._id || invoice.costCenter || paymentData.costCenter || null,
             vendorOrEmployeeName: invoice.customer?.name || invoice.customerName || 'Customer',
@@ -988,9 +996,10 @@ const FinanceHelper = {
             referenceId: invoice._id,
             referenceType: 'receipt',
             journalCode: 'BANK',
+            voucherSeries: 'RV',
             createdBy,
             lines
-          }, companyId), getArInvoiceNarration(invoice))
+          }, companyId), voucherNarration)
         );
 
         if (je?._id) {
