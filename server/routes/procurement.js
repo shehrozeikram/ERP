@@ -2292,7 +2292,7 @@ router.put('/purchase-orders/:id/ceo-approve',
 router.put('/purchase-orders/:id/ceo-reject',
   authMiddleware,
   asyncHandler(async (req, res) => {
-    const { rejectionComments, digitalSignature } = req.body;
+    const { rejectionComments, comments, digitalSignature, observations } = req.body;
     const purchaseOrder = await PurchaseOrder.findById(req.params.id);
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
@@ -2309,12 +2309,27 @@ router.put('/purchase-orders/:id/ceo-reject',
         message: 'Only POs in Forwarded to CEO can be rejected by CEO'
       });
     }
-    pushPOWorkflowHistory(purchaseOrder, 'Forwarded to CEO', 'Rejected', req.user.id, rejectionComments || '', 'CEO Secretariat');
+    const rejectText = rejectionComments || comments || '';
+    pushPOWorkflowHistory(purchaseOrder, 'Forwarded to CEO', 'Rejected', req.user.id, rejectText, 'CEO Secretariat');
     purchaseOrder.status = 'Rejected';
     purchaseOrder.ceoRejectedBy = req.user.id;
     purchaseOrder.ceoRejectedAt = new Date();
-    purchaseOrder.ceoRejectionComments = rejectionComments || '';
+    purchaseOrder.ceoRejectionComments = rejectText;
     purchaseOrder.ceoDigitalSignature = digitalSignature || '';
+    if (observations && Array.isArray(observations) && observations.length > 0) {
+      purchaseOrder.observations = purchaseOrder.observations || [];
+      observations.forEach((obs) => {
+        const text = obs.observation || obs.text || obs;
+        if (!text) return;
+        purchaseOrder.observations.push({
+          observation: text,
+          severity: obs.severity || 'medium',
+          addedBy: req.user.id,
+          addedAt: new Date(),
+          resolved: false
+        });
+      });
+    }
     purchaseOrder.updatedBy = req.user.id;
     await purchaseOrder.save();
     res.json({

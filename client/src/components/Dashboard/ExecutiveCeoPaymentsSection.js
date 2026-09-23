@@ -886,22 +886,71 @@ const ExecutiveCeoPaymentsSection = () => {
     );
   };
 
+  /** Keep document-type flags when acting from the view dialog (API payload lacks them). */
+  const withCeoDocTypeFlags = (doc, flags = {}) => {
+    if (!doc) return doc;
+    const isPurchaseOrder =
+      Boolean(flags.isPurchaseOrder) ||
+      Boolean(doc.isPurchaseOrder) ||
+      Boolean(doc.orderNumber) ||
+      doc.itemType === 'Purchase Order' ||
+      doc.typeLabel === 'Purchase Order';
+    const isCashApproval =
+      Boolean(flags.isCashApproval) ||
+      Boolean(doc.isCashApproval) ||
+      Boolean(doc.caNumber) ||
+      doc.itemType === 'Cash Approval' ||
+      doc.typeLabel === 'Cash Approval';
+    const isOnboarding =
+      Boolean(flags.isOnboarding) ||
+      Boolean(doc.isOnboarding) ||
+      Boolean(doc.cnic) ||
+      doc.itemType === 'Onboarding' ||
+      doc.typeLabel === 'Onboarding';
+    const isPaymentSettlement =
+      Boolean(flags.isPaymentSettlement) ||
+      Boolean(doc.isPaymentSettlement) ||
+      (!isPurchaseOrder && !isCashApproval && !isOnboarding);
+
+    return {
+      ...doc,
+      isPurchaseOrder,
+      isCashApproval,
+      isOnboarding,
+      isPaymentSettlement,
+      itemType: isPurchaseOrder
+        ? 'Purchase Order'
+        : isCashApproval
+          ? 'Cash Approval'
+          : isOnboarding
+            ? 'Onboarding'
+            : doc.itemType || 'Payment Settlement',
+      displayRef:
+        doc.displayRef ||
+        doc.orderNumber ||
+        doc.caNumber ||
+        doc.referenceNumber ||
+        doc.recordNumber ||
+        doc._id
+    };
+  };
+
   // Action Dialog Openers
-  const openApprove = (item) => {
-    setApproveDialog({ open: true, settlement: item });
+  const openApprove = (item, flags = {}) => {
+    setApproveDialog({ open: true, settlement: withCeoDocTypeFlags(item, flags) });
     setApprovalComments('');
     setApprovalAgree(false);
   };
 
-  const openReject = (item) => {
-    setRejectDialog({ open: true, settlement: item });
+  const openReject = (item, flags = {}) => {
+    setRejectDialog({ open: true, settlement: withCeoDocTypeFlags(item, flags) });
     setRejectionComments('');
     setRejectionAgree(false);
     setRejectObservations([{ observation: '', severity: 'medium' }]);
   };
 
-  const openReturn = (item) => {
-    setReturnDialog({ open: true, settlement: item });
+  const openReturn = (item, flags = {}) => {
+    setReturnDialog({ open: true, settlement: withCeoDocTypeFlags(item, flags) });
     setReturnComments('');
     setReturnAgree(false);
     setReturnObservations([{ observation: '', severity: 'medium' }]);
@@ -935,14 +984,11 @@ const ExecutiveCeoPaymentsSection = () => {
       toast.error('Please confirm approval checkbox');
       return;
     }
-    const item = approveDialog.settlement;
+    const item = withCeoDocTypeFlags(approveDialog.settlement);
     if (!item) return;
 
-    const isCA = item.isCashApproval;
-    const isOnboarding = item.isOnboarding;
     const effectiveSig = getAutoDigitalSignature();
-
-    if (!isCA && !isOnboarding && !effectiveSig) {
+    if (!item.isCashApproval && !item.isOnboarding && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
@@ -987,8 +1033,7 @@ const ExecutiveCeoPaymentsSection = () => {
 
   // Submit Rejection
   const handleRejectSubmit = async () => {
-    const item = rejectDialog.settlement;
-    const isOnboarding = item?.isOnboarding;
+    const item = withCeoDocTypeFlags(rejectDialog.settlement);
     if (!rejectionAgree || !rejectionComments.trim()) {
       toast.error('Please provide comments and confirmation');
       return;
@@ -996,7 +1041,7 @@ const ExecutiveCeoPaymentsSection = () => {
     if (!item) return;
 
     const effectiveSig = getAutoDigitalSignature();
-    if (!isOnboarding && !effectiveSig) {
+    if (!item.isOnboarding && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
@@ -1007,12 +1052,14 @@ const ExecutiveCeoPaymentsSection = () => {
       if (item.isPurchaseOrder) {
         await api.put(`/procurement/purchase-orders/${item._id}/ceo-reject`, {
           comments: rejectionComments,
+          rejectionComments,
           digitalSignature: effectiveSig,
           observations: validObs
         });
       } else if (item.isCashApproval) {
         await api.put(`/cash-approvals/${item._id}/ceo-reject`, {
           comments: rejectionComments,
+          rejectionComments,
           digitalSignature: effectiveSig,
           observations: validObs
         });
@@ -1046,7 +1093,7 @@ const ExecutiveCeoPaymentsSection = () => {
       toast.error('Please provide return comments, at least one observation, and agree to confirmation');
       return;
     }
-    const item = returnDialog.settlement;
+    const item = withCeoDocTypeFlags(returnDialog.settlement);
     if (!item) return;
 
     const effectiveSig = getAutoDigitalSignature();
@@ -1060,12 +1107,14 @@ const ExecutiveCeoPaymentsSection = () => {
       if (item.isPurchaseOrder) {
         await api.put(`/procurement/purchase-orders/${item._id}/ceo-return`, {
           comments: returnComments,
+          returnComments,
           digitalSignature: effectiveSig,
           observations: validObs
         });
       } else if (item.isCashApproval) {
         await api.put(`/cash-approvals/${item._id}/ceo-return`, {
           comments: returnComments,
+          returnComments,
           digitalSignature: effectiveSig,
           observations: validObs
         });
@@ -2395,9 +2444,14 @@ const ExecutiveCeoPaymentsSection = () => {
               color="success"
               startIcon={<CheckCircleIcon />}
               onClick={() => {
+                const flags = {
+                  isPurchaseOrder: viewDialog.isPurchaseOrder,
+                  isCashApproval: viewDialog.isCashApproval,
+                  isOnboarding: viewDialog.isOnboarding
+                };
                 const itemToApprove = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
-                openApprove(itemToApprove);
+                openApprove(itemToApprove, flags);
               }}
             >
               Approve (CEO)
@@ -2407,9 +2461,14 @@ const ExecutiveCeoPaymentsSection = () => {
               color="error"
               startIcon={<CancelIcon />}
               onClick={() => {
+                const flags = {
+                  isPurchaseOrder: viewDialog.isPurchaseOrder,
+                  isCashApproval: viewDialog.isCashApproval,
+                  isOnboarding: viewDialog.isOnboarding
+                };
                 const itemToReject = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
-                openReject(itemToReject);
+                openReject(itemToReject, flags);
               }}
             >
               Reject (CEO)
@@ -2419,9 +2478,14 @@ const ExecutiveCeoPaymentsSection = () => {
               color="warning"
               startIcon={<WarningIcon />}
               onClick={() => {
+                const flags = {
+                  isPurchaseOrder: viewDialog.isPurchaseOrder,
+                  isCashApproval: viewDialog.isCashApproval,
+                  isOnboarding: viewDialog.isOnboarding
+                };
                 const itemToReturn = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
-                openReturn(itemToReturn);
+                openReturn(itemToReturn, flags);
               }}
             >
               Return with Observations

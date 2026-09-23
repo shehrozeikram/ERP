@@ -284,21 +284,46 @@ const Payments = () => {
     }
   };
 
-  const openApproveDialog = (settlement) => {
-    setApproveDialog({ open: true, settlement });
+  const withCeoDocTypeFlags = (doc, flags = {}) => {
+    if (!doc) return doc;
+    const isPurchaseOrder =
+      Boolean(flags.isPurchaseOrder) ||
+      Boolean(doc.isPurchaseOrder) ||
+      Boolean(doc.orderNumber) ||
+      doc.itemType === 'Purchase Order';
+    const isCashApproval =
+      Boolean(flags.isCashApproval) ||
+      Boolean(doc.isCashApproval) ||
+      Boolean(doc.caNumber) ||
+      doc.itemType === 'Cash Approval';
+    return {
+      ...doc,
+      isPurchaseOrder,
+      isCashApproval,
+      workflowStatus: doc.workflowStatus || doc.status,
+      itemType: isPurchaseOrder
+        ? 'Purchase Order'
+        : isCashApproval
+          ? 'Cash Approval'
+          : doc.itemType || 'Payment Settlement'
+    };
+  };
+
+  const openApproveDialog = (settlement, flags = {}) => {
+    setApproveDialog({ open: true, settlement: withCeoDocTypeFlags(settlement, flags) });
     setApprovalComments('');
     setApprovalAgree(false);
   };
 
-  const openRejectDialog = (settlement) => {
-    setRejectDialog({ open: true, settlement });
+  const openRejectDialog = (settlement, flags = {}) => {
+    setRejectDialog({ open: true, settlement: withCeoDocTypeFlags(settlement, flags) });
     setRejectionComments('');
     setRejectionAgree(false);
     setRejectObservations([{ observation: '', severity: 'medium' }]);
   };
 
-  const openReturnDialog = (settlement) => {
-    setReturnDialog({ open: true, settlement });
+  const openReturnDialog = (settlement, flags = {}) => {
+    setReturnDialog({ open: true, settlement: withCeoDocTypeFlags(settlement, flags) });
     setReturnComments('');
     setReturnAgree(false);
     setReturnObservations([{ observation: '', severity: 'medium' }]);
@@ -2603,16 +2628,20 @@ const Payments = () => {
           </Box>
           <Box>
             {/* View Dialog Quick Actions based on status */}
-            {viewDialog.settlement?.workflowStatus === 'Forwarded to CEO' && (
+            {((viewDialog.settlement?.workflowStatus || viewDialog.settlement?.status) === 'Forwarded to CEO') && (
               <>
                 <Button
                   variant="contained"
                   color="success"
                   startIcon={<CheckCircleIcon />}
                   onClick={() => {
+                    const flags = {
+                      isPurchaseOrder: viewDialog.isPurchaseOrder,
+                      isCashApproval: viewDialog.isCashApproval
+                    };
                     const item = viewDialog.settlement;
                     setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
-                    openApproveDialog(item);
+                    openApproveDialog(item, flags);
                   }}
                   sx={{ mr: 1 }}
                 >
@@ -2623,9 +2652,13 @@ const Payments = () => {
                   color="error"
                   startIcon={<CancelIcon />}
                   onClick={() => {
+                    const flags = {
+                      isPurchaseOrder: viewDialog.isPurchaseOrder,
+                      isCashApproval: viewDialog.isCashApproval
+                    };
                     const item = viewDialog.settlement;
                     setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
-                    openRejectDialog(item);
+                    openRejectDialog(item, flags);
                   }}
                   sx={{ mr: 1 }}
                 >
@@ -2636,9 +2669,13 @@ const Payments = () => {
                   color="warning"
                   startIcon={<WarningIcon />}
                   onClick={() => {
+                    const flags = {
+                      isPurchaseOrder: viewDialog.isPurchaseOrder,
+                      isCashApproval: viewDialog.isCashApproval
+                    };
                     const item = viewDialog.settlement;
                     setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
-                    openReturnDialog(item);
+                    openReturnDialog(item, flags);
                   }}
                   sx={{ mr: 1 }}
                 >
@@ -2647,16 +2684,20 @@ const Payments = () => {
               </>
             )}
 
-            {viewDialog.settlement?.workflowStatus === 'Send to CEO Office' && (
+            {((viewDialog.settlement?.workflowStatus || viewDialog.settlement?.status) === 'Send to CEO Office') && (
               <>
                 <Button
                   variant="contained"
                   color="primary"
                   startIcon={<ArrowForwardIcon />}
                   onClick={() => {
+                    const flags = {
+                      isPurchaseOrder: viewDialog.isPurchaseOrder,
+                      isCashApproval: viewDialog.isCashApproval
+                    };
                     const item = viewDialog.settlement;
                     setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
-                    openApproveDialog(item);
+                    openApproveDialog(item, flags);
                   }}
                   sx={{ mr: 1 }}
                 >
@@ -2667,9 +2708,13 @@ const Payments = () => {
                   color="error"
                   startIcon={<CancelIcon />}
                   onClick={() => {
+                    const flags = {
+                      isPurchaseOrder: viewDialog.isPurchaseOrder,
+                      isCashApproval: viewDialog.isCashApproval
+                    };
                     const item = viewDialog.settlement;
                     setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
-                    openRejectDialog(item);
+                    openRejectDialog(item, flags);
                   }}
                   sx={{ mr: 1 }}
                 >
@@ -2680,9 +2725,13 @@ const Payments = () => {
                   color="warning"
                   startIcon={<WarningIcon />}
                   onClick={() => {
+                    const flags = {
+                      isPurchaseOrder: viewDialog.isPurchaseOrder,
+                      isCashApproval: viewDialog.isCashApproval
+                    };
                     const item = viewDialog.settlement;
                     setViewDialog({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
-                    openReturnDialog(item);
+                    openReturnDialog(item, flags);
                   }}
                   sx={{ mr: 1 }}
                 >
