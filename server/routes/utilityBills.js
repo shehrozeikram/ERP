@@ -44,6 +44,12 @@ function parseLineAttachmentField(fieldname) {
   if (!fieldname || !fieldname.startsWith(LINE_ATTACHMENT_PREFIX)) return null;
   const rest = fieldname.slice(LINE_ATTACHMENT_PREFIX.length);
   if (!rest) return null;
+
+  const rowMatch = rest.match(/^row_(\d+)(?:_(\d+))?$/);
+  if (rowMatch) {
+    return { isRowIdx: true, rowIdx: parseInt(rowMatch[1], 10), idx: rowMatch[2] ? parseInt(rowMatch[2], 10) : 0 };
+  }
+
   const idxMatch = rest.match(/^(.+)_(\d+)$/);
   if (idxMatch) {
     return { sid: idxMatch[1], idx: parseInt(idxMatch[2], 10) };
@@ -56,23 +62,6 @@ function findBillLineByStoreItemId(lines, sid) {
   return lines.find((l) => getBillLineStoreItemId(l) === target);
 }
 
-function readExistingLineAttachmentUrls(billData, sid, row) {
-  const existingKey = `existingLineAttachments_${sid}`;
-  if (billData[existingKey] != null && billData[existingKey] !== '') {
-    try {
-      const parsed = JSON.parse(billData[existingKey]);
-      delete billData[existingKey];
-      if (Array.isArray(parsed)) return parsed.filter(Boolean);
-    } catch { /* ignore */ }
-    delete billData[existingKey];
-  }
-  if (Array.isArray(row?.attachmentUrls) && row.attachmentUrls.length) {
-    return row.attachmentUrls.filter(Boolean);
-  }
-  if (row?.attachmentUrl) return [row.attachmentUrl];
-  return [];
-}
-
 function applyAttachmentUrlsToLine(row, urls) {
   const merged = urls.slice(0, MAX_BILL_ATTACHMENTS);
   row.attachmentUrls = merged;
@@ -82,8 +71,8 @@ function applyAttachmentUrlsToLine(row, urls) {
 /**
  * Merge multipart line uploads into billLines (call after applyBillLinesToPayload).
  *
- * Fields: lineAttachment_<storeItemId>_<index> (or legacy lineAttachment_<storeItemId>)
- * Body:   existingLineAttachments_<storeItemId> = JSON array of URLs to keep
+ * Fields: lineAttachment_row_<lineIdx>_<index> (or legacy lineAttachment_<storeItemId>_<index>)
+ * Body:   existingLineAttachments_row_<lineIdx> = JSON array of URLs to keep
  */
 function mergeLineUploadsIntoBillLines(files, billData) {
   let lines = billData.billLines;
@@ -96,39 +85,74 @@ function mergeLineUploadsIntoBillLines(files, billData) {
   }
   if (!Array.isArray(lines) || !lines.length) return;
 
-  const newByItem = new Map();
+  const newByGroup = new Map();
   for (const f of files || []) {
     const parsed = parseLineAttachmentField(f.fieldname);
     if (!parsed) continue;
     const url = `/uploads/utility-bills/${f.filename}`;
-    if (!newByItem.has(parsed.sid)) newByItem.set(parsed.sid, []);
-    newByItem.get(parsed.sid).push({ idx: parsed.idx, url });
+    const groupKey = parsed.isRowIdx ? `row_${parsed.rowIdx}` : parsed.sid;
+    
+    if (!newByGroup.has(groupKey)) {
+      newByGroup.set(groupKey, { 
+        isRowIdx: parsed.isRowIdx, 
+        identifier: parsed.isRowIdx ? parsed.rowIdx : parsed.sid, 
+        entries: [] 
+      });
+    }
+    newByGroup.get(groupKey).entries.push({ idx: parsed.idx, url });
   }
 
-  const mergedSids = new Set();
+  const mergedKeys = new Set();
 
-  for (const [sid, entries] of newByItem) {
-    const row = findBillLineByStoreItemId(lines, sid);
+  for (const [groupKey, group] of newByGroup) {
+    const row = group.isRowIdx ? lines[group.identifier] : findBillLineByStoreItemId(lines, group.identifier);
     if (!row) continue;
-    mergedSids.add(sid);
-    entries.sort((a, b) => a.idx - b.idx);
-    const newUrls = entries.map((e) => e.url);
-    const existingUrls = readExistingLineAttachmentUrls(billData, sid, row);
+    mergedKeys.add(groupKey);
+    group.entries.sort((a, b) => a.idx - b.idx);
+    const newUrls = group.entries.map((e) => e.url);
+    
+    const existingKey = group.isRowIdx ? `existingLineAttachments_row_${group.identifier}` : `existingLineAttachments_${group.identifier}`;
+    let existingUrls = [];
+    if (billData[existingKey] != null && billData[existingKey] !== '') {
+      try {
+        const parsed = JSON.parse(billData[existingKey]);
+        if (Array.isArray(parsed)) existingUrls = parsed.filter(Boolean);
+      } catch { /* ignore */ }
+      delete billData[existingKey];
+    } else {
+      if (Array.isArray(row?.attachmentUrls) && row.attachmentUrls.length) {
+        existingUrls = row.attachmentUrls.filter(Boolean);
+      } else if (row?.attachmentUrl) {
+        existingUrls = [row.attachmentUrl];
+      }
+    }
+    
     applyAttachmentUrlsToLine(row, [...existingUrls, ...newUrls]);
   }
 
   // Lines with no new uploads — restore saved URLs from existingLineAttachments_* only
   Object.keys(billData).forEach((key) => {
-    const m = /^existingLineAttachments_(.+)$/.exec(key);
-    if (!m) return;
-    const sid = m[1];
-    if (mergedSids.has(sid)) {
+    let row, groupKey;
+    const rowMatch = /^existingLineAttachments_row_(\d+)$/.exec(key);
+    const sidMatch = /^existingLineAttachments_(.+)$/.exec(key);
+
+    if (rowMatch) {
+      groupKey = `row_${rowMatch[1]}`;
+      row = lines[parseInt(rowMatch[1], 10)];
+    } else if (sidMatch) {
+      groupKey = sidMatch[1];
+      row = findBillLineByStoreItemId(lines, groupKey);
+    } else {
+      return;
+    }
+
+    if (mergedKeys.has(groupKey)) {
       delete billData[key];
       return;
     }
+    
     const rawVal = billData[key];
     delete billData[key];
-    const row = findBillLineByStoreItemId(lines, sid);
     if (!row) return;
     try {
       const urls = JSON.parse(rawVal);

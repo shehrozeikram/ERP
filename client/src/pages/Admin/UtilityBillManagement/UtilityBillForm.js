@@ -874,18 +874,16 @@ const UtilityBillForm = () => {
 
         // Per-line attachments: files are already compressed on pick, just append them
         if (isCentralizedStoreBill) {
-          for (const l of billLines) {
-            const sid = getStoreItemId(l.storeItem);
-            if (!sid) continue;
+          billLines.forEach((l, lineIdx) => {
             // Tell the server which saved URLs to keep
             const savedUrls = l.attachmentUrls || (l.attachmentUrl ? [l.attachmentUrl] : []);
-            submitData.append(`existingLineAttachments_${sid}`, JSON.stringify(savedUrls));
+            submitData.append(`existingLineAttachments_row_${lineIdx}`, JSON.stringify(savedUrls));
             if (l._pendingFiles && l._pendingFiles.length > 0) {
               l._pendingFiles.forEach((file, i) => {
-                submitData.append(`lineAttachment_${sid}_${i}`, file);
+                submitData.append(`lineAttachment_row_${lineIdx}_${i}`, file);
               });
             }
-          }
+          });
         }
       }
 
