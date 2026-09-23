@@ -6826,8 +6826,16 @@ router.get('/reports/bank-reconciliation',
       const amt = isCredit ? credit : debit;
       // Per-GL clearance only — never inherit parent JE status (one bank hit can have
       // multiple book lines; clearing one must not hide/clear siblings).
-      const isCleared = Boolean(gle.clearanceStatus === 'cleared' || gle.isReconciled);
+      // Historical as-of: only treat as cleared if clearance date is on/before asOf,
+      // otherwise later-month clears rewrite prior month statement balances.
+      const markedCleared = Boolean(gle.clearanceStatus === 'cleared' || gle.isReconciled);
       const clearDate = gle.clearedAt || gle.reconciledAt || null;
+      const clearedAtTime = clearDate ? new Date(clearDate).getTime() : NaN;
+      const isCleared = Boolean(
+        markedCleared &&
+        !Number.isNaN(clearedAtTime) &&
+        clearedAtTime <= asOf.getTime()
+      );
 
       const vrNo = gle.entryNumber || je.entryNumber || '—';
 
@@ -6845,7 +6853,7 @@ router.get('/reports/bank-reconciliation',
         type: isCredit ? 'Cr' : 'Dr',
         isCleared,
         clearanceStatus: isCleared ? 'cleared' : (gle.clearanceStatus || 'pending'),
-        clearingDate: clearDate,
+        clearingDate: isCleared ? clearDate : null,
         attachments: je.attachments || [],
         signedDocumentStatus: je.signedDocumentStatus || 'not_signed',
         signedDocumentAt: je.signedDocumentAt || null,

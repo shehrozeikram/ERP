@@ -9,12 +9,16 @@ const { vehicleFuelTotal } = require('./allowanceHelpers');
  * FBR Financial Year: July 1 → June 30.
  *
  * - Hired before this FY → 12 (full-year rules unchanged)
- * - Hired during this FY → months from max(hire month, payroll month) through June
+ * - Hired during this FY → months from first countable join month through June
+ *   (e.g. joined 1 Jul → ×12; joined 31 Aug → ×10 for Sep payroll).
+ *   Do NOT shrink further as later payroll months in the same FY are processed.
  *
- * Example: hired 31 Aug 2026, September 2026 payroll → Jul–Aug already past → ×10
+ * Join-month rule: if the employee works less than half the days in the hire
+ * month (e.g. joined 24th/27th/31st), that month does not count — start from
+ * the next calendar month. This matches Sidat / late-joiner annualization.
  *
  * @param {Date|string} hireDate - Employee hire date
- * @param {number} payrollMonth  - Current payroll month (1-12)
+ * @param {number} payrollMonth  - Current payroll month (1-12) — used to resolve FY only
  * @param {number} payrollYear   - Current payroll year
  * @returns {number} Projection months (1-12)
  */
@@ -38,9 +42,24 @@ function getRemainingFYMonths(hireDate, payrollMonth, payrollYear) {
   // Hired after this FY ends
   if (hire > fyEnd) return 1;
 
-  const hireAbs = hire.getFullYear() * 12 + hire.getMonth();
-  const payrollAbs = py * 12 + (pm - 1);
-  const startAbs = Math.max(hireAbs, payrollAbs);
+  // Calendar month of hire (UTC components — hire dates are stored as UTC midnight)
+  let startYear = hire.getUTCFullYear();
+  let startMonth = hire.getUTCMonth(); // 0-11
+  const day = hire.getUTCDate();
+  const daysInHireMonth = new Date(Date.UTC(startYear, startMonth + 1, 0)).getUTCDate();
+  const daysWorkedInHireMonth = daysInHireMonth - day + 1;
+
+  // Late join in the month (< 50% days) → first countable month is the next one
+  // e.g. 31 Aug → Sep start (×10); 27 Jul → Aug start (×11); 1 Jul → Jul (×12)
+  if (daysWorkedInHireMonth < daysInHireMonth / 2) {
+    startMonth += 1;
+    if (startMonth > 11) {
+      startMonth = 0;
+      startYear += 1;
+    }
+  }
+
+  const startAbs = startYear * 12 + startMonth;
   const endAbs = (fyStartYear + 1) * 12 + 5; // June
 
   const months = endAbs - startAbs + 1;
@@ -304,7 +323,8 @@ async function getTaxSlabInfo(annualIncome) {
 
 /**
  * FY-aware version of calculateMonthlyTax for mid-year joiners in the current FY.
- * Projects annual income as monthly × remaining FY months, then monthly tax = annual ÷ remaining months.
+ * Projects annual income as monthly × (months from DOJ through June),
+ * then monthly tax = annual ÷ those months.
  * Employees hired before the current FY keep the normal ×12 / ÷12 path.
  *
  * @param {number}       monthlySalary  - Monthly taxable income (after medical exempt deduction)

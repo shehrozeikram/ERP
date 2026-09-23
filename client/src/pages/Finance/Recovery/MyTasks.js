@@ -789,7 +789,8 @@ const MyTasks = () => {
                     Rules &amp; tasks by month
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Your assignment rules and time-bound tasks (newest first). Click a row to load matching customers below.
+                    Your assignment rules and time-bound tasks by month (July, August, etc. stay listed even after
+                    a new month is assigned). Click a past/completed task to see that period&apos;s completed customers.
                   </Typography>
                   {assignmentsLoading ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>

@@ -3,6 +3,7 @@ const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssign
 
 /** Excluded from My Tasks and similar active-work lists. */
 const UNASSIGNED_TASK_STATUS = 'unassigned';
+const REOPEN_FROM_STATUSES = ['completed', UNASSIGNED_TASK_STATUS];
 
 const UNASSIGN_UPDATE = {
   $set: {
@@ -140,6 +141,99 @@ async function unassignOrphanedAssignmentsByScope({
   return result.modifiedCount || 0;
 }
 
+/**
+ * Re-open completed/unassigned rows for a new task/rule period, but archive
+ * prior completions so past months (July/August, etc.) remain visible in history.
+ */
+async function reopenCompletedAssignmentsByScope({
+  scopeType,
+  type,
+  sector,
+  minAmount,
+  maxAmount
+}) {
+  const scopeQuery = buildScopeQuery({ scopeType, type, sector, minAmount, maxAmount });
+  const candidates = await RecoveryAssignment.find({
+    ...scopeQuery,
+    taskStatus: { $in: REOPEN_FROM_STATUSES }
+  });
+
+  let modified = 0;
+  for (const doc of candidates) {
+    if (doc.taskStatus === 'completed' && doc.taskCompletedAt) {
+      const history = Array.isArray(doc.completionHistory) ? doc.completionHistory : [];
+      history.push({
+        completedAt: doc.taskCompletedAt,
+        completedBy: doc.taskCompletedBy || undefined
+      });
+      doc.completionHistory = history;
+    }
+    doc.taskStatus = 'pending';
+    doc.taskCompletedAt = undefined;
+    doc.taskCompletedBy = undefined;
+    await doc.save();
+    modified += 1;
+  }
+  return modified;
+}
+
+/** End of local calendar day for inclusive task endDate windows. */
+function endOfDay(date) {
+  if (!date) return null;
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+/**
+ * Count completions for a time-bound task: current completed rows in the
+ * start–end window plus archived completionHistory entries in that window.
+ */
+async function countCompletionsForTaskPeriod({ scopeType, type, sector, minAmount, maxAmount, startDate, endDate }) {
+  const scopeQuery = buildScopeQuery({ scopeType, type, sector, minAmount, maxAmount });
+  const start = startDate ? new Date(startDate) : null;
+  const end = endOfDay(endDate);
+
+  const dateFilter = {};
+  if (start && !Number.isNaN(start.getTime())) dateFilter.$gte = start;
+  if (end && !Number.isNaN(end.getTime())) dateFilter.$lte = end;
+
+  const currentQuery = {
+    ...scopeQuery,
+    taskStatus: 'completed'
+  };
+  if (Object.keys(dateFilter).length) {
+    currentQuery.taskCompletedAt = dateFilter;
+  }
+
+  const currentCount = await RecoveryAssignment.countDocuments(currentQuery);
+
+  const historyMatch = {};
+  if (dateFilter.$gte) historyMatch.$gte = dateFilter.$gte;
+  if (dateFilter.$lte) historyMatch.$lte = dateFilter.$lte;
+
+  let historyCount = 0;
+  if (Object.keys(historyMatch).length) {
+    const histAgg = await RecoveryAssignment.aggregate([
+      { $match: { ...scopeQuery, 'completionHistory.0': { $exists: true } } },
+      { $unwind: '$completionHistory' },
+      { $match: { 'completionHistory.completedAt': historyMatch } },
+      { $count: 'n' }
+    ]);
+    historyCount = histAgg[0]?.n || 0;
+  } else {
+    const histAgg = await RecoveryAssignment.aggregate([
+      { $match: { ...scopeQuery, 'completionHistory.0': { $exists: true } } },
+      { $unwind: '$completionHistory' },
+      { $count: 'n' }
+    ]);
+    historyCount = histAgg[0]?.n || 0;
+  }
+
+  return currentCount + historyCount;
+}
+
 /** Mongo filter for assignments covered by a time-bound RecoveryTask scope. */
 function buildScopeQueryFromRecoveryTask(task) {
   if (!task) return {};
@@ -154,10 +248,13 @@ function buildScopeQueryFromRecoveryTask(task) {
 module.exports = {
   UNASSIGNED_TASK_STATUS,
   MY_TASKS_ACTIVE_STATUS_FILTER: { $nin: ['completed', UNASSIGNED_TASK_STATUS] },
-  REOPEN_FROM_STATUSES: ['completed', UNASSIGNED_TASK_STATUS],
+  REOPEN_FROM_STATUSES,
   buildScopeQuery,
   buildScopeQueryFromRecoveryTask,
   buildOrConditionsFromRules,
   getActiveMyTasksOrConditions,
-  unassignOrphanedAssignmentsByScope
+  unassignOrphanedAssignmentsByScope,
+  reopenCompletedAssignmentsByScope,
+  countCompletionsForTaskPeriod,
+  endOfDay
 };

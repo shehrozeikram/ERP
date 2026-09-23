@@ -32,7 +32,18 @@ const recoveryAssignmentSchema = new mongoose.Schema(
     autoFollowUpSentAt: { type: Date },
     taskStatus: { type: String, trim: true, default: 'pending' },
     taskCompletedAt: { type: Date },
-    taskCompletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+    taskCompletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    /**
+     * Preserved when a new task/rule re-opens the same customers for another period.
+     * Lets July/August (etc.) completed work stay visible after September reassignment.
+     */
+    completionHistory: [
+      {
+        completedAt: { type: Date },
+        completedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        _id: false
+      }
+    ]
   },
   { timestamps: true }
 );

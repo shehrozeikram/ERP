@@ -24,7 +24,9 @@ const {
 } = require('../utils/recoveryWhatsAppPhone');
 const {
   MY_TASKS_ACTIVE_STATUS_FILTER,
-  buildScopeQueryFromRecoveryTask
+  buildScopeQueryFromRecoveryTask,
+  endOfDay,
+  countCompletionsForTaskPeriod
 } = require('../utils/recoveryAssignmentUnassign');
 const {
   userHasRecoveryTaskAssignmentUnrestrictedAccess,
@@ -63,6 +65,45 @@ function sectorExactRegex(value) {
     return new RegExp(`^(?:sector[\\s-]*)?${escapeRegex(cleanSector)}$`, 'i');
   }
   return new RegExp(`^${escapeRegex(trimmed)}$`, 'i');
+}
+
+/**
+ * Active My Tasks excludes completed rows.
+ * When a past/completed RecoveryTask is selected, show that period's completions
+ * (current completed rows + archived completionHistory).
+ */
+function buildMyTasksStatusClause(recoveryTaskFilter) {
+  const task = recoveryTaskFilter?.task;
+  if (!task) return { taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
+
+  const now = new Date();
+  const ended = task.endDate && new Date(task.endDate) < now;
+  const completed = String(task.status || '') === 'completed';
+  if (!ended && !completed) {
+    return { taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
+  }
+
+  const start = task.startDate ? new Date(task.startDate) : null;
+  const end = endOfDay(task.endDate);
+  const dateFilter = {};
+  if (start && !Number.isNaN(start.getTime())) dateFilter.$gte = start;
+  if (end && !Number.isNaN(end.getTime())) dateFilter.$lte = end;
+
+  const historyElem = Object.keys(dateFilter).length
+    ? { completedAt: dateFilter }
+    : { completedAt: { $exists: true } };
+
+  const currentCompleted = {
+    taskStatus: 'completed',
+    ...(Object.keys(dateFilter).length ? { taskCompletedAt: dateFilter } : {})
+  };
+
+  return {
+    $or: [
+      currentCompleted,
+      { completionHistory: { $elemMatch: historyElem } }
+    ]
+  };
 }
 
 function resolveAssignedMember(record, sectorRules = [], slabRules = [], recoveryTasks = []) {
@@ -431,7 +472,7 @@ router.get(
         });
       }
 
-      let query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
+      let query = { $and: [{ $or: orConditions }, buildMyTasksStatusClause(recoveryTaskFilter)] };
       if (search && search.trim()) {
         const searchRegex = { $regex: search.trim(), $options: 'i' };
         query.$and = (query.$and || []).concat([
@@ -611,7 +652,7 @@ router.get(
       });
     }
 
-    let query = { $or: orConditions, taskStatus: MY_TASKS_ACTIVE_STATUS_FILTER };
+    let query = { $and: [{ $or: orConditions }, buildMyTasksStatusClause(recoveryTaskFilter)] };
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
       query.$and = (query.$and || []).concat([
@@ -1715,7 +1756,12 @@ router.get(
     const limitNum = Math.min(RECOVERY_LIST_MAX_LIMIT, requestedLimitCompleted);
     const skip = (pageNum - 1) * limitNum;
 
-    const query = { taskStatus: 'completed' };
+    const query = {
+      $or: [
+        { taskStatus: 'completed' },
+        { 'completionHistory.0': { $exists: true } }
+      ]
+    };
 
     const sortByDue = dueSort === 'asc' || dueSort === 'desc';
     const dueDir = dueSort === 'asc' ? 1 : -1;
@@ -1725,13 +1771,17 @@ router.get(
 
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: 'i' };
-      query.$or = [
-        { orderCode: searchRegex },
-        { customerName: searchRegex },
-        { cnic: searchRegex },
-        { plotNo: searchRegex },
-        { customerAddress: searchRegex },
-        { mobileNumber: searchRegex }
+      query.$and = [
+        {
+          $or: [
+            { orderCode: searchRegex },
+            { customerName: searchRegex },
+            { cnic: searchRegex },
+            { plotNo: searchRegex },
+            { customerAddress: searchRegex },
+            { mobileNumber: searchRegex }
+          ]
+        }
       ];
     }
     if (sector && sector.trim()) query.sector = new RegExp(sector.trim(), 'i');
@@ -1739,8 +1789,16 @@ router.get(
 
     const seesAllCompleted = userHasCompletedTasksFullAccess(req);
     const isRecoveryMember = await userIsActiveRecoveryMember(req);
-    if (!seesAllCompleted && isRecoveryMember) {
-      query.taskCompletedBy = req.user._id;
+    const userOid = resolveAuthUserObjectId(req);
+    if (!seesAllCompleted && isRecoveryMember && userOid) {
+      query.$and = (query.$and || []).concat([
+        {
+          $or: [
+            { taskCompletedBy: userOid },
+            { 'completionHistory.completedBy': userOid }
+          ]
+        }
+      ]);
     }
 
     const [records, total] = await Promise.all([
@@ -1760,10 +1818,21 @@ router.get(
     const sectorRules = rules.filter((r) => r.type === 'sector');
     const slabRules = rules.filter((r) => r.type === 'slab');
 
-    const data = records.map((r) => ({
-      ...r,
-      assignedToMember: resolveAssignedMember(r, sectorRules, slabRules)
-    }));
+    const data = records.map((r) => {
+      const history = Array.isArray(r.completionHistory) ? r.completionHistory : [];
+      const latestHistory = history.length
+        ? [...history].sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0))[0]
+        : null;
+      const displayCompletedAt = r.taskCompletedAt || latestHistory?.completedAt || null;
+      const displayCompletedBy = r.taskCompletedBy || latestHistory?.completedBy || null;
+      return {
+        ...r,
+        taskCompletedAt: displayCompletedAt,
+        taskCompletedBy: displayCompletedBy,
+        taskStatus: r.taskStatus === 'completed' ? 'completed' : (history.length ? 'completed' : r.taskStatus),
+        assignedToMember: resolveAssignedMember(r, sectorRules, slabRules)
+      };
+    });
 
     res.json({
       success: true,
@@ -1815,24 +1884,14 @@ router.put(
         const tasks = await RecoveryTask.find({ assignedTo: assignedToMember._id }).lean();
 
         for (const task of tasks) {
-          const q = {};
-
-          if (task.scopeType === 'sector') {
-            if (task.sector && task.sector.trim()) {
-              q.sector = sectorExactRegex(task.sector);
-            }
-          } else if (task.scopeType === 'slab') {
-            if (task.sector && task.sector.trim()) {
-              q.sector = sectorExactRegex(task.sector);
-            }
-            const min = Number(task.minAmount) || 0;
-            const max = task.maxAmount != null ? Number(task.maxAmount) : null;
-            q.currentlyDue = max != null ? { $gte: min, $lt: max } : { $gte: min };
-          }
-
-          q.taskStatus = 'completed';
-
-          const count = await RecoveryAssignment.countDocuments(q);
+          const count = await countCompletionsForTaskPeriod({
+            scopeType: task.scopeType,
+            sector: task.sector,
+            minAmount: task.minAmount,
+            maxAmount: task.maxAmount,
+            startDate: task.startDate,
+            endDate: task.endDate
+          });
 
           const update = {
             completedCount: count

@@ -5,53 +5,13 @@ const { recoveryTaskAssignmentListAccess } = require('../middleware/recoveryTask
 const RecoveryTask = require('../models/finance/RecoveryTask');
 const RecoveryMember = require('../models/finance/RecoveryMember');
 const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssignmentRule');
-const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
 const {
-  REOPEN_FROM_STATUSES,
-  unassignOrphanedAssignmentsByScope
+  unassignOrphanedAssignmentsByScope,
+  reopenCompletedAssignmentsByScope,
+  countCompletionsForTaskPeriod
 } = require('../utils/recoveryAssignmentUnassign');
 
 const router = express.Router();
-
-function escapeRegex(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function sectorExactRegex(value) {
-  let trimmed = String(value || '').trim();
-  if (!trimmed) return null;
-  if (/^(all|all sectors)$/i.test(trimmed)) return null;
-  const cleanSector = trimmed.replace(/^sector[\s-]+/i, '').trim();
-  if (cleanSector) {
-    return new RegExp(`^(?:sector[\\s-]*)?${escapeRegex(cleanSector)}$`, 'i');
-  }
-  return new RegExp(`^${escapeRegex(trimmed)}$`, 'i');
-}
-
-function buildTaskScopeQuery({ scopeType, sector, minAmount, maxAmount }) {
-  const query = {};
-  const sectorRegex = sectorExactRegex(sector);
-  if (sectorRegex) query.sector = sectorRegex;
-  if (scopeType === 'slab') {
-    const min = Number(minAmount) || 0;
-    const max = maxAmount !== undefined && maxAmount !== null && maxAmount !== '' ? Number(maxAmount) : null;
-    query.currentlyDue = max != null ? { $gte: min, $lt: max } : { $gte: min };
-  }
-  return query;
-}
-
-async function reopenCompletedAssignmentsByTaskScope({ scopeType, sector, minAmount, maxAmount }) {
-  const scopeQuery = buildTaskScopeQuery({ scopeType, sector, minAmount, maxAmount });
-  const query = { ...scopeQuery, taskStatus: { $in: REOPEN_FROM_STATUSES } };
-  const result = await RecoveryAssignment.updateMany(
-    query,
-    {
-      $set: { taskStatus: 'pending' },
-      $unset: { taskCompletedAt: '', taskCompletedBy: '' }
-    }
-  );
-  return result?.modifiedCount || 0;
-}
 
 function getProgress(task) {
   const t = task.toObject ? task.toObject() : task;
@@ -82,21 +42,14 @@ router.get(
 
     const now = new Date();
     for (const task of tasks) {
-      const scopeQuery = buildTaskScopeQuery({
+      const completed = await countCompletionsForTaskPeriod({
         scopeType: task.scopeType,
         sector: task.sector,
         minAmount: task.minAmount,
-        maxAmount: task.maxAmount
+        maxAmount: task.maxAmount,
+        startDate: task.startDate,
+        endDate: task.endDate
       });
-      const completedQuery = {
-        ...scopeQuery,
-        taskStatus: 'completed'
-      };
-      if (task.startDate) {
-        completedQuery.taskCompletedAt = { $gte: new Date(task.startDate) };
-      }
-
-      const completed = await RecoveryAssignment.countDocuments(completedQuery);
       const nextProgress = task.targetCount != null && task.targetCount > 0
         ? Math.min(100, Math.round((completed / task.targetCount) * 100))
         : Math.min(100, Math.max(0, Number(task.progressPercent) || 0));
@@ -208,8 +161,8 @@ router.post(
       console.warn('Failed to ensure matching RecoveryTaskAssignmentRule for task', e.message);
     }
 
-    // If this scope is assigned again, move matching completed records back to pending.
-    const reopenedCount = await reopenCompletedAssignmentsByTaskScope({
+    // If this scope is assigned again, re-open matching completed records (history preserved).
+    const reopenedCount = await reopenCompletedAssignmentsByScope({
       scopeType: task.scopeType,
       sector: task.sector,
       minAmount: task.minAmount,
@@ -302,7 +255,7 @@ router.put(
 
     let reopenedCount = 0;
     if (task.status !== 'cancelled') {
-      reopenedCount = await reopenCompletedAssignmentsByTaskScope({
+      reopenedCount = await reopenCompletedAssignmentsByScope({
         scopeType: task.scopeType,
         sector: task.sector,
         minAmount: task.minAmount,

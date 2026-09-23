@@ -51,6 +51,8 @@ const clearedAtToYmd = (raw) => {
   return d.toISOString().split('T')[0];
 };
 
+const isValidYmd = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+
 /** Stable string key per unpresented row (Dr/Cr on same voucher must differ). */
 const rowKey = (txn) => String(txn?._id ?? '');
 
@@ -272,15 +274,28 @@ export default function BankReconciliation() {
 
   const load = useCallback(async () => {
     if (!filters.bankAccountId) return;
-    setData(null); // Clear old data to force loading spinner
+
+    const asOfDate = String(filters.asOfDate || '').trim();
+    const fromDate = String(filters.fromDate || '').trim();
+    const toDate = String(filters.toDate || '').trim();
+
+    if (!isValidYmd(asOfDate) || !isValidYmd(fromDate) || !isValidYmd(toDate)) {
+      setError('Please enter valid As of / From / To dates.');
+      return;
+    }
+    if (fromDate > toDate) {
+      setError('Date From cannot be after Date To.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
       const params = {
         accountId: filters.bankAccountId,
-        asOfDate: filters.asOfDate,
-        fromDate: filters.fromDate,
-        toDate: filters.toDate,
+        asOfDate,
+        fromDate,
+        toDate,
         _t: new Date().getTime() // Cache buster
       };
       const res = await api.get('/finance/reports/bank-reconciliation', { params });
@@ -318,11 +333,14 @@ export default function BankReconciliation() {
     loadBankAccounts();
   }, [loadBankAccounts, selectedCompanyId]);
 
+  // Only auto-load when the bank account changes. Date fields apply via
+  // Generate / Filter so typing or picking dates does not wipe the screen.
   useEffect(() => {
     if (filters.bankAccountId) {
       load();
     }
-  }, [filters.bankAccountId, filters.asOfDate, filters.fromDate, filters.toDate, load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.bankAccountId]);
 
   useFinanceCompanyReload(() => {
     loadBankAccounts();
@@ -514,9 +532,23 @@ export default function BankReconciliation() {
               type="date"
               size="small"
               value={filters.asOfDate}
-              onChange={e => setFilters({ ...filters, asOfDate: e.target.value })}
+              onChange={(e) => {
+                const asOfDate = e.target.value;
+                setFilters((prev) => ({
+                  ...prev,
+                  asOfDate,
+                  // Keep period end aligned with as-of when user had them in sync
+                  toDate: prev.toDate === prev.asOfDate ? asOfDate : prev.toDate
+                }));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  load();
+                }
+              }}
               InputLabelProps={{ shrink: true }}
-              helperText="Applies to Ledger Balance & Unpresented Cheques"
+              helperText="Then click Generate — applies to ledger & unpresented"
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -525,7 +557,7 @@ export default function BankReconciliation() {
               variant="contained"
               startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <SearchIcon />}
               onClick={load}
-              disabled={loading}
+              disabled={loading || !filters.bankAccountId}
               sx={{ height: 40 }}
             >
               Generate Reconciliation
@@ -832,14 +864,19 @@ export default function BankReconciliation() {
                 type="date"
                 size="small"
                 value={filters.fromDate}
-                onChange={e => {
-                  const newFrom = e.target.value;
-                  setFilters(prev => ({
+                onChange={(e) => {
+                  const fromDate = e.target.value;
+                  setFilters((prev) => ({
                     ...prev,
-                    fromDate: newFrom,
-                    // Auto-push toDate forward if it's before the new fromDate
-                    toDate: prev.toDate < newFrom ? newFrom : prev.toDate
+                    fromDate,
+                    toDate: prev.toDate && fromDate && prev.toDate < fromDate ? fromDate : prev.toDate
                   }));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    load();
+                  }
                 }}
                 InputLabelProps={{ shrink: true }}
                 sx={{ width: 160 }}
@@ -849,11 +886,25 @@ export default function BankReconciliation() {
                 type="date"
                 size="small"
                 value={filters.toDate}
-                onChange={e => setFilters({ ...filters, toDate: e.target.value })}
+                onChange={(e) => setFilters((prev) => ({ ...prev, toDate: e.target.value }))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    load();
+                  }
+                }}
                 InputLabelProps={{ shrink: true }}
+                inputProps={{ min: filters.fromDate || undefined }}
                 sx={{ width: 160 }}
               />
-              <Button variant="outlined" size="small" startIcon={<SearchIcon />} onClick={load} sx={{ height: 40 }}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
+                onClick={load}
+                disabled={loading || !filters.bankAccountId}
+                sx={{ height: 40 }}
+              >
                 Filter
               </Button>
             </Stack>

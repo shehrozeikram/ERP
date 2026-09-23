@@ -163,10 +163,11 @@ export function buildRecoveryAssignmentRows(rules = [], tasks = []) {
       targetCount: t.targetCount,
       rule: null,
       task: t,
-      monthYear: getRecoveryMonthYearKey(t.createdAt || t.startDate) || '_other',
+      // Group by task period (startDate), not create date — so July work stays under July
+      monthYear: getRecoveryMonthYearKey(t.startDate || t.createdAt) || '_other',
       assignedBy: getRecoveryCreatedByName(t),
       assignedDate: formatRecoveryAssignedDate(t.createdAt),
-      sortAt: new Date(t.createdAt || t.startDate || 0).getTime()
+      sortAt: new Date(t.startDate || t.createdAt || 0).getTime()
     }))
   ];
 

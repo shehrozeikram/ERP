@@ -6,8 +6,8 @@ const RecoveryTaskAssignmentRule = require('../models/finance/RecoveryTaskAssign
 const RecoveryMember = require('../models/finance/RecoveryMember');
 const RecoveryAssignment = require('../models/finance/RecoveryAssignment');
 const {
-  REOPEN_FROM_STATUSES,
-  unassignOrphanedAssignmentsByScope
+  unassignOrphanedAssignmentsByScope,
+  reopenCompletedAssignmentsByScope
 } = require('../utils/recoveryAssignmentUnassign');
 
 const router = express.Router();
@@ -33,19 +33,6 @@ function buildRuleScopeQuery({ type, sector, minAmount, maxAmount }) {
     query.currentlyDue = max != null ? { $gte: min, $lt: max } : { $gte: min };
   }
   return query;
-}
-
-async function reopenCompletedAssignmentsByRuleScope({ type, sector, minAmount, maxAmount }) {
-  const scopeQuery = buildRuleScopeQuery({ type, sector, minAmount, maxAmount });
-  const query = { ...scopeQuery, taskStatus: { $in: REOPEN_FROM_STATUSES } };
-  const result = await RecoveryAssignment.updateMany(
-    query,
-    {
-      $set: { taskStatus: 'pending' },
-      $unset: { taskCompletedAt: '', taskCompletedBy: '' }
-    }
-  );
-  return result?.modifiedCount || 0;
 }
 
 async function countCompletedAssignmentsByRuleScope({ type, sector, minAmount, maxAmount }) {
@@ -199,8 +186,8 @@ router.post(
       { path: 'assignedTo', populate: { path: 'employee', select: 'firstName lastName employeeId' } }
     ]);
 
-    // Re-open previously completed records if this scope is assigned again.
-    const reopenedCount = await reopenCompletedAssignmentsByRuleScope({
+    // Re-open previously completed records if this scope is assigned again (history preserved).
+    const reopenedCount = await reopenCompletedAssignmentsByScope({
       type: rule.type,
       sector: rule.sector,
       minAmount: rule.minAmount,
@@ -251,7 +238,7 @@ router.put(
 
     let reopenedCount = 0;
     if (rule.isActive && rule.status !== 'cancelled') {
-      reopenedCount = await reopenCompletedAssignmentsByRuleScope({
+      reopenedCount = await reopenCompletedAssignmentsByScope({
         type: rule.type,
         sector: rule.sector,
         minAmount: rule.minAmount,

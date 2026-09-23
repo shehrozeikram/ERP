@@ -72,13 +72,13 @@ const MyRecoveryAssignmentsTable = ({
           onClick={onSelectAll}
         />
       </Box>
-      {monthKeys.map((key, index) => {
+      {monthKeys.map((key) => {
         const monthRows = grouped[key];
         const label = formatRecoveryMonthYearLabel(key);
         return (
           <Accordion
             key={key}
-            defaultExpanded={index === 0}
+            defaultExpanded
             disableGutters
             sx={{ '&:before': { display: 'none' }, boxShadow: 0, border: '1px solid', borderColor: 'divider', '& + &': { mt: 0.5 } }}
           >
