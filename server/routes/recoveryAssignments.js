@@ -106,7 +106,7 @@ function buildMyTasksStatusClause(recoveryTaskFilter) {
   };
 }
 
-function resolveAssignedMember(record, sectorRules = [], slabRules = [], recoveryTasks = []) {
+function resolveAssignedMember(record, sectorRules = [], slabRules = [], recoveryTasks = [], forcedAction = null) {
   const sector = normalizeSectorValue(record.sector);
   const due = Number(record.currentlyDue) || 0;
   const actionFromRule = (rule) => rule.action && ['whatsapp', 'call', 'both'].includes(rule.action) ? rule.action : 'both';
@@ -115,6 +115,7 @@ function resolveAssignedMember(record, sectorRules = [], slabRules = [], recover
   if (Array.isArray(recoveryTasks) && recoveryTasks.length > 0) {
     const matchedTask = recoveryTasks.find((t) => {
       if (!t.assignedTo) return false;
+      if (t.status === 'completed' || t.status === 'cancelled') return false;
       const tSector = normalizeSectorValue(t.sector);
       if (t.scopeType === 'sector') {
         return !tSector || tSector === sector;
@@ -138,7 +139,7 @@ function resolveAssignedMember(record, sectorRules = [], slabRules = [], recover
             name: [matchedTask.createdBy.firstName, matchedTask.createdBy.lastName].filter(Boolean).join(' ').trim() || matchedTask.createdBy.email
           }
         : null;
-      return { _id: matchedTask.assignedTo._id, name: name || '—', action: actionFromRule(matchedTask), assignedBy: createdBy, taskTitle: matchedTask.title };
+      return { _id: matchedTask.assignedTo._id, name: name || '—', action: forcedAction || actionFromRule(matchedTask), assignedBy: createdBy, taskTitle: matchedTask.title };
     }
   }
 
@@ -156,7 +157,7 @@ function resolveAssignedMember(record, sectorRules = [], slabRules = [], recover
           name: [sectorRule.createdBy.firstName, sectorRule.createdBy.lastName].filter(Boolean).join(' ').trim() || sectorRule.createdBy.email
         }
       : null;
-    return { _id: sectorRule.assignedTo._id, name: name || '—', action: actionFromRule(sectorRule), assignedBy: createdBy };
+    return { _id: sectorRule.assignedTo._id, name: name || '—', action: forcedAction || actionFromRule(sectorRule), assignedBy: createdBy };
   }
 
   // 3. Check slab rules
@@ -176,7 +177,7 @@ function resolveAssignedMember(record, sectorRules = [], slabRules = [], recover
           name: [slabRule.createdBy.firstName, slabRule.createdBy.lastName].filter(Boolean).join(' ').trim() || slabRule.createdBy.email
         }
       : null;
-    return { _id: slabRule.assignedTo._id, name: name || '—', action: actionFromRule(slabRule), assignedBy: createdBy };
+    return { _id: slabRule.assignedTo._id, name: name || '—', action: forcedAction || actionFromRule(slabRule), assignedBy: createdBy };
   }
 
   return null;
@@ -438,10 +439,15 @@ router.get(
         }
       });
 
+      let forcedAction = null;
+      if (recoveryTaskFilter?.task) {
+        forcedAction = recoveryTaskFilter.task.action && ['whatsapp', 'call', 'both'].includes(recoveryTaskFilter.task.action) ? recoveryTaskFilter.task.action : 'both';
+      }
       if (recoveryRuleId && String(recoveryRuleId).trim()) {
         const targetRule = allRules.find((r) => String(r._id) === String(recoveryRuleId).trim()) ||
           await RecoveryTaskAssignmentRule.findById(String(recoveryRuleId).trim()).lean();
         if (targetRule) {
+          forcedAction = targetRule.action && ['whatsapp', 'call', 'both'].includes(targetRule.action) ? targetRule.action : 'both';
           orConditions.length = 0; // Clear other conditions
           if (targetRule.type === 'sector') {
             const sReg = sectorExactRegex(String(targetRule.sector || '').trim());
@@ -515,7 +521,7 @@ router.get(
 
       const data = await decorateWithERPData(records.map((r) => ({
         ...r,
-        assignedToMember: resolveAssignedMember(r, sectorRulesAll, slabRulesAll, allTasks)
+        assignedToMember: resolveAssignedMember(r, sectorRulesAll, slabRulesAll, allTasks, forcedAction)
       })));
 
       return res.json({
@@ -618,10 +624,15 @@ router.get(
       }
     });
 
+    let forcedAction = null;
+    if (recoveryTaskFilter?.task) {
+      forcedAction = recoveryTaskFilter.task.action && ['whatsapp', 'call', 'both'].includes(recoveryTaskFilter.task.action) ? recoveryTaskFilter.task.action : 'both';
+    }
     if (recoveryRuleId && String(recoveryRuleId).trim()) {
       const targetRule = rules.find((r) => String(r._id) === String(recoveryRuleId).trim()) ||
         await RecoveryTaskAssignmentRule.findById(String(recoveryRuleId).trim()).lean();
       if (targetRule) {
+        forcedAction = targetRule.action && ['whatsapp', 'call', 'both'].includes(targetRule.action) ? targetRule.action : 'both';
         orConditions.length = 0; // Clear other conditions
         if (targetRule.type === 'sector') {
           const sReg = sectorExactRegex(String(targetRule.sector || '').trim());
@@ -697,7 +708,7 @@ router.get(
     const slabRules = slabRulesAll;
     const data = await decorateWithERPData(records.map((r) => ({
       ...r,
-      assignedToMember: resolveAssignedMember(r, sectorRules, slabRules, allTasksAll)
+      assignedToMember: resolveAssignedMember(r, sectorRules, slabRules, allTasksAll, forcedAction)
     })));
 
     res.json({
