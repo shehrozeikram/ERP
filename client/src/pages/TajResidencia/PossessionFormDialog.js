@@ -101,7 +101,17 @@ const toRegistryObjectId = (val) => {
 const linesFromRegistry = (registry, registryId, mozaKhasras = [], possessedTotals = {}) => {
   if (!registry?.lines?.length) return [emptyLine()];
   return registry.lines.map((line) => {
-    const entryId = khasraEntryId(line.khasraEntry);
+    let entryId = khasraEntryId(line.khasraEntry);
+    if (!entryId && line.khasraNo) {
+      const cleanKhasra = String(line.khasraNo).trim().toLowerCase();
+      const cleanKhewat = String(line.khewatNo || '').trim().toLowerCase();
+      const matched = mozaKhasras.find((k) => {
+        const kKhasra = String(k.khasraNo || '').trim().toLowerCase();
+        const kKhewat = String(k.khewatNo || '').trim().toLowerCase();
+        return kKhasra === cleanKhasra && (!cleanKhewat || kKhewat === cleanKhewat);
+      }) || mozaKhasras.find((k) => String(k.khasraNo || '').trim().toLowerCase() === cleanKhasra);
+      if (matched) entryId = String(matched._id);
+    }
     const fields = resolveKhasraFields(entryId, mozaKhasras, line);
     const registeredArea = areaToForm(line.acquiredArea || {});
     const entry = mozaKhasras.find((k) => String(k._id) === String(entryId));

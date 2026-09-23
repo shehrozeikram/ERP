@@ -121,8 +121,8 @@ const PartiesViewer = () => {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !form.cnic.trim() || !form.phoneNumber.trim() || !form.partyDate) {
-      toast.error('Name, CNIC, phone number, and date are required');
+    if (!form.partyDate) {
+      toast.error('Date is required');
       return;
     }
 
@@ -278,7 +278,6 @@ const PartiesViewer = () => {
               label="Name"
               value={form.name}
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-              required
               fullWidth
             />
             <TextField
@@ -286,7 +285,6 @@ const PartiesViewer = () => {
               value={form.cnic}
               onChange={(e) => setForm((prev) => ({ ...prev, cnic: e.target.value }))}
               placeholder="12345-1234567-1"
-              required
               fullWidth
             />
             <TextField
@@ -294,7 +292,6 @@ const PartiesViewer = () => {
               value={form.phoneNumber}
               onChange={(e) => setForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
               placeholder="03xx-xxxxxxx"
-              required
               fullWidth
             />
           </Stack>

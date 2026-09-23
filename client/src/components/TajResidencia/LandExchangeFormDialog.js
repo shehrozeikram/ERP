@@ -127,6 +127,40 @@ export default function LandExchangeFormDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+
+  // Add Party State
+  const [addPartyDialogOpen, setAddPartyDialogOpen] = useState(false);
+  const [addPartyForm, setAddPartyForm] = useState({ name: '', cnic: '', phoneNumber: '', partyDate: new Date().toISOString().slice(0, 10) });
+  const [addingParty, setAddingParty] = useState(false);
+
+  const handleAddPartySave = async () => {
+    if (!addPartyForm.partyDate) {
+      toast.error('Date is required');
+      return;
+    }
+    try {
+      setAddingParty(true);
+      const payload = {
+        partyType: 'seller',
+        name: addPartyForm.name.trim(),
+        cnic: addPartyForm.cnic.trim(),
+        phoneNumber: addPartyForm.phoneNumber.trim(),
+        partyDate: addPartyForm.partyDate
+      };
+      const res = await landAcquisitionPartyService.createParty(payload);
+      toast.success('Party registered successfully');
+      setAddPartyDialogOpen(false);
+      await loadResources();
+      if (res.data?.data?._id || res.data?._id) {
+        setParty(res.data?.data || res.data);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add party');
+    } finally {
+      setAddingParty(false);
+    }
+  };
+
   // Dropdown data
   const [parties, setParties] = useState([]);
   const [mozas, setMozas] = useState([]);
@@ -787,18 +821,31 @@ export default function LandExchangeFormDialog({
                 <Grid item xs={12} sm={3}>
                   <Autocomplete
                     size="small"
-                    options={parties}
+                    options={[{ _id: 'ADD_NEW', name: '+ Add New Party', isAddNew: true }, ...parties]}
                     getOptionLabel={(p) => {
                       if (!p) return '';
                       if (typeof p === 'string') return p;
+                      if (p.isAddNew) return p.name;
                       const parts = [p.name];
                       if (p.cnic) parts.push(`(${p.cnic})`);
                       if (p.partyType) parts.push(`[${p.partyType}]`);
                       return parts.join(' ');
                     }}
                     value={parties.find((p) => String(p._id) === String(party?._id || party)) || party || null}
-                    onChange={(_, val) => setParty(val)}
+                    onChange={(_, val) => {
+                      if (val?.isAddNew) {
+                        setAddPartyForm({ name: '', cnic: '', phoneNumber: '', partyDate: new Date().toISOString().slice(0, 10) });
+                        setAddPartyDialogOpen(true);
+                      } else {
+                        setParty(val);
+                      }
+                    }}
                     isOptionEqualToValue={(option, value) => String(option._id) === String(value?._id || value)}
+                    renderOption={(props, option) => (
+                      <li {...props} style={option.isAddNew ? { fontWeight: 'bold', color: '#1976d2', borderBottom: '1px solid #eee' } : {}}>
+                        {option.name} {option.cnic ? `(${option.cnic})` : ''} {option.partyType ? `[${option.partyType}]` : ''}
+                      </li>
+                    )}
                     renderInput={(params) => (
                       <TextField
                         {...params}
@@ -1588,6 +1635,50 @@ export default function LandExchangeFormDialog({
           {submitting ? <CircularProgress size={22} color="inherit" /> : exchangeId ? 'Update Exchange' : 'Save Exchange Record'}
         </Button>
       </DialogActions>
+
+      <Dialog open={addPartyDialogOpen} onClose={() => !addingParty && setAddPartyDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Add New Party</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <TextField
+              label="Date"
+              type="date"
+              value={addPartyForm.partyDate}
+              onChange={(e) => setAddPartyForm((prev) => ({ ...prev, partyDate: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+              required
+              fullWidth
+            />
+            <TextField
+              label="Name"
+              value={addPartyForm.name}
+              onChange={(e) => setAddPartyForm((prev) => ({ ...prev, name: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="CNIC"
+              value={addPartyForm.cnic}
+              onChange={(e) => setAddPartyForm((prev) => ({ ...prev, cnic: e.target.value }))}
+              placeholder="12345-1234567-1"
+              fullWidth
+            />
+            <TextField
+              label="Phone Number"
+              value={addPartyForm.phoneNumber}
+              onChange={(e) => setAddPartyForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+              placeholder="03xx-xxxxxxx"
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddPartyDialogOpen(false)} disabled={addingParty}>Cancel</Button>
+          <Button variant="contained" onClick={handleAddPartySave} disabled={addingParty}>
+            {addingParty ? 'Saving...' : 'Save Party'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }
+

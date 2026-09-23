@@ -564,6 +564,8 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
   // Synthesize In Land exchange records into legal acquisition entries
   const exchangeInRows = [];
   activeExchanges.forEach((exc) => {
+    const groupedLines = {};
+
     (exc.inLandLines || []).forEach((inL, idx) => {
       const inMozaId = String(inL.moza?._id || inL.moza || exc.moza?._id || exc.moza || '');
       if (filter.moza && inMozaId !== String(filter.moza)) {
@@ -605,41 +607,58 @@ router.get('/registries', authMiddleware, asyncHandler(async (req, res) => {
       const exchangedOutArea = addAreas(...matchingOutAreas);
       const netRemainingArea = subtractAreas(inArea, exchangedOutArea);
 
-      exchangeInRows.push({
-        _id: excInId,
-        isExchangeIn: true,
-        exchangeId: exc._id,
-        exchangeRef: exc.exchangeRef,
-        dealNo: exc.dealNo,
-        registryDate: exc.exchangeDate,
-        moza: inL.moza || exc.moza,
+      const groupKey = `${regNo}|${inteqalNo}`;
+      if (!groupedLines[groupKey]) {
+        groupedLines[groupKey] = {
+          _id: `exchange-in-${exc._id}-${regNo.replace(/[^a-zA-Z0-9]/g, '')}`,
+          isExchangeIn: true,
+          exchangeId: exc._id,
+          exchangeRef: exc.exchangeRef,
+          dealNo: exc.dealNo,
+          registryDate: exc.exchangeDate,
+          moza: inL.moza || exc.moza,
+          khewatNos: new Set(),
+          registryNo: regNo,
+          inteqalNo,
+          seller: exc.party,
+          purchaser: { name: 'Taj Residencia (Exchange In)' },
+          dealer: null,
+          totalArea: { kanal: 0, marla: 0, sarsai: 0 },
+          exchangedOutArea: { kanal: 0, marla: 0, sarsai: 0 },
+          netRemainingArea: { kanal: 0, marla: 0, sarsai: 0 },
+          lines: [],
+          registryDocAttachments: (exc.attachments || []).map((att) => ({
+            ...att,
+            originalName: att.originalName || `Exchange Doc (${exc.exchangeRef})`
+          })),
+          inteqalDocAttachments: []
+        };
+      }
+
+      const grp = groupedLines[groupKey];
+      grp.khewatNos.add(khewatNo);
+      grp.totalArea = addAreas(grp.totalArea, inArea);
+      grp.exchangedOutArea = addAreas(grp.exchangedOutArea, exchangedOutArea);
+      grp.netRemainingArea = addAreas(grp.netRemainingArea, netRemainingArea);
+      
+      grp.lines.push({
+        _id: inL._id || `in-line-${idx}`,
         khewatNo,
-        registryNo: regNo,
-        inteqalNo,
-        seller: exc.party,
-        purchaser: { name: 'Taj Residencia (Exchange In)' },
-        dealer: null,
-        totalArea: inArea,
+        khasraNo,
+        khasraArea: inL.khasraArea || inArea,
+        acquiredArea: inArea,
+        landWithMalkiyat: inArea,
+        transferPercent: 100,
         exchangedOutArea,
         netRemainingArea,
-        lines: [{
-          _id: inL._id || `in-line-${idx}`,
-          khewatNo,
-          khasraNo,
-          khasraArea: inL.khasraArea || inArea,
-          acquiredArea: inArea,
-          landWithMalkiyat: inArea,
-          transferPercent: 100,
-          exchangedOutArea,
-          netRemainingArea,
-          remarks: inL.remarks || `Acquired via Land Exchange ${exc.exchangeRef}`
-        }],
-        registryDocAttachments: (exc.attachments || []).map((att) => ({
-          ...att,
-          originalName: att.originalName || `Exchange Doc (${exc.exchangeRef})`
-        })),
-        inteqalDocAttachments: []
+        remarks: inL.remarks || `Acquired via Land Exchange ${exc.exchangeRef}`
       });
+    });
+
+    Object.values(groupedLines).forEach(grp => {
+      grp.khewatNo = Array.from(grp.khewatNos).join(', ');
+      delete grp.khewatNos;
+      exchangeInRows.push(grp);
     });
   });
 

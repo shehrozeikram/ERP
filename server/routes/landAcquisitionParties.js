@@ -45,19 +45,13 @@ const validatePartyPayload = (body, { requireType = false } = {}) => {
     throw err;
   }
 
-  if (!name) {
-    const err = new Error('Name is required');
-    err.status = 400;
-    throw err;
-  }
-
-  if (!isValidCnic(cnic)) {
+  if (cnic && !isValidCnic(cnic)) {
     const err = new Error('CNIC must be 13 digits (e.g. 12345-1234567-1)');
     err.status = 400;
     throw err;
   }
 
-  if (!isValidPhone(phoneNumber)) {
+  if (phoneNumber && !isValidPhone(phoneNumber)) {
     const err = new Error('Phone number must be 10 to 13 digits');
     err.status = 400;
     throw err;

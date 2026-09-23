@@ -11,18 +11,18 @@ const landPartySchema = new mongoose.Schema({
   },
   name: {
     type: String,
-    required: true,
+    required: false,
     trim: true,
     maxlength: 200
   },
   cnic: {
     type: String,
-    required: true,
+    required: false,
     trim: true
   },
   phoneNumber: {
     type: String,
-    required: true,
+    required: false,
     trim: true,
     maxlength: 20
   },
@@ -47,7 +47,7 @@ const landPartySchema = new mongoose.Schema({
 
 landPartySchema.index(
   { partyType: 1, cnic: 1 },
-  { unique: true, partialFilterExpression: { isActive: true } }
+  { unique: true, partialFilterExpression: { isActive: true, cnic: { $type: "string", $ne: "" } } }
 );
 
 landPartySchema.index({ partyType: 1, name: 1 });
