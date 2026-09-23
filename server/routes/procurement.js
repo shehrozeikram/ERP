@@ -1262,32 +1262,55 @@ router.put('/purchase-orders/:id', [
     });
   }
 
-  // If items are being updated, recalculate amounts
-  if (req.body.items) {
-    req.body.items = req.body.items.map(item => ({
-      ...item,
-      amount: (item.quantity * item.unitPrice) - (item.discount || 0) + ((item.quantity * item.unitPrice - (item.discount || 0)) * (item.taxRate || 0) / 100)
-    }));
-  }
-
-  const bodyData = { ...req.body };
-  if (bodyData.costCenter === '') bodyData.costCenter = null;
-
   const isResubmissionFromReject = purchaseOrder.status === 'Rejected';
 
-  Object.assign(purchaseOrder, bodyData);
-  purchaseOrder.updatedBy = req.user.id;
-  
   if (isResubmissionFromReject) {
-    purchaseOrder.status = 'Pending Audit';
+    // Only allow updating rejection answers and documents
+    if (req.body.auditRejectObservations) {
+      purchaseOrder.auditRejectObservations = req.body.auditRejectObservations;
+    }
+    if (req.body.ceoRejectionAnswer) {
+      purchaseOrder.ceoRejectionAnswer = req.body.ceoRejectionAnswer;
+      purchaseOrder.ceoRejectionAnsweredBy = req.user.id;
+      purchaseOrder.ceoRejectionAnsweredAt = new Date();
+    }
+    if (req.body.indentFile !== undefined) {
+      purchaseOrder.indentFile = req.body.indentFile;
+    }
+    if (req.body.comparativeStatementFile !== undefined) {
+      purchaseOrder.comparativeStatementFile = req.body.comparativeStatementFile;
+    }
+    
+    // Find the status it was rejected FROM
+    const lastRejectWorkflow = purchaseOrder.workflowHistory.slice().reverse().find(w => w.toStatus === 'Rejected');
+    const nextStatus = (lastRejectWorkflow && lastRejectWorkflow.fromStatus) ? lastRejectWorkflow.fromStatus : 'Pending Approval';
+    
+    purchaseOrder.status = nextStatus;
+    purchaseOrder.updatedBy = req.user.id;
+    
     pushPOWorkflowHistory(
       purchaseOrder,
       'Rejected',
-      'Pending Audit',
+      nextStatus,
       req.user.id,
-      'Edited and resubmitted by creator directly to Pre-Audit',
+      'Resubmitted with answers/documents',
       'Procurement'
     );
+  } else {
+    // Standard update
+    // If items are being updated, recalculate amounts
+    if (req.body.items) {
+      req.body.items = req.body.items.map(item => ({
+        ...item,
+        amount: (item.quantity * item.unitPrice) - (item.discount || 0) + ((item.quantity * item.unitPrice - (item.discount || 0)) * (item.taxRate || 0) / 100)
+      }));
+    }
+
+    const bodyData = { ...req.body };
+    if (bodyData.costCenter === '') bodyData.costCenter = null;
+
+    Object.assign(purchaseOrder, bodyData);
+    purchaseOrder.updatedBy = req.user.id;
   }
 
   await purchaseOrder.save();

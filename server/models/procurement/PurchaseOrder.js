@@ -84,7 +84,13 @@ const purchaseOrderSchema = new mongoose.Schema({
   auditRejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   auditRejectedAt: { type: Date },
   auditRejectionComments: { type: String },
-  auditRejectObservations: [{ observation: String, severity: String }],
+  auditRejectObservations: [{
+    observation: String,
+    severity: String,
+    answer: { type: String, trim: true },
+    answeredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    answeredAt: { type: Date }
+  }],
   // Snapshot of PO items/totals when returned or rejected from audit (for computing change summary on resubmit)
   auditSnapshotAtReturn: { type: mongoose.Schema.Types.Mixed },
   // Human-readable summary of changes made by procurement when resubmitting to audit (e.g. "Quantity of Chairs reduced from 10 to 5")
@@ -98,6 +104,9 @@ const purchaseOrderSchema = new mongoose.Schema({
   ceoRejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   ceoRejectedAt: { type: Date },
   ceoRejectionComments: { type: String },
+  ceoRejectionAnswer: { type: String, trim: true },
+  ceoRejectionAnsweredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  ceoRejectionAnsweredAt: { type: Date },
   ceoReturnedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   ceoReturnedAt: { type: Date },
   ceoReturnComments: { type: String },

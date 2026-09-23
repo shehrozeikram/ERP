@@ -236,6 +236,7 @@ const PurchaseOrders = () => {
   
   // Observation answers when resubmitting to audit
   const [observationAnswers, setObservationAnswers] = useState({});
+  const [ceoAnswer, setCeoAnswer] = useState('');
   
   // Form data
   const [formData, setFormData] = useState({
@@ -480,18 +481,24 @@ const PurchaseOrders = () => {
         technicalDepartment: approvals.technicalDepartment || ''
       });
       // Initialize observation answers if there are observations
+      const answers = {};
       if (fullOrder.auditObservations && fullOrder.auditObservations.length > 0) {
-        const answers = {};
         fullOrder.auditObservations.forEach(obs => {
           if (obs.answer) {
             answers[obs._id] = obs.answer;
           }
         });
-        setObservationAnswers(answers);
-      } else {
-        setObservationAnswers({});
       }
-      
+      if (fullOrder.auditRejectObservations && fullOrder.auditRejectObservations.length > 0) {
+        fullOrder.auditRejectObservations.forEach(obs => {
+          if (obs.answer) {
+            answers[obs._id] = obs.answer;
+          }
+        });
+      }
+      setObservationAnswers(answers);
+      setCeoAnswer(fullOrder.ceoRejectionAnswer || '');
+
       setFormDialog({ open: true, mode: 'edit', data: fullOrder, quotationId: null });
     } catch (err) {
       // Fallback to using the order passed in if fetch fails
@@ -633,7 +640,16 @@ const PurchaseOrders = () => {
       // When editing, ensure status is handled properly
       if (formDialog.mode === 'edit' && formDialog.data) {
         if (formDialog.data.status === 'Rejected') {
-          payload.status = 'Pending Approval';
+          // Pass observation answers specifically for the rejected state
+          if (formDialog.data.auditRejectObservations && formDialog.data.auditRejectObservations.length > 0) {
+            payload.auditRejectObservations = formDialog.data.auditRejectObservations.map(obs => ({
+              ...obs,
+              answer: observationAnswers[obs._id] ? observationAnswers[obs._id].trim() : (obs.answer || '')
+            }));
+          }
+          if (ceoAnswer.trim()) {
+            payload.ceoRejectionAnswer = ceoAnswer.trim();
+          }
         } else if (!payload.status || payload.status === '') {
           payload.status = formDialog.data.status || 'Draft';
         }
@@ -1258,6 +1274,7 @@ const PurchaseOrders = () => {
                 value={formData.vendor}
                 onChange={(e) => setFormData({ ...formData, vendor: e.target.value })}
                 required
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                 helperText={(() => {
                   const sel = vendors.find((v) => v._id === formData.vendor);
                   const val = sel?.ntnCnic || sel?.ntnNo || sel?.cnic;
@@ -1281,6 +1298,7 @@ const PurchaseOrders = () => {
                 label="Company (Optional)"
                 value={formData.company || ''}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                 helperText="Filters available cost centers"
               >
                 <MenuItem value=""><em>All / General</em></MenuItem>
@@ -1298,6 +1316,7 @@ const PurchaseOrders = () => {
                 label="Cost Center"
                 value={formData.costCenter || ''}
                 onChange={(e) => setFormData({ ...formData, costCenter: e.target.value })}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
               >
                 <MenuItem value=""><em>None</em></MenuItem>
                 {filteredCostCenters.map((cc) => (
@@ -1314,6 +1333,7 @@ const PurchaseOrders = () => {
                 label="Priority"
                 value={formData.priority}
                 onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
               >
                 <MenuItem value="Low">Low</MenuItem>
                 <MenuItem value="Medium">Medium</MenuItem>
@@ -1329,6 +1349,7 @@ const PurchaseOrders = () => {
                   label="Status"
                   value={formData.status || 'Draft'}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                 >
                   <MenuItem value="Draft">Draft</MenuItem>
                   <MenuItem value="Pending Audit">Pending Audit</MenuItem>
@@ -1387,12 +1408,92 @@ const PurchaseOrders = () => {
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                         {obs.observation}
                       </Typography>
+                      {obs.answer && (
+                        <Box sx={{ mb: 1.5, p: 1, bgcolor: 'error.light', borderRadius: 1 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+                            Previous Answer:
+                          </Typography>
+                          <Typography variant="body2">
+                            {obs.answer}
+                          </Typography>
+                          {obs.answeredBy && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                              Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
+                              {obs.answeredAt && ` on ${formatDate(obs.answeredAt)}`}
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+                      <TextField
+                        fullWidth
+                        multiline
+                        rows={3}
+                        label={`Your Response to Observation ${index + 1}${obs.answer ? ' (Update existing answer)' : ''}`}
+                        value={observationAnswers[obs._id] || obs.answer || ''}
+                        onChange={(e) => setObservationAnswers(prev => ({
+                          ...prev,
+                          [obs._id]: e.target.value
+                        }))}
+                        placeholder="Provide your response to this rejection observation..."
+                        sx={{ mt: 1 }}
+                      />
                     </Box>
                   ))}
                   {formDialog.data.auditRejectedBy && (
                     <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
                       Rejected by: {formDialog.data.auditRejectedBy?.firstName || ''} {formDialog.data.auditRejectedBy?.lastName || ''}
                       {formDialog.data.auditRejectedAt && ` on ${formatDate(formDialog.data.auditRejectedAt)}`}
+                    </Typography>
+                  )}
+                </Alert>
+              </Grid>
+            )}
+            
+            {/* CEO Rejection Observations - Show in edit mode if PO was rejected by CEO */}
+            {formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected' && formDialog.data?.ceoRejectionComments && (
+              <Grid item xs={12}>
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    CEO Rejection Comments - Please address this issue:
+                  </Typography>
+                  <Box sx={{ mb: 1.5 }}>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                      {formDialog.data.ceoRejectionComments}
+                    </Typography>
+                  </Box>
+                  
+                  {formDialog.data.ceoRejectionAnswer && (
+                    <Box sx={{ mb: 1.5, p: 1, bgcolor: 'error.light', borderRadius: 1 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5 }}>
+                        Previous Answer:
+                      </Typography>
+                      <Typography variant="body2">
+                        {formDialog.data.ceoRejectionAnswer}
+                      </Typography>
+                      {formDialog.data.ceoRejectionAnsweredBy && (
+                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                          Answered by: {formDialog.data.ceoRejectionAnsweredBy?.firstName || ''} {formDialog.data.ceoRejectionAnsweredBy?.lastName || ''}
+                          {formDialog.data.ceoRejectionAnsweredAt && ` on ${formatDate(formDialog.data.ceoRejectionAnsweredAt)}`}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+                  
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={3}
+                    label={`Your Response${formDialog.data.ceoRejectionAnswer ? ' (Update existing answer)' : ''}`}
+                    value={ceoAnswer}
+                    onChange={(e) => setCeoAnswer(e.target.value)}
+                    placeholder="Provide your response to this rejection..."
+                    sx={{ mt: 1 }}
+                  />
+                  
+                  {formDialog.data.ceoRejectedBy && (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
+                      Rejected by: {formDialog.data.ceoRejectedBy?.firstName || ''} {formDialog.data.ceoRejectedBy?.lastName || ''}
+                      {formDialog.data.ceoRejectedAt && ` on ${formatDate(formDialog.data.ceoRejectedAt)}`}
                     </Typography>
                   )}
                 </Alert>
@@ -1487,6 +1588,7 @@ const PurchaseOrders = () => {
                 value={formData.orderDate}
                 onChange={(e) => setFormData({ ...formData, orderDate: e.target.value })}
                 InputLabelProps={{ shrink: true }}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                 required
               />
             </Grid>
@@ -1498,6 +1600,7 @@ const PurchaseOrders = () => {
                 value={formData.expectedDeliveryDate}
                 onChange={(e) => setFormData({ ...formData, expectedDeliveryDate: e.target.value })}
                 InputLabelProps={{ shrink: true }}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                 required
               />
             </Grid>
@@ -1508,6 +1611,7 @@ const PurchaseOrders = () => {
                 value={formData.deliveryAddress || ''}
                 onChange={(e) => setFormData({ ...formData, deliveryAddress: e.target.value })}
                 placeholder="Enter delivery address for this order"
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                 multiline
                 minRows={2}
               />
@@ -1517,9 +1621,11 @@ const PurchaseOrders = () => {
               <Divider sx={{ my: 2 }} />
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h6">Items</Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={addItem}>
-                  Add Item
-                </Button>
+                {!(formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected') && (
+                  <Button size="small" startIcon={<AddIcon />} onClick={addItem}>
+                    Add Item
+                  </Button>
+                )}
               </Box>
               {formData.items.map((item, index) => (
                 <Paper key={index} sx={{ p: 2, mb: 2, bgcolor: alpha(theme.palette.primary.main, 0.02) }}>
@@ -1531,6 +1637,7 @@ const PurchaseOrders = () => {
                         label="Description"
                         value={item.description}
                         onChange={(e) => updateItem(index, 'description', e.target.value)}
+                        disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                         required
                       />
                     </Grid>
@@ -1542,6 +1649,7 @@ const PurchaseOrders = () => {
                         label="Quantity"
                         value={item.quantity}
                         onChange={(e) => updateItem(index, 'quantity', parseFloat(e.target.value))}
+                        disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                         required
                       />
                     </Grid>
@@ -1552,6 +1660,7 @@ const PurchaseOrders = () => {
                         label="Unit"
                         value={item.unit}
                         onChange={(e) => updateItem(index, 'unit', e.target.value)}
+                        disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                         required
                       />
                     </Grid>
@@ -1563,6 +1672,7 @@ const PurchaseOrders = () => {
                         label="Unit Price"
                         value={item.unitPrice}
                         onChange={(e) => updateItem(index, 'unitPrice', parseFloat(e.target.value))}
+                        disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                         required
                       />
                     </Grid>
@@ -1574,6 +1684,7 @@ const PurchaseOrders = () => {
                         label="Tax %"
                         value={item.taxRate}
                         onChange={(e) => updateItem(index, 'taxRate', parseFloat(e.target.value))}
+                        disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                       />
                     </Grid>
                     <Grid item xs={6} md={2}>
@@ -1584,16 +1695,19 @@ const PurchaseOrders = () => {
                         label="Discount"
                         value={item.discount}
                         onChange={(e) => updateItem(index, 'discount', parseFloat(e.target.value))}
+                        disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
                       />
                     </Grid>
                     <Grid item xs={6} md={2}>
-                      <IconButton 
-                        color="error" 
-                        onClick={() => removeItem(index)}
-                        disabled={formData.items.length === 1}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                      {!(formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected') && (
+                        <IconButton 
+                          color="error" 
+                          onClick={() => removeItem(index)}
+                          disabled={formData.items.length === 1}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      )}
                     </Grid>
                   </Grid>
                 </Paper>
@@ -1607,6 +1721,7 @@ const PurchaseOrders = () => {
                 label="Shipping Cost"
                 value={formData.shippingCost}
                 onChange={(e) => setFormData({ ...formData, shippingCost: parseFloat(e.target.value) || 0 })}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
               />
             </Grid>
             <Grid item xs={12} md={4}>
@@ -1616,6 +1731,7 @@ const PurchaseOrders = () => {
                 label="Order Discount"
                 value={formData.orderDiscount}
                 onChange={(e) => setFormData({ ...formData, orderDiscount: parseFloat(e.target.value) || 0 })}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
               />
             </Grid>
             <Grid item xs={12} md={4}>
@@ -1624,6 +1740,7 @@ const PurchaseOrders = () => {
                 label="Payment Terms"
                 value={formData.paymentTerms}
                 onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
+                disabled={formDialog.mode === 'edit' && formDialog.data?.status === 'Rejected'}
               />
             </Grid>
             <Grid item xs={12}>
@@ -1727,7 +1844,7 @@ const PurchaseOrders = () => {
             onClick={handleSubmit}
             disabled={!formData.vendor || !formData.expectedDeliveryDate || formData.items.length === 0}
           >
-            {formDialog.mode === 'create' ? 'Create' : 'Update'}
+            {formDialog.mode === 'create' ? 'Create' : (formDialog.data?.status === 'Rejected' ? 'Resubmit' : 'Update')}
           </Button>
         </DialogActions>
       </Dialog>
