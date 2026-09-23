@@ -156,6 +156,11 @@ router.post(
           action: task.action || 'both',
           createdBy: req.user._id
         });
+      } else if (existingRule.action !== task.action) {
+        await RecoveryTaskAssignmentRule.updateOne(
+          { _id: existingRule._id },
+          { $set: { action: task.action || 'both' } }
+        );
       }
     } catch (e) {
       console.warn('Failed to ensure matching RecoveryTaskAssignmentRule for task', e.message);

@@ -117,7 +117,7 @@ function resolveAssignedMember(record, sectorRules = [], slabRules = [], recover
       if (!t.assignedTo) return false;
       const tSector = normalizeSectorValue(t.sector);
       if (t.scopeType === 'sector') {
-        return tSector === sector;
+        return !tSector || tSector === sector;
       }
       if (t.scopeType === 'slab') {
         const min = Number(t.minAmount) || 0;
@@ -143,7 +143,10 @@ function resolveAssignedMember(record, sectorRules = [], slabRules = [], recover
   }
 
   // 2. Check sector rules
-  const sectorRule = sectorRules.find((r) => normalizeSectorValue(r.sector) === sector);
+  const sectorRule = sectorRules.find((r) => {
+    const rs = normalizeSectorValue(r.sector);
+    return !rs || rs === sector;
+  });
   if (sectorRule && sectorRule.assignedTo) {
     const emp = sectorRule.assignedTo.employee;
     const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || emp.employeeId : (sectorRule.assignedTo.name || '');
