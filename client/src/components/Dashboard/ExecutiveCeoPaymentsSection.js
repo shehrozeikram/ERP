@@ -75,6 +75,16 @@ const ExecutiveCeoPaymentsSection = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  /** Profile digital signature applied automatically on CEO approve/reject/return */
+  const getAutoDigitalSignature = useCallback(() => {
+    return (
+      user?.digitalSignature ||
+      (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : '') ||
+      user?.email ||
+      'CEO'
+    );
+  }, [user]);
+
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
   const [filterTab, setFilterTab] = useState(0); // 0: All, 1: PO, 2: CA, 3: Settlement
@@ -107,18 +117,15 @@ const ExecutiveCeoPaymentsSection = () => {
   const [returnDialog, setReturnDialog] = useState({ open: false, settlement: null });
   const [workflowHistoryDialog, setWorkflowHistoryDialog] = useState({ open: false, settlement: null });
 
-  // Form states for approval/rejection/return
+  // Form states for approval/rejection/return (signature comes from profile automatically)
   const [approvalComments, setApprovalComments] = useState('');
-  const [approvalSignature, setApprovalSignature] = useState('');
   const [approvalAgree, setApprovalAgree] = useState(false);
 
   const [rejectionComments, setRejectionComments] = useState('');
-  const [rejectionSignature, setRejectionSignature] = useState('');
   const [rejectionAgree, setRejectionAgree] = useState(false);
   const [rejectObservations, setRejectObservations] = useState([{ observation: '', severity: 'medium' }]);
 
   const [returnComments, setReturnComments] = useState('');
-  const [returnSignature, setReturnSignature] = useState('');
   const [returnAgree, setReturnAgree] = useState(false);
   const [returnObservations, setReturnObservations] = useState([{ observation: '', severity: 'medium' }]);
 
@@ -883,20 +890,12 @@ const ExecutiveCeoPaymentsSection = () => {
   const openApprove = (item) => {
     setApproveDialog({ open: true, settlement: item });
     setApprovalComments('');
-    setApprovalSignature(
-      user?.digitalSignature ||
-      (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || '')
-    );
     setApprovalAgree(false);
   };
 
   const openReject = (item) => {
     setRejectDialog({ open: true, settlement: item });
     setRejectionComments('');
-    setRejectionSignature(
-      user?.digitalSignature ||
-      (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || '')
-    );
     setRejectionAgree(false);
     setRejectObservations([{ observation: '', severity: 'medium' }]);
   };
@@ -904,10 +903,6 @@ const ExecutiveCeoPaymentsSection = () => {
   const openReturn = (item) => {
     setReturnDialog({ open: true, settlement: item });
     setReturnComments('');
-    setReturnSignature(
-      user?.digitalSignature ||
-      (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || '')
-    );
     setReturnAgree(false);
     setReturnObservations([{ observation: '', severity: 'medium' }]);
   };
@@ -945,13 +940,10 @@ const ExecutiveCeoPaymentsSection = () => {
 
     const isCA = item.isCashApproval;
     const isOnboarding = item.isOnboarding;
-    const effectiveSig =
-      approvalSignature.trim() ||
-      user?.digitalSignature ||
-      (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || 'CEO');
+    const effectiveSig = getAutoDigitalSignature();
 
     if (!isCA && !isOnboarding && !effectiveSig) {
-      toast.error('Please provide digital signature');
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
 
@@ -978,6 +970,7 @@ const ExecutiveCeoPaymentsSection = () => {
         toast.success(`Onboarding ${item.displayRef} approved by CEO!`);
       } else {
         await paymentSettlementService.approvePayment(item._id, {
+          comments: approvalComments || 'Approved by CEO',
           approvalComments: approvalComments || 'Approved by CEO',
           digitalSignature: effectiveSig
         });
@@ -996,11 +989,17 @@ const ExecutiveCeoPaymentsSection = () => {
   const handleRejectSubmit = async () => {
     const item = rejectDialog.settlement;
     const isOnboarding = item?.isOnboarding;
-    if (!rejectionAgree || !rejectionComments.trim() || (!isOnboarding && !rejectionSignature.trim())) {
-      toast.error('Please provide comments, digital signature, and confirmation');
+    if (!rejectionAgree || !rejectionComments.trim()) {
+      toast.error('Please provide comments and confirmation');
       return;
     }
     if (!item) return;
+
+    const effectiveSig = getAutoDigitalSignature();
+    if (!isOnboarding && !effectiveSig) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
+      return;
+    }
 
     setActionLoading(true);
     try {
@@ -1008,25 +1007,25 @@ const ExecutiveCeoPaymentsSection = () => {
       if (item.isPurchaseOrder) {
         await api.put(`/procurement/purchase-orders/${item._id}/ceo-reject`, {
           comments: rejectionComments,
-          digitalSignature: rejectionSignature,
+          digitalSignature: effectiveSig,
           observations: validObs
         });
       } else if (item.isCashApproval) {
         await api.put(`/cash-approvals/${item._id}/ceo-reject`, {
           comments: rejectionComments,
-          digitalSignature: rejectionSignature,
+          digitalSignature: effectiveSig,
           observations: validObs
         });
       } else if (item.isOnboarding) {
         await nonEmployeeService.rejectByCEO(item._id, {
           comments: rejectionComments,
-          signature: rejectionSignature,
+          signature: effectiveSig,
           observations: validObs
         });
       } else {
         await paymentSettlementService.rejectPayment(item._id, {
           comments: rejectionComments,
-          digitalSignature: rejectionSignature,
+          digitalSignature: effectiveSig,
           observations: validObs
         });
       }
@@ -1043,39 +1042,45 @@ const ExecutiveCeoPaymentsSection = () => {
   // Submit Return
   const handleReturnSubmit = async () => {
     const validObs = returnObservations.filter((o) => o.observation.trim());
-    if (!returnAgree || !returnComments.trim() || !returnSignature.trim() || validObs.length === 0) {
-      toast.error('Please provide return comments, at least one observation, digital signature, and agree to confirmation');
+    if (!returnAgree || !returnComments.trim() || validObs.length === 0) {
+      toast.error('Please provide return comments, at least one observation, and agree to confirmation');
       return;
     }
     const item = returnDialog.settlement;
     if (!item) return;
+
+    const effectiveSig = getAutoDigitalSignature();
+    if (!effectiveSig) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
+      return;
+    }
 
     setActionLoading(true);
     try {
       if (item.isPurchaseOrder) {
         await api.put(`/procurement/purchase-orders/${item._id}/ceo-return`, {
           comments: returnComments,
-          digitalSignature: returnSignature,
+          digitalSignature: effectiveSig,
           observations: validObs
         });
       } else if (item.isCashApproval) {
         await api.put(`/cash-approvals/${item._id}/ceo-return`, {
           comments: returnComments,
-          digitalSignature: returnSignature,
+          digitalSignature: effectiveSig,
           observations: validObs
         });
       } else if (item.isOnboarding) {
         await nonEmployeeService.returnByCEO(item._id, {
           comments: returnComments,
-          signature: returnSignature,
+          signature: effectiveSig,
           observations: validObs
         });
       } else {
         await paymentSettlementService.updateWorkflowStatus(item._id, {
-          status: 'Returned from CEO Office',
+          workflowStatus: 'Returned from CEO Office',
           comments: returnComments,
           observations: validObs,
-          digitalSignature: returnSignature
+          digitalSignature: effectiveSig
         });
       }
       toast.success(`${item.itemType} ${item.displayRef} returned with observations`);
@@ -2618,16 +2623,13 @@ const ExecutiveCeoPaymentsSection = () => {
             <strong>{approveDialog.settlement?.displayVendor}</strong>.
           </Typography>
 
-          {!approveDialog.settlement?.isCashApproval && !approveDialog.settlement?.isOnboarding && (
-            <TextField
-              fullWidth
-              label="Digital Signature (Required)"
-              value={approvalSignature}
-              onChange={(e) => setApprovalSignature(e.target.value)}
-              placeholder="Type your name as digital signature"
-              required
-              sx={{ mb: 2 }}
-            />
+          {user?.digitalSignature && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
           )}
 
           <TextField
@@ -2658,11 +2660,7 @@ const ExecutiveCeoPaymentsSection = () => {
             onClick={handleApproveSubmit}
             variant="contained"
             color="success"
-            disabled={
-              actionLoading ||
-              !approvalAgree ||
-              (!approveDialog.settlement?.isCashApproval && !approveDialog.settlement?.isOnboarding && !approvalSignature.trim())
-            }
+            disabled={actionLoading || !approvalAgree}
             startIcon={<CheckCircleIcon />}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Authorize & Approve'}
@@ -2696,15 +2694,13 @@ const ExecutiveCeoPaymentsSection = () => {
             sx={{ mb: 2 }}
           />
 
-          {!rejectDialog.settlement?.isOnboarding && (
-            <TextField
-              fullWidth
-              label="Digital Signature"
-              value={rejectionSignature}
-              onChange={(e) => setRejectionSignature(e.target.value)}
-              required
-              sx={{ mb: 2 }}
-            />
+          {user?.digitalSignature && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
           )}
 
           <FormControlLabel
@@ -2725,7 +2721,7 @@ const ExecutiveCeoPaymentsSection = () => {
             onClick={handleRejectSubmit}
             variant="contained"
             color="error"
-            disabled={actionLoading || !rejectionAgree || !rejectionComments.trim() || (!rejectDialog.settlement?.isOnboarding && !rejectionSignature.trim())}
+            disabled={actionLoading || !rejectionAgree || !rejectionComments.trim()}
             startIcon={<CancelIcon />}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Reject Payment'}
@@ -2820,14 +2816,14 @@ const ExecutiveCeoPaymentsSection = () => {
             </Button>
           </Box>
 
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={returnSignature}
-            onChange={(e) => setReturnSignature(e.target.value)}
-            required
-            sx={{ mb: 2 }}
-          />
+          {user?.digitalSignature && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
+          )}
 
           <FormControlLabel
             control={
@@ -2847,7 +2843,7 @@ const ExecutiveCeoPaymentsSection = () => {
             onClick={handleReturnSubmit}
             variant="contained"
             color="warning"
-            disabled={actionLoading || !returnAgree || !returnComments.trim() || !returnSignature.trim() || returnObservations.filter((o) => o.observation.trim()).length === 0}
+            disabled={actionLoading || !returnAgree || !returnComments.trim() || returnObservations.filter((o) => o.observation.trim()).length === 0}
             startIcon={<WarningIcon />}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Return with Observations'}

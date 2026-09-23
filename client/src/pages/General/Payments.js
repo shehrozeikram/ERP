@@ -84,6 +84,13 @@ const Payments = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
 
+  const getAutoDigitalSignature = () =>
+    user?.digitalSignature ||
+    (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : '') ||
+    user?.email ||
+    'CEO';
+
+
   const getInitialTab = () => {
     const t = searchParams.get('tab');
     if (t === 'forwarded' || t === 'forwarded_to_ceo' || t === '1') return 1;
@@ -115,14 +122,11 @@ const Payments = () => {
   
   // Form states
   const [approvalComments, setApprovalComments] = useState('');
-  const [approvalSignature, setApprovalSignature] = useState('');
   const [approvalAgree, setApprovalAgree] = useState(false);
   const [rejectionComments, setRejectionComments] = useState('');
-  const [rejectionSignature, setRejectionSignature] = useState('');
   const [rejectionAgree, setRejectionAgree] = useState(false);
   const [rejectObservations, setRejectObservations] = useState([{ observation: '', severity: 'medium' }]);
   const [returnComments, setReturnComments] = useState('');
-  const [returnSignature, setReturnSignature] = useState('');
   const [returnAgree, setReturnAgree] = useState(false);
   const [returnObservations, setReturnObservations] = useState([{ observation: '', severity: 'medium' }]);
   const [actionLoading, setActionLoading] = useState(false);
@@ -282,14 +286,12 @@ const Payments = () => {
 
   const openApproveDialog = (settlement) => {
     setApproveDialog({ open: true, settlement });
-    setApprovalSignature(user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : ''));
     setApprovalComments('');
     setApprovalAgree(false);
   };
 
   const openRejectDialog = (settlement) => {
     setRejectDialog({ open: true, settlement });
-    setRejectionSignature(user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : ''));
     setRejectionComments('');
     setRejectionAgree(false);
     setRejectObservations([{ observation: '', severity: 'medium' }]);
@@ -297,7 +299,6 @@ const Payments = () => {
 
   const openReturnDialog = (settlement) => {
     setReturnDialog({ open: true, settlement });
-    setReturnSignature(user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : ''));
     setReturnComments('');
     setReturnAgree(false);
     setReturnObservations([{ observation: '', severity: 'medium' }]);
@@ -312,12 +313,11 @@ const Payments = () => {
     const isForwardedToCeo = approveDialog.settlement?.workflowStatus === 'Forwarded to CEO';
     const isCashApproval = approveDialog.settlement?.isCashApproval;
 
-    if (isForwardedToCeo && !isCashApproval && !approvalSignature.trim()) {
-      toast.error('Please provide your digital signature to approve');
+    const effectiveSignature = getAutoDigitalSignature();
+    if (isForwardedToCeo && !isCashApproval && !effectiveSignature) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
-
-    const effectiveSignature = approvalSignature.trim() || user?.digitalSignature || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || 'CEO');
 
     if (approveDialog.settlement?.isPurchaseOrder) {
       try {
@@ -343,7 +343,6 @@ const Payments = () => {
         }
         setApproveDialog({ open: false, settlement: null });
         setApprovalComments('');
-        setApprovalSignature('');
         setApprovalAgree(false);
         fetchSettlements();
       } catch (error) {
@@ -374,7 +373,6 @@ const Payments = () => {
         }
         setApproveDialog({ open: false, settlement: null });
         setApprovalComments('');
-        setApprovalSignature('');
         setApprovalAgree(false);
         fetchSettlements();
       } catch (error) {
@@ -392,8 +390,8 @@ const Payments = () => {
       
       if (isForwardedToCeo) {
         const response = await paymentSettlementService.approvePayment(approveDialog.settlement._id, {
-          comments: approvalComments || `Approved by CEO with digital signature: ${approvalSignature}`,
-          digitalSignature: approvalSignature
+          comments: approvalComments || 'Approved by CEO',
+          digitalSignature: effectiveSignature
         });
         let successMessage = 'Payment approved successfully';
         if (response.data?.accountsPayableCreated) {
@@ -410,7 +408,6 @@ const Payments = () => {
       
       setApproveDialog({ open: false, settlement: null });
       setApprovalComments('');
-      setApprovalSignature('');
       setApprovalAgree(false);
       fetchSettlements();
     } catch (error) {
@@ -422,8 +419,13 @@ const Payments = () => {
   };
 
   const handleReject = async () => {
-    if (!rejectionAgree || !rejectionSignature.trim() || !rejectionComments.trim()) {
-      toast.error('Please provide comments, digital signature, and agree to terms');
+    if (!rejectionAgree || !rejectionComments.trim()) {
+      toast.error('Please provide comments and agree to terms');
+      return;
+    }
+    const effectiveSignature = getAutoDigitalSignature();
+    if (!effectiveSignature) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
 
@@ -446,13 +448,12 @@ const Payments = () => {
 
         await api.put(endpoint, {
           rejectionComments,
-          digitalSignature: rejectionSignature,
+          digitalSignature: effectiveSignature,
           observations: observations.length > 0 ? observations : undefined
         });
         toast.success('Purchase order rejected successfully');
         setRejectDialog({ open: false, settlement: null });
         setRejectionComments('');
-        setRejectionSignature('');
         setRejectionAgree(false);
         setRejectObservations([{ observation: '', severity: 'medium' }]);
         fetchSettlements();
@@ -476,13 +477,12 @@ const Payments = () => {
         await api.put(endpoint, {
           rejectionComments,
           comments: rejectionComments,
-          digitalSignature: rejectionSignature,
+          digitalSignature: effectiveSignature,
           observations: observations.length > 0 ? observations : undefined
         });
         toast.success('Cash approval rejected successfully');
         setRejectDialog({ open: false, settlement: null });
         setRejectionComments('');
-        setRejectionSignature('');
         setRejectionAgree(false);
         setRejectObservations([{ observation: '', severity: 'medium' }]);
         fetchSettlements();
@@ -502,13 +502,12 @@ const Payments = () => {
       await paymentSettlementService.rejectPayment(rejectDialog.settlement._id, {
         comments: rejectionComments,
         observations: observations.length > 0 ? observations : undefined,
-        digitalSignature: rejectionSignature
+        digitalSignature: effectiveSignature
       });
       
       toast.success('Payment rejected successfully');
       setRejectDialog({ open: false, settlement: null });
       setRejectionComments('');
-      setRejectionSignature('');
       setRejectionAgree(false);
       setRejectObservations([{ observation: '', severity: 'medium' }]);
       fetchSettlements();
@@ -521,8 +520,13 @@ const Payments = () => {
   };
 
   const handleReturn = async () => {
-    if (!returnAgree || !returnSignature.trim() || !returnComments.trim()) {
-      toast.error('Please provide comments, digital signature, and agree to terms');
+    if (!returnAgree || !returnComments.trim()) {
+      toast.error('Please provide comments and agree to terms');
+      return;
+    }
+    const effectiveSignature = getAutoDigitalSignature();
+    if (!effectiveSignature) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
 
@@ -549,13 +553,12 @@ const Payments = () => {
         await api.put(endpoint, {
           returnComments,
           comments: returnComments,
-          digitalSignature: returnSignature,
+          digitalSignature: effectiveSignature,
           observations: observations.length > 0 ? observations : undefined
         });
         toast.success('Purchase order returned with observations to Procurement successfully');
         setReturnDialog({ open: false, settlement: null });
         setReturnComments('');
-        setReturnSignature('');
         setReturnAgree(false);
         setReturnObservations([{ observation: '', severity: 'medium' }]);
         fetchSettlements();
@@ -579,13 +582,12 @@ const Payments = () => {
         await api.put(endpoint, {
           comments: returnComments,
           returnComments,
-          digitalSignature: returnSignature,
+          digitalSignature: effectiveSignature,
           observations: observations.length > 0 ? observations : undefined
         });
         toast.success('Cash approval returned with observations successfully');
         setReturnDialog({ open: false, settlement: null });
         setReturnComments('');
-        setReturnSignature('');
         setReturnAgree(false);
         setReturnObservations([{ observation: '', severity: 'medium' }]);
         fetchSettlements();
@@ -603,8 +605,8 @@ const Payments = () => {
       setError(null);
       
       let returnCommentsText = returnComments;
-      if (returnSignature) {
-        returnCommentsText = `${returnCommentsText} [Digital Signature: ${returnSignature}]`;
+      if (effectiveSignature) {
+        returnCommentsText = `${returnCommentsText} [Digital Signature applied from profile]`;
       }
       
       // Use "Returned from CEO Office" status to indicate it's returned with observations
@@ -616,7 +618,6 @@ const Payments = () => {
       toast.success('Payment returned with observations successfully');
       setReturnDialog({ open: false, settlement: null });
       setReturnComments('');
-      setReturnSignature('');
       setReturnAgree(false);
       setReturnObservations([{ observation: '', severity: 'medium' }]);
       fetchSettlements();
@@ -2794,7 +2795,6 @@ const Payments = () => {
         onClose={() => {
           setApproveDialog({ open: false, settlement: null });
           setApprovalComments('');
-          setApprovalSignature('');
           setApprovalAgree(false);
         }}
         maxWidth="sm"
@@ -2817,17 +2817,13 @@ const Payments = () => {
                 : 'payment settlement'}{' '}
             : <strong>{approveDialog.settlement?.referenceNumber}</strong>
           </Typography>
-
-          {approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' && !approveDialog.settlement?.isCashApproval && (
-            <TextField
-              fullWidth
-              label="Digital Signature (Required)"
-              value={approvalSignature}
-              onChange={(e) => setApprovalSignature(e.target.value)}
-              placeholder="Type your name as digital signature"
-              required
-              sx={{ mb: 2 }}
-            />
+          {approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' && user?.digitalSignature && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
           )}
           
           <TextField
@@ -2867,7 +2863,6 @@ const Payments = () => {
             onClick={() => {
               setApproveDialog({ open: false, settlement: null });
               setApprovalComments('');
-              setApprovalSignature('');
               setApprovalAgree(false);
             }}
           >
@@ -2877,13 +2872,7 @@ const Payments = () => {
             onClick={handleForward}
             variant="contained"
             color={approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' ? 'success' : 'primary'}
-            disabled={
-              actionLoading ||
-              !approvalAgree ||
-              (approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' &&
-                !approveDialog.settlement?.isCashApproval &&
-                !approvalSignature.trim())
-            }
+            disabled={actionLoading || !approvalAgree}
             startIcon={approveDialog.settlement?.workflowStatus === 'Forwarded to CEO' ? <CheckCircleIcon /> : <ArrowForwardIcon />}
           >
             {actionLoading
@@ -2901,7 +2890,6 @@ const Payments = () => {
         onClose={() => {
           setRejectDialog({ open: false, settlement: null });
           setRejectionComments('');
-          setRejectionSignature('');
           setRejectionAgree(false);
           setRejectObservations([{ observation: '', severity: 'medium' }]);
         }}
@@ -2991,16 +2979,14 @@ const Payments = () => {
               Add Observation
             </Button>
           </Box>
-          
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={rejectionSignature}
-            onChange={(e) => setRejectionSignature(e.target.value)}
-            placeholder="Type your name as digital signature"
-            required
-            sx={{ mb: 2 }}
-          />
+          {user?.digitalSignature && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
+          )}
           
           <FormControlLabel
             control={
@@ -3029,7 +3015,6 @@ const Payments = () => {
             onClick={() => {
               setRejectDialog({ open: false, settlement: null });
               setRejectionComments('');
-              setRejectionSignature('');
               setRejectionAgree(false);
               setRejectObservations([{ observation: '', severity: 'medium' }]);
             }}
@@ -3040,7 +3025,7 @@ const Payments = () => {
             onClick={handleReject}
             variant="contained"
             color="error"
-            disabled={actionLoading || !rejectionAgree || !rejectionSignature.trim() || !rejectionComments.trim()}
+            disabled={actionLoading || !rejectionAgree || !rejectionComments.trim()}
             startIcon={<CancelIcon />}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Reject'}
@@ -3054,7 +3039,6 @@ const Payments = () => {
         onClose={() => {
           setReturnDialog({ open: false, settlement: null });
           setReturnComments('');
-          setReturnSignature('');
           setReturnAgree(false);
           setReturnObservations([{ observation: '', severity: 'medium' }]);
         }}
@@ -3150,16 +3134,14 @@ const Payments = () => {
               Add Observation
             </Button>
           </Box>
-          
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={returnSignature}
-            onChange={(e) => setReturnSignature(e.target.value)}
-            placeholder="Type your name as digital signature"
-            required
-            sx={{ mb: 2 }}
-          />
+          {user?.digitalSignature && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
+          )}
           
           <FormControlLabel
             control={
@@ -3188,7 +3170,6 @@ const Payments = () => {
             onClick={() => {
               setReturnDialog({ open: false, settlement: null });
               setReturnComments('');
-              setReturnSignature('');
               setReturnAgree(false);
               setReturnObservations([{ observation: '', severity: 'medium' }]);
             }}
@@ -3200,9 +3181,8 @@ const Payments = () => {
             variant="contained"
             color="warning"
             disabled={
-              actionLoading || 
-              !returnAgree || 
-              !returnSignature.trim() || 
+              actionLoading ||
+              !returnAgree ||
               !returnComments.trim() ||
               returnObservations.every(obs => !obs.observation.trim())
             }

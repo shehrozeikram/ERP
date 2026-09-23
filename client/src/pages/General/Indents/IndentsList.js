@@ -44,6 +44,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
+import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
 import indentService from '../../../services/indentService';
 import paymentSettlementService from '../../../services/paymentSettlementService';
 import api from '../../../services/api';
@@ -54,6 +55,12 @@ const IndentsList = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const getAutoDigitalSignature = () =>
+    user?.digitalSignature ||
+    (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : '') ||
+    user?.email ||
+    'CEO';
+
   const [indents, setIndents] = useState([]);
   const [payments, setPayments] = useState([]);
   const [combinedItems, setCombinedItems] = useState([]);
@@ -73,11 +80,8 @@ const IndentsList = () => {
   const [returnPaymentDialog, setReturnPaymentDialog] = useState({ open: false, payment: null });
   const [paymentActionLoading, setPaymentActionLoading] = useState(false);
   const [approvalComments, setApprovalComments] = useState('');
-  const [approvalSignature, setApprovalSignature] = useState('');
   const [rejectionComments, setRejectionComments] = useState('');
-  const [rejectionSignature, setRejectionSignature] = useState('');
   const [returnComments, setReturnComments] = useState('');
-  const [returnSignature, setReturnSignature] = useState('');
   
   // Pagination state
   const [page, setPage] = useState(0);
@@ -222,8 +226,9 @@ const IndentsList = () => {
 
   // CEO Actions for Payments
   const handleApprovePayment = async () => {
-    if (!approvalSignature.trim()) {
-      toast.error('Please provide digital signature');
+    const effectiveSignature = getAutoDigitalSignature();
+    if (!effectiveSignature) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
 
@@ -232,7 +237,7 @@ const IndentsList = () => {
         setPaymentActionLoading(true);
         const response = await api.put(`/procurement/purchase-orders/${approvePaymentDialog.payment._id}/ceo-approve`, {
           approvalComments,
-          digitalSignature: approvalSignature
+          digitalSignature: effectiveSignature
         });
         let successMessage = 'Purchase order approved successfully';
         if (response.data?.sentToFinance) successMessage = 'Purchase order approved by CEO and sent to Finance (advance/partial advance terms)';
@@ -240,8 +245,7 @@ const IndentsList = () => {
         toast.success(successMessage);
         setApprovePaymentDialog({ open: false, payment: null });
         setApprovalComments('');
-        setApprovalSignature('');
-        loadPayments();
+                loadPayments();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to approve purchase order');
       } finally {
@@ -256,13 +260,12 @@ const IndentsList = () => {
         await api.put(`/cash-approvals/${approvePaymentDialog.payment._id}/ceo-approve`, {
           comments: approvalComments,
           approvalComments,
-          digitalSignature: approvalSignature
+          digitalSignature: effectiveSignature
         });
         toast.success('Cash approval approved by CEO and sent to Finance');
         setApprovePaymentDialog({ open: false, payment: null });
         setApprovalComments('');
-        setApprovalSignature('');
-        loadPayments();
+                loadPayments();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to approve cash approval');
       } finally {
@@ -274,8 +277,8 @@ const IndentsList = () => {
     try {
       setPaymentActionLoading(true);
       const response = await paymentSettlementService.approvePayment(approvePaymentDialog.payment._id, {
-        comments: approvalComments || `Approved by CEO with digital signature: ${approvalSignature}`,
-        digitalSignature: approvalSignature
+        comments: approvalComments || 'Approved by CEO',
+        digitalSignature: effectiveSignature
       });
       
       let successMessage = 'Payment approved successfully';
@@ -286,8 +289,7 @@ const IndentsList = () => {
       toast.success(successMessage);
       setApprovePaymentDialog({ open: false, payment: null });
       setApprovalComments('');
-      setApprovalSignature('');
-      loadPayments();
+            loadPayments();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to approve payment');
     } finally {
@@ -296,8 +298,13 @@ const IndentsList = () => {
   };
 
   const handleRejectPayment = async () => {
-    if (!rejectionSignature.trim() || !rejectionComments.trim()) {
-      toast.error('Please provide comments and digital signature');
+    if (!rejectionComments.trim()) {
+      toast.error('Please provide comments');
+      return;
+    }
+    const effectiveSignature = getAutoDigitalSignature();
+    if (!effectiveSignature) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
 
@@ -306,13 +313,12 @@ const IndentsList = () => {
         setPaymentActionLoading(true);
         await api.put(`/procurement/purchase-orders/${rejectPaymentDialog.payment._id}/ceo-reject`, {
           rejectionComments,
-          digitalSignature: rejectionSignature
+          digitalSignature: effectiveSignature
         });
         toast.success('Purchase order rejected successfully');
         setRejectPaymentDialog({ open: false, payment: null });
         setRejectionComments('');
-        setRejectionSignature('');
-        loadPayments();
+                loadPayments();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to reject purchase order');
       } finally {
@@ -327,13 +333,12 @@ const IndentsList = () => {
         await api.put(`/cash-approvals/${rejectPaymentDialog.payment._id}/ceo-reject`, {
           rejectionComments,
           comments: rejectionComments,
-          digitalSignature: rejectionSignature
+          digitalSignature: effectiveSignature
         });
         toast.success('Cash approval rejected successfully');
         setRejectPaymentDialog({ open: false, payment: null });
         setRejectionComments('');
-        setRejectionSignature('');
-        loadPayments();
+                loadPayments();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to reject cash approval');
       } finally {
@@ -346,13 +351,12 @@ const IndentsList = () => {
       setPaymentActionLoading(true);
       await paymentSettlementService.rejectPayment(rejectPaymentDialog.payment._id, {
         comments: rejectionComments,
-        digitalSignature: rejectionSignature
+        digitalSignature: effectiveSignature
       });
       toast.success('Payment rejected successfully');
       setRejectPaymentDialog({ open: false, payment: null });
       setRejectionComments('');
-      setRejectionSignature('');
-      loadPayments();
+            loadPayments();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to reject payment');
     } finally {
@@ -361,8 +365,13 @@ const IndentsList = () => {
   };
 
   const handleReturnPayment = async () => {
-    if (!returnSignature.trim() || !returnComments.trim()) {
-      toast.error('Please provide objection comments and digital signature');
+    if (!returnComments.trim()) {
+      toast.error('Please provide objection comments');
+      return;
+    }
+    const effectiveSignature = getAutoDigitalSignature();
+    if (!effectiveSignature) {
+      toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
 
@@ -371,13 +380,12 @@ const IndentsList = () => {
         setPaymentActionLoading(true);
         await api.put(`/procurement/purchase-orders/${returnPaymentDialog.payment._id}/ceo-return`, {
           returnComments,
-          digitalSignature: returnSignature
+          digitalSignature: effectiveSignature
         });
         toast.success('Purchase order returned successfully');
         setReturnPaymentDialog({ open: false, payment: null });
         setReturnComments('');
-        setReturnSignature('');
-        loadPayments();
+                loadPayments();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to return purchase order');
       } finally {
@@ -396,8 +404,7 @@ const IndentsList = () => {
         toast.success('Cash approval returned successfully');
         setReturnPaymentDialog({ open: false, payment: null });
         setReturnComments('');
-        setReturnSignature('');
-        loadPayments();
+                loadPayments();
       } catch (error) {
         toast.error(error.response?.data?.message || 'Failed to return cash approval');
       } finally {
@@ -411,13 +418,12 @@ const IndentsList = () => {
       await paymentSettlementService.updateWorkflowStatus(returnPaymentDialog.payment._id, {
         workflowStatus: 'Returned from CEO Office',
         comments: `Returned with objection: ${returnComments}`,
-        digitalSignature: returnSignature
+        digitalSignature: effectiveSignature
       });
       toast.success('Payment returned with objection successfully');
       setReturnPaymentDialog({ open: false, payment: null });
       setReturnComments('');
-      setReturnSignature('');
-      loadPayments();
+            loadPayments();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to return payment');
     } finally {
@@ -954,14 +960,14 @@ const IndentsList = () => {
             onChange={(e) => setApprovalComments(e.target.value)}
             sx={{ mb: 2 }}
           />
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={approvalSignature}
-            onChange={(e) => setApprovalSignature(e.target.value)}
-            placeholder="Type your name as digital signature"
-            required
-          />
+          {user?.digitalSignature && (
+            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setApprovePaymentDialog({ open: false, payment: null })}>Cancel</Button>
@@ -969,7 +975,7 @@ const IndentsList = () => {
             onClick={handleApprovePayment}
             variant="contained"
             color="success"
-            disabled={paymentActionLoading || !approvalSignature.trim()}
+            disabled={paymentActionLoading}
             startIcon={<CheckCircleIcon />}
           >
             {paymentActionLoading ? <CircularProgress size={20} /> : 'Approve'}
@@ -994,14 +1000,14 @@ const IndentsList = () => {
             required
             sx={{ mb: 2 }}
           />
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={rejectionSignature}
-            onChange={(e) => setRejectionSignature(e.target.value)}
-            placeholder="Type your name as digital signature"
-            required
-          />
+          {user?.digitalSignature && (
+            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRejectPaymentDialog({ open: false, payment: null })}>Cancel</Button>
@@ -1009,7 +1015,7 @@ const IndentsList = () => {
             onClick={handleRejectPayment}
             variant="contained"
             color="error"
-            disabled={paymentActionLoading || !rejectionSignature.trim() || !rejectionComments.trim()}
+            disabled={paymentActionLoading || !rejectionComments.trim()}
             startIcon={<CancelIcon />}
           >
             {paymentActionLoading ? <CircularProgress size={20} /> : 'Reject'}
@@ -1035,14 +1041,14 @@ const IndentsList = () => {
             required
             sx={{ mb: 2 }}
           />
-          <TextField
-            fullWidth
-            label="Digital Signature"
-            value={returnSignature}
-            onChange={(e) => setReturnSignature(e.target.value)}
-            placeholder="Type your name as digital signature"
-            required
-          />
+          {user?.digitalSignature && (
+            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                Your profile signature will be applied automatically
+              </Typography>
+              <DigitalSignatureImage userOrPath={user} alt="Your signature" />
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setReturnPaymentDialog({ open: false, payment: null })}>Cancel</Button>
@@ -1050,7 +1056,7 @@ const IndentsList = () => {
             onClick={handleReturnPayment}
             variant="contained"
             color="warning"
-            disabled={paymentActionLoading || !returnSignature.trim() || !returnComments.trim()}
+            disabled={paymentActionLoading || !returnComments.trim()}
             startIcon={<WarningIcon />}
           >
             {paymentActionLoading ? <CircularProgress size={20} /> : 'Return with Objection'}

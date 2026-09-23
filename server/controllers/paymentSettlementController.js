@@ -736,7 +736,9 @@ const updateSettlementStatus = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const updateWorkflowStatus = asyncHandler(async (req, res) => {
   try {
-    const { workflowStatus, comments, digitalSignature, observations } = req.body;
+    // Accept workflowStatus (canonical) or legacy/client alias `status`
+    const workflowStatus = req.body.workflowStatus || req.body.status;
+    const { comments, digitalSignature, observations } = req.body;
 
     if (!workflowStatus) {
       return res.status(400).json({
@@ -931,7 +933,8 @@ const updateWorkflowStatus = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const approveDocument = asyncHandler(async (req, res) => {
   try {
-    const { comments, digitalSignature } = req.body;
+    const { digitalSignature } = req.body;
+    const comments = req.body.comments || req.body.approvalComments;
 
     const settlement = await PaymentSettlement.findById(req.params.id);
     if (!settlement) {
@@ -1098,7 +1101,8 @@ const approveDocument = asyncHandler(async (req, res) => {
 // @access  Private (Admin)
 const rejectDocument = asyncHandler(async (req, res) => {
   try {
-    const { comments, digitalSignature, observations } = req.body;
+    const { digitalSignature, observations } = req.body;
+    const comments = req.body.comments || req.body.rejectionComments || req.body.approvalComments;
 
     if (!comments || comments.trim() === '') {
       return res.status(400).json({
