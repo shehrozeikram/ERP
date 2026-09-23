@@ -662,7 +662,9 @@ const PurchaseOrders = () => {
         await api.put(`/procurement/purchase-orders/${formDialog.data._id}`, payload);
         setSuccess(
           formDialog.data.status === 'Rejected'
-            ? 'Purchase order updated and resubmitted to the reviewer successfully'
+            ? (formDialog.data.ceoRejectionComments || formDialog.data.ceoRejectedAt
+              ? 'Purchase order resubmitted to CEO (prior approval authorities preserved)'
+              : 'Purchase order updated and resubmitted to the reviewer successfully')
             : 'Purchase order updated successfully'
         );
       }

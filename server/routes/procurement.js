@@ -527,21 +527,84 @@ const isAuditReadRole = (user) => {
 
 /** Read-only access to quotations by indent (GET) for exec / audit / procurement / authority approvers */
 const canViewQuotationsByIndentRead = (user, indent) => {
-  if (!user?.id || !indent) return false;
-  if (['super_admin', 'admin', 'developer', 'procurement_manager', 'finance_manager'].includes(user.role)) return true;
+  const uid = user?._id || user?.id;
+  if (!uid || !indent) return false;
+  if (['super_admin', 'admin', 'developer', 'procurement_manager', 'finance_manager', 'hr_manager'].includes(user.role)) return true;
   if (hasProcurementAccess(user)) return true;
   if (canOperateAssignedProcurementRequisition(user, indent)) return true;
   if (isAuditReadRole(user)) return true;
   if (hasFinanceAccess(user)) return true;
   if (user.role === 'higher_management') return true;
+  if (hasCeoSecretariatAccess(user)) return true;
+  const uidStr = String(uid);
   const approverSteps = Array.isArray(indent?.comparativeApproval?.approvers) ? indent.comparativeApproval.approvers : [];
-  const isComparativeApprover = approverSteps.some((step) => String(step?.approver || '') === String(user.id));
+  const isComparativeApprover = approverSteps.some((step) => {
+    const approverId = step?.approver?._id || step?.approver;
+    return String(approverId || '') === uidStr;
+  });
   if (isComparativeApprover) return true;
   const csa = indent?.comparativeStatementApprovals || {};
   const csaUsers = [csa.preparedByUser, csa.verifiedByUser, csa.authorisedRepUser, csa.financeRepUser, csa.managerProcurementUser]
     .map((u) => (u?._id || u)?.toString())
     .filter(Boolean);
-  if (csaUsers.includes(String(user.id))) return true;
+  if (csaUsers.includes(uidStr)) return true;
+  return false;
+};
+
+/** Shared indent populate for PO detail / CEO queue so supporting docs render */
+const purchaseOrderIndentPopulate = {
+  path: 'indent',
+  select:
+    'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes company companyName comparativeStatementApprovals comparativeApproval comparativeApprovals splitPOAssignments approvalChain justification signatures attachments',
+  populate: [
+    { path: 'department', select: 'name code' },
+    { path: 'requestedBy', select: 'firstName lastName email digitalSignature' },
+    { path: 'approvalChain.approver', select: 'firstName lastName email digitalSignature' },
+    { path: 'comparativeApproval.approvers.approver', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeApproval.submittedBy', select: 'firstName lastName email' },
+    { path: 'comparativeApproval.rejectedBy', select: 'firstName lastName email' },
+    { path: 'comparativeApprovals.approvers.approver', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.preparedByUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.verifiedByUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.authorisedRepUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.financeRepUser', select: 'firstName lastName email employeeId digitalSignature' },
+    { path: 'comparativeStatementApprovals.managerProcurementUser', select: 'firstName lastName email employeeId digitalSignature' }
+  ]
+};
+
+const userCanViewPurchaseOrder = async (user, purchaseOrder) => {
+  if (!user || !purchaseOrder) return false;
+  if (
+    [
+      'super_admin',
+      'admin',
+      'developer',
+      'procurement_manager',
+      'finance_manager',
+      'hr_manager',
+      'higher_management',
+      'audit_manager',
+      'auditor',
+      'audit_director'
+    ].includes(user.role)
+  ) {
+    return true;
+  }
+  if (hasCeoSecretariatAccess(user) || hasProcurementAccess(user) || hasFinanceAccess(user) || isAuditReadRole(user)) {
+    return true;
+  }
+  if (hasModuleAccess(user.roleRef, 'procurement') || hasModuleAccess(user.roleRef, 'audit')) return true;
+  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'procurement') || hasModuleAccess(roleDoc, 'audit'))) {
+    return true;
+  }
+  const uid = user._id || user.id;
+  const indentRef = purchaseOrder.indent?._id || purchaseOrder.indent;
+  if (
+    (await isAssignedComparativeAuthorityUser(indentRef, uid)) ||
+    isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, user)
+  ) {
+    return true;
+  }
   return false;
 };
 
@@ -971,6 +1034,9 @@ router.get('/purchase-orders/ceo-secretariat',
     const purchaseOrders = await PurchaseOrder.find(filter)
       .populate('vendor', 'name email phone contactPerson')
       .populate('createdBy', 'firstName lastName email')
+      .populate(purchaseOrderIndentPopulate)
+      .populate('quotation', 'quotationNumber quotationDate')
+      .populate('authorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
       .sort({ updatedAt: -1 })
       .exec();
     res.json({
@@ -982,30 +1048,13 @@ router.get('/purchase-orders/ceo-secretariat',
 
 // @route   GET /api/procurement/purchase-orders/:id
 // @desc    Get purchase order by ID
-// @access  Private (Procurement, Admin, HR, Higher Management, Pre-Audit / Audit roles)
-router.get('/purchase-orders/:id', 
-  authorize('super_admin', 'admin', 'procurement_manager', 'finance_manager', 'hr_manager', 'higher_management', 'audit_manager', 'auditor', 'audit_director'), 
+// @access  Private (Procurement, Admin, HR, Higher Management, Pre-Audit / Audit roles, CEO secretariat)
+router.get('/purchase-orders/:id',
+  authMiddleware,
   asyncHandler(async (req, res) => {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
       .populate('vendor', 'name email phone contactPerson address ntnCnic ntnNo cnic')
-      .populate({
-        path: 'indent',
-        select:
-          'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes comparativeStatementApprovals comparativeApproval splitPOAssignments approvalChain justification signatures attachments',
-        populate: [
-          { path: 'department', select: 'name code' },
-          { path: 'requestedBy', select: 'firstName lastName email digitalSignature' },
-          { path: 'approvalChain.approver', select: 'firstName lastName email digitalSignature' },
-          { path: 'comparativeApproval.approvers.approver', select: 'firstName lastName email employeeId digitalSignature' },
-          { path: 'comparativeApproval.submittedBy', select: 'firstName lastName email' },
-          { path: 'comparativeApproval.rejectedBy', select: 'firstName lastName email' },
-          { path: 'comparativeStatementApprovals.preparedByUser', select: 'firstName lastName email employeeId digitalSignature' },
-          { path: 'comparativeStatementApprovals.verifiedByUser', select: 'firstName lastName email employeeId digitalSignature' },
-          { path: 'comparativeStatementApprovals.authorisedRepUser', select: 'firstName lastName email employeeId digitalSignature' },
-          { path: 'comparativeStatementApprovals.financeRepUser', select: 'firstName lastName email employeeId digitalSignature' },
-          { path: 'comparativeStatementApprovals.managerProcurementUser', select: 'firstName lastName email employeeId digitalSignature' }
-        ]
-      })
+      .populate(purchaseOrderIndentPopulate)
       .populate('quotation', 'quotationNumber quotationDate')
       .populate('createdBy', 'firstName lastName email digitalSignature')
       .populate('approvedBy', 'firstName lastName email digitalSignature')
@@ -1031,6 +1080,13 @@ router.get('/purchase-orders/:id',
       return res.status(404).json({
         success: false,
         message: 'Purchase order not found'
+      });
+    }
+
+    if (!(await userCanViewPurchaseOrder(req.user, purchaseOrder))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view this purchase order'
       });
     }
 
@@ -1280,20 +1336,49 @@ router.put('/purchase-orders/:id', [
     if (req.body.comparativeStatementFile !== undefined) {
       purchaseOrder.comparativeStatementFile = req.body.comparativeStatementFile;
     }
-    
+
     // Find the status it was rejected FROM
-    const lastRejectWorkflow = purchaseOrder.workflowHistory.slice().reverse().find(w => w.toStatus === 'Rejected');
-    const nextStatus = (lastRejectWorkflow && lastRejectWorkflow.fromStatus) ? lastRejectWorkflow.fromStatus : 'Pending Approval';
-    
+    const history = Array.isArray(purchaseOrder.workflowHistory) ? purchaseOrder.workflowHistory : [];
+    const lastRejectWorkflow = [...history].reverse().find((w) => w.toStatus === 'Rejected');
+    const rejectFrom = lastRejectWorkflow?.fromStatus || '';
+    const rejectModule = lastRejectWorkflow?.module || '';
+
+    // CEO / CEO Secretariat reject → return directly to CEO queue.
+    // Do NOT reopen Pending Approval (approval authority must not be asked again).
+    const rejectedByCeo =
+      rejectFrom === 'Forwarded to CEO' ||
+      rejectFrom === 'Send to CEO Office' ||
+      rejectModule === 'CEO Secretariat' ||
+      Boolean(
+        purchaseOrder.ceoRejectedAt &&
+          (!purchaseOrder.auditRejectedAt ||
+            new Date(purchaseOrder.ceoRejectedAt) >= new Date(purchaseOrder.auditRejectedAt))
+      );
+
+    let nextStatus;
+    if (rejectedByCeo) {
+      nextStatus = 'Forwarded to CEO';
+    } else if (
+      rejectFrom === 'Pending Audit' ||
+      rejectFrom === 'Forwarded to Audit Director' ||
+      Boolean(purchaseOrder.auditRejectedAt)
+    ) {
+      nextStatus = 'Pending Audit';
+    } else {
+      nextStatus = rejectFrom || 'Pending Approval';
+    }
+
     purchaseOrder.status = nextStatus;
     purchaseOrder.updatedBy = req.user.id;
-    
+
     pushPOWorkflowHistory(
       purchaseOrder,
       'Rejected',
       nextStatus,
       req.user.id,
-      'Resubmitted with answers/documents',
+      rejectedByCeo
+        ? 'Resubmitted after CEO rejection (prior approval authorities preserved)'
+        : 'Resubmitted with answers/documents',
       'Procurement'
     );
   } else {
@@ -4023,7 +4108,7 @@ router.patch('/delivery-challans/:id/qa',
 // @desc    Get all goods receive records
 // @access  Private (Procurement and Admin)
 router.get('/goods-receive',
-  authorize('super_admin', 'admin', 'procurement_manager', 'audit_manager', 'auditor', 'finance_manager'),
+  authorize('super_admin', 'admin', 'procurement_manager', 'audit_manager', 'auditor', 'finance_manager', 'higher_management', 'hr_manager'),
   asyncHandler(async (req, res) => {
     const { page = 1, limit = 10, search, status, supplier, purchaseOrder, startDate, endDate } = req.query;
     const query = {};

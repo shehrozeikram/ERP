@@ -1596,10 +1596,11 @@ const Payments = () => {
                                                       if (settlement.isPurchaseOrder) {
                                                         try {
                                                           const r = await api.get(`/procurement/purchase-orders/${settlement._id}`);
-                                                          const d = r.data.data;
+                                                          const d = withCeoDocTypeFlags({ ...settlement, ...(r.data?.data || {}) }, { isPurchaseOrder: true });
+                                                          const indentId = d?.indent?._id || d?.indent;
                                                           const [qRes, grnRes] = await Promise.all([
-                                                            d?.indent?._id
-                                                              ? api.get(`/procurement/quotations/by-indent/${d.indent._id}`).catch(() => ({ data: { data: [] } }))
+                                                            indentId
+                                                              ? api.get(`/procurement/quotations/by-indent/${indentId}`).catch(() => ({ data: { data: [] } }))
                                                               : Promise.resolve({ data: { data: [] } }),
                                                             api.get('/procurement/goods-receive', { params: { purchaseOrder: d._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
                                                           ]);
@@ -1607,7 +1608,7 @@ const Payments = () => {
                                                           const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
                                                           const poLinkedDocs = [];
                                                           const pushDocs = (items = [], source = 'Attachment') => {
-                                                            items.forEach((item, idx) => {
+                                                            (items || []).forEach((item, idx) => {
                                                               const url = item?.url || '';
                                                               const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
                                                               if (!name && !url) return;
@@ -1636,7 +1637,25 @@ const Payments = () => {
                                                           });
                                                         } catch (e) {
                                                           console.error('Error fetching purchase order details:', e);
-                                                          setViewDialog({ open: true, settlement, isPurchaseOrder: true, isCashApproval: false, poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+                                                          const fallback = withCeoDocTypeFlags(settlement, { isPurchaseOrder: true });
+                                                          let poQuotations = [];
+                                                          const indentId = fallback?.indent?._id || (typeof fallback?.indent === 'string' ? fallback.indent : null);
+                                                          if (indentId) {
+                                                            try {
+                                                              const qRes = await api.get(`/procurement/quotations/by-indent/${indentId}`);
+                                                              poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+                                                            } catch (_) { /* ignore */ }
+                                                          }
+                                                          setViewDialog({
+                                                            open: true,
+                                                            settlement: fallback,
+                                                            isPurchaseOrder: true,
+                                                            isCashApproval: false,
+                                                            poQuotations,
+                                                            poGrns: [],
+                                                            poLinkedDocs: [],
+                                                            poAuditTab: 0
+                                                          });
                                                         }
                                                       } else if (settlement.isCashApproval) {
                                                         try {

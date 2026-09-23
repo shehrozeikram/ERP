@@ -347,20 +347,16 @@ const ExecutiveCeoPaymentsSection = () => {
   // Full Audit / View Opener (identical to Payments.js)
   const openView = async (settlement) => {
     if (settlement.isPurchaseOrder) {
-      try {
-        const r = await api.get(`/procurement/purchase-orders/${settlement._id}`);
-        const d = r.data.data;
-        const [qRes, grnRes] = await Promise.all([
-          d?.indent?._id
-            ? api.get(`/procurement/quotations/by-indent/${d.indent._id}`).catch(() => ({ data: { data: [] } }))
-            : Promise.resolve({ data: { data: [] } }),
-          api.get('/procurement/goods-receive', { params: { purchaseOrder: d._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
-        ]);
-        const poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
-        const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
+      const baseFlags = {
+        isPurchaseOrder: true,
+        isCashApproval: false,
+        isOnboarding: false,
+        isPaymentSettlement: false
+      };
+      const buildLinkedDocs = (poData, quotations = []) => {
         const poLinkedDocs = [];
         const pushDocs = (items = [], source = 'Attachment') => {
-          items.forEach((item, idx) => {
+          (items || []).forEach((item, idx) => {
             const url = item?.url || '';
             const name = item?.originalName || item?.filename || `Document ${idx + 1}`;
             if (!name && !url) return;
@@ -374,22 +370,60 @@ const ExecutiveCeoPaymentsSection = () => {
             });
           });
         };
-        pushDocs(d?.attachments, 'PO Attachment');
-        pushDocs(d?.indent?.attachments, 'Indent Attachment');
-        poQuotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
+        pushDocs(poData?.attachments, 'PO Attachment');
+        pushDocs(poData?.indent?.attachments, 'Indent Attachment');
+        quotations.forEach((q) => pushDocs(q?.attachments, `Quotation ${q?.quotationNumber || ''}`.trim()));
+        return poLinkedDocs;
+      };
+
+      try {
+        const r = await api.get(`/procurement/purchase-orders/${settlement._id}`);
+        const d = {
+          ...withCeoDocTypeFlags({ ...settlement, ...(r.data?.data || {}) }, baseFlags)
+        };
+        const indentId = d?.indent?._id || d?.indent;
+        const [qRes, grnRes] = await Promise.all([
+          indentId
+            ? api.get(`/procurement/quotations/by-indent/${indentId}`).catch(() => ({ data: { data: [] } }))
+            : Promise.resolve({ data: { data: [] } }),
+          api.get('/procurement/goods-receive', { params: { purchaseOrder: d._id, limit: 100 } }).catch(() => ({ data: { data: { receives: [] } } }))
+        ]);
+        const poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+        const poGrns = Array.isArray(grnRes?.data?.data?.receives) ? grnRes.data.data.receives : [];
         setViewDialog({
           open: true,
           settlement: d,
           isPurchaseOrder: true,
           isCashApproval: false,
+          isOnboarding: false,
           poQuotations,
           poGrns,
-          poLinkedDocs,
+          poLinkedDocs: buildLinkedDocs(d, poQuotations),
           poAuditTab: 0
         });
       } catch (e) {
         console.error('Error fetching purchase order details:', e);
-        setViewDialog({ open: true, settlement, isPurchaseOrder: true, isCashApproval: false, poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
+        // Fallback: list payload may already include populated indent from ceo-secretariat
+        const fallback = withCeoDocTypeFlags(settlement, baseFlags);
+        let poQuotations = [];
+        const indentId = fallback?.indent?._id || (typeof fallback?.indent === 'string' ? fallback.indent : null);
+        if (indentId) {
+          try {
+            const qRes = await api.get(`/procurement/quotations/by-indent/${indentId}`);
+            poQuotations = Array.isArray(qRes?.data?.data) ? qRes.data.data : [];
+          } catch (_) { /* ignore */ }
+        }
+        setViewDialog({
+          open: true,
+          settlement: fallback,
+          isPurchaseOrder: true,
+          isCashApproval: false,
+          isOnboarding: false,
+          poQuotations,
+          poGrns: [],
+          poLinkedDocs: buildLinkedDocs(fallback, poQuotations),
+          poAuditTab: 0
+        });
       }
     } else if (settlement.isCashApproval) {
       try {
