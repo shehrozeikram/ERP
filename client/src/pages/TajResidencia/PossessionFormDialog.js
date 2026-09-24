@@ -143,6 +143,8 @@ const possessionToForm = (doc) => ({
   totalArea: areaToForm(doc.totalArea),
   possessionRef: doc.possessionRef || '',
   registry: typeof doc.registry === 'object' ? (doc.registry._id || '') : (doc.registry || ''),
+  registryNo: doc.registryNo || (typeof doc.registry === 'object' ? (doc.registry.registryNo || '') : '') || '',
+  inteqalNo: doc.inteqalNo || (typeof doc.registry === 'object' ? (doc.registry.inteqalNo || '') : '') || '',
   lines: (doc.lines || []).length
     ? (doc.lines || []).map((line) => ({
       registryKhasraEntry: khasraEntryId(line.registryKhasraEntry),
@@ -207,6 +209,8 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
         totalArea: emptyArea(),
         possessionRef: '',
         registry: '',
+        registryNo: '',
+        inteqalNo: '',
         lines: []
       });
     }
@@ -417,6 +421,8 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       setForm((prev) => ({
         ...prev,
         registry: '',
+        registryNo: '',
+        inteqalNo: '',
         lines: prev.moza ? [emptyLine()] : []
       }));
       return;
@@ -441,6 +447,11 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
     setForm((prev) => ({
       ...prev,
       registry: registryId,
+      registryNo: String(registry?.registryNo || '').trim(),
+      inteqalNo: (() => {
+        const v = String(registry?.inteqalNo || '').trim();
+        return (!v || v === '—') ? '' : v;
+      })(),
       totalArea: regTotal,
       lines: linesFromRegistry(registry, registryId, mozaKhasras, possessedTotals)
     }));
@@ -453,6 +464,8 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       totalArea: emptyArea(),
       possessionRef: '',
       registry: '',
+      registryNo: '',
+      inteqalNo: '',
       lines: mozaId ? [emptyLine()] : []
     });
   };
@@ -548,6 +561,13 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       return;
     }
     const khewatNos = uniqueKhewatNos(form.lines);
+    const linked = linkedRegistry
+      || (possession?.registry && typeof possession.registry === 'object' ? possession.registry : null);
+    const snapRegistryNo = String(linked?.registryNo || form.registryNo || '').trim();
+    const snapInteqalNo = (() => {
+      const v = String(linked?.inteqalNo || form.inteqalNo || '').trim();
+      return (!v || v === '—') ? '' : v;
+    })();
     onSave({
       possessionDate: form.possessionDate,
       moza: form.moza,
@@ -555,6 +575,8 @@ const PossessionFormDialog = ({ open, onClose, onSave, possession, saving }) => 
       totalArea: parseAreaForm(form.totalArea),
       possessionRef: possession ? form.possessionRef.trim() : undefined,
       registry: toRegistryObjectId(form.registry),
+      registryNo: snapRegistryNo || undefined,
+      inteqalNo: snapInteqalNo || undefined,
       lines: form.lines.map((line) => ({
         registryKhasraEntry: khasraEntryId(line.registryKhasraEntry) || undefined,
         registryKhewatNo: line.registryKhewatNo.trim(),

@@ -41,6 +41,7 @@ const formatDate = (value) => {
 };
 
 const resolveRegistryNo = (row) => {
+  if (row.registryNo) return row.registryNo;
   if (row.registry?.registryNo) return row.registry.registryNo;
   const lineNos = [...new Set((row.lines || []).map((l) => (l.registry?.registryNo || l.registryNo || '')).filter(Boolean))];
   if (lineNos.length > 0) return lineNos.join(', ');
@@ -48,6 +49,7 @@ const resolveRegistryNo = (row) => {
 };
 
 const resolveInteqalNo = (row) => {
+  if (row.inteqalNo) return row.inteqalNo;
   if (row.registry?.inteqalNo) return row.registry.inteqalNo;
   const lineNos = [...new Set((row.lines || []).map((l) => (l.registry?.inteqalNo || l.inteqalNo || '')).filter(Boolean))];
   if (lineNos.length > 0) return lineNos.join(', ');

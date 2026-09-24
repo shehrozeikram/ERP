@@ -166,7 +166,49 @@ const parseLine = (line) => ({
   remarks: String(line.remarks || '').trim()
 });
 
-const buildPossessionPayload = (body) => {
+const cleanRegistryLabel = (value) => {
+  const s = String(value || '').trim();
+  if (!s || s === '—' || s === '-' || s === 'null' || s === 'undefined') return '';
+  return s;
+};
+
+/** Resolve a real LandRegistry id when client sent synthetic exchange-in id or only numbers. */
+const resolveRegistryLink = async ({ registry, registryNo, inteqalNo, moza }) => {
+  let registryId = toObjectIdString(registry);
+  let snapRegistryNo = cleanRegistryLabel(registryNo);
+  let snapInteqalNo = cleanRegistryLabel(inteqalNo);
+
+  const LandRegistry = require('../models/tajResidencia/LandRegistry');
+
+  if (registryId) {
+    if (!snapRegistryNo || !snapInteqalNo) {
+      const doc = await LandRegistry.findById(registryId).select('registryNo inteqalNo').lean();
+      if (doc) {
+        if (!snapRegistryNo) snapRegistryNo = cleanRegistryLabel(doc.registryNo);
+        if (!snapInteqalNo) snapInteqalNo = cleanRegistryLabel(doc.inteqalNo);
+      }
+    }
+    return { registryId, registryNo: snapRegistryNo, inteqalNo: snapInteqalNo };
+  }
+
+  if (moza && (snapRegistryNo || snapInteqalNo)) {
+    const filter = { moza, isActive: true };
+    if (snapRegistryNo) filter.registryNo = snapRegistryNo;
+    if (snapInteqalNo) filter.inteqalNo = snapInteqalNo;
+    const match = await LandRegistry.findOne(filter).select('_id registryNo inteqalNo').lean();
+    if (match) {
+      return {
+        registryId: String(match._id),
+        registryNo: snapRegistryNo || cleanRegistryLabel(match.registryNo),
+        inteqalNo: snapInteqalNo || cleanRegistryLabel(match.inteqalNo)
+      };
+    }
+  }
+
+  return { registryId: undefined, registryNo: snapRegistryNo, inteqalNo: snapInteqalNo };
+};
+
+const buildPossessionPayload = async (body) => {
   const lines = Array.isArray(body.lines) ? body.lines.map(parseLine) : [];
   const invalidLine = lines.find((l) => !l.khewatNo || !l.khasraNo);
   if (invalidLine) {
@@ -189,22 +231,40 @@ const buildPossessionPayload = (body) => {
     throw err;
   }
 
+  const linked = await resolveRegistryLink({
+    registry: body.registry,
+    registryNo: body.registryNo,
+    inteqalNo: body.inteqalNo,
+    moza: body.moza
+  });
+
+  // Propagate header registry onto lines when missing
+  const linesWithRegistry = lines.map((line) => ({
+    ...line,
+    registry: line.registry || linked.registryId || undefined
+  }));
+
   return {
     possessionDate: body.possessionDate ? new Date(body.possessionDate) : null,
     moza: body.moza,
     khewatNo,
     totalArea,
     possessionRef: String(body.possessionRef || '').trim(),
-    registry: toObjectIdString(body.registry),
-    lines,
+    registry: linked.registryId,
+    registryNo: linked.registryNo,
+    inteqalNo: linked.inteqalNo,
+    lines: linesWithRegistry,
     linesTotal
   };
 };
 
 const mapPossession = (doc) => {
   const obj = doc.toObject ? doc.toObject() : doc;
+  const populatedReg = obj.registry && typeof obj.registry === 'object' ? obj.registry : null;
   return {
     ...obj,
+    registryNo: obj.registryNo || populatedReg?.registryNo || '',
+    inteqalNo: obj.inteqalNo || populatedReg?.inteqalNo || '',
     totalArea: normalizeArea(obj.totalArea),
     lines: (obj.lines || []).map((line) => ({
       ...line,
@@ -267,6 +327,8 @@ router.get('/possessions', authMiddleware, asyncHandler(async (req, res) => {
     filter.$or = [
       { possessionRef: re },
       { khewatNo: re },
+      { registryNo: re },
+      { inteqalNo: re },
       { 'lines.khewatNo': re },
       { 'lines.khasraNo': re },
       { 'lines.registryKhewatNo': re },
@@ -373,7 +435,7 @@ router.get('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
 router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
   let payload;
   try {
-    payload = buildPossessionPayload(req.body);
+    payload = await buildPossessionPayload(req.body);
     payload.lines = await enrichPossessionLines(payload.lines, payload.moza);
     payload.khewatNo = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))].join(', ');
   } catch (err) {
@@ -435,6 +497,8 @@ router.post('/possessions', authMiddleware, asyncHandler(async (req, res) => {
     totalArea: finalTotal,
     possessionRef,
     registry: payload.registry,
+    registryNo: payload.registryNo || '',
+    inteqalNo: payload.inteqalNo || '',
     lines: payload.lines,
     createdBy: req.user?._id
   });
@@ -465,7 +529,7 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
 
   let payload;
   try {
-    payload = buildPossessionPayload(req.body);
+    payload = await buildPossessionPayload(req.body);
     payload.lines = await enrichPossessionLines(payload.lines, payload.moza || doc.moza);
     payload.khewatNo = [...new Set(payload.lines.map((l) => l.khewatNo).filter(Boolean))].join(', ');
   } catch (err) {
@@ -521,6 +585,8 @@ router.put('/possessions/:id', authMiddleware, asyncHandler(async (req, res) => 
   doc.totalArea = finalTotal;
   doc.possessionRef = payload.possessionRef;
   doc.registry = payload.registry;
+  doc.registryNo = payload.registryNo || '';
+  doc.inteqalNo = payload.inteqalNo || '';
   doc.lines = payload.lines;
   await doc.save();
 

@@ -48,6 +48,9 @@ const landPossessionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'LandRegistry'
   },
+  /** Snapshot from linked registry / exchange-in (shown even when registry ObjectId is absent). */
+  registryNo: { type: String, trim: true, default: '' },
+  inteqalNo: { type: String, trim: true, default: '' },
   lines: { type: [possessionLineSchema], default: [] },
   isActive: { type: Boolean, default: true, index: true },
   createdBy: {

@@ -78,7 +78,11 @@ const PossessionDetailDialog = ({ open, onClose, possessionId }) => {
   }, [open, possessionId]);
 
   const lines = possession?.lines || [];
-  const linkedRegistry = possession?.registry;
+  const linkedRegistry = possession?.registry && typeof possession.registry === 'object'
+    ? possession.registry
+    : null;
+  const displayRegistryNo = possession?.registryNo || linkedRegistry?.registryNo || '';
+  const displayInteqalNo = possession?.inteqalNo || linkedRegistry?.inteqalNo || '';
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -111,14 +115,14 @@ const PossessionDetailDialog = ({ open, onClose, possessionId }) => {
               <Grid item xs={6} sm={4} md={3}>
                 <DetailField
                   label="Linked registry"
-                  value={linkedRegistry?.registryNo || '—'}
+                  value={displayRegistryNo || '—'}
                 />
               </Grid>
-              {linkedRegistry?.inteqalNo && (
+              {displayInteqalNo ? (
                 <Grid item xs={6} sm={4} md={3}>
-                  <DetailField label="Registry inteqal" value={linkedRegistry.inteqalNo} />
+                  <DetailField label="Registry inteqal" value={displayInteqalNo} />
                 </Grid>
-              )}
+              ) : null}
               {linkedRegistry?.registryDate && (
                 <Grid item xs={6} sm={4} md={3}>
                   <DetailField label="Registry date" value={formatDate(linkedRegistry.registryDate)} />

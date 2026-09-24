@@ -1163,10 +1163,12 @@ router.get('/khasra-summary', authMiddleware, asyncHandler(async (req, res) => {
         remarks: line.remarks,
         registryId: linkedRegistryId || null,
         registryNo:
+          pos.registryNo ||
           (linkedRegistry && typeof linkedRegistry === 'object' && linkedRegistry.registryNo) ||
           meta?.registryNo ||
           '',
         inteqalNo:
+          pos.inteqalNo ||
           (linkedRegistry && typeof linkedRegistry === 'object' && linkedRegistry.inteqalNo) ||
           meta?.inteqalNo ||
           '',
