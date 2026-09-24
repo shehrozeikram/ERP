@@ -12,6 +12,7 @@ const UtilityStoreItem = require('../models/hr/UtilityStoreItem');
 const User = require('../models/User');
 const Department = require('../models/hr/Department');
 const Employee = require('../models/hr/Employee');
+const Supplier = require('../models/hr/Supplier');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 const {
   assertUtilityBillApproversEligible,
@@ -388,6 +389,7 @@ router.get('/', requireBillPermission('read'), async (req, res) => {
       provider,
       accountHead,
       site,
+      company,
       location,
       department,
       custodian,
@@ -412,10 +414,66 @@ router.get('/', requireBillPermission('read'), async (req, res) => {
     if (status) query.status = status;
     if (provider) query.provider = { $regex: provider, $options: 'i' };
     if (accountHead) query.accountHead = accountHead;
-    if (site) query.site = { $regex: site, $options: 'i' };
     if (location) query.location = { $regex: location, $options: 'i' };
     if (department) query.department = { $regex: department, $options: 'i' };
     if (custodian) query.custodian = { $regex: custodian, $options: 'i' };
+
+    // Company-wise filter (centralized store uses site / billLines.site as company name)
+    const companyFilter = String(company || site || '').trim();
+    if (companyFilter) {
+      const escapedCompany = companyFilter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const companyRx = new RegExp(`^${escapedCompany}$`, 'i');
+      const companyOr = [
+        { site: companyRx },
+        { 'billLines.site': companyRx }
+      ];
+      if (query.$or) {
+        query.$and = [{ $or: query.$or }, { $or: companyOr }];
+        delete query.$or;
+      } else {
+        query.$or = companyOr;
+      }
+    }
+
+    // Search in DB (before pagination) — includes vendor name, narration, company, line items
+    const searchTerm = String(search || '').trim();
+    if (searchTerm) {
+      const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const rx = new RegExp(escaped, 'i');
+      let vendorIds = [];
+      try {
+        vendorIds = await Supplier.find({ name: rx }).distinct('_id');
+      } catch (_) {
+        vendorIds = [];
+      }
+      const searchOr = [
+        { billId: rx },
+        { provider: rx },
+        { accountNumber: rx },
+        { description: rx },
+        { forWhat: rx },
+        { notes: rx },
+        { accountHead: rx },
+        { site: rx },
+        { location: rx },
+        { department: rx },
+        { custodian: rx },
+        { 'billLines.description': rx },
+        { 'billLines.site': rx },
+        { 'billLines.location': rx }
+      ];
+      if (vendorIds.length) {
+        searchOr.push({ vendorId: { $in: vendorIds } });
+      }
+      if (query.$and) {
+        query.$and.push({ $or: searchOr });
+      } else if (query.$or) {
+        query.$and = [{ $or: query.$or }, { $or: searchOr }];
+        delete query.$or;
+      } else {
+        query.$or = searchOr;
+      }
+    }
 
     // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -428,24 +486,7 @@ router.get('/', requireBillPermission('read'), async (req, res) => {
 
     const total = await UtilityBill.countDocuments(query);
 
-    let filteredBills = await repairStaleUtilityBillsFinanceStatus(bills, getActorId(req));
-
-    // Filter by search term if provided
-    if (search) {
-      const searchLower = search.toLowerCase();
-      filteredBills = filteredBills.filter(bill => 
-        bill.billId?.toLowerCase().includes(searchLower) ||
-        bill.provider?.toLowerCase().includes(searchLower) ||
-        bill.accountNumber?.toLowerCase().includes(searchLower) ||
-        bill.description?.toLowerCase().includes(searchLower) ||
-        bill.forWhat?.toLowerCase().includes(searchLower) ||
-        bill.accountHead?.toLowerCase().includes(searchLower) ||
-        bill.site?.toLowerCase().includes(searchLower) ||
-        bill.location?.toLowerCase().includes(searchLower) ||
-        bill.department?.toLowerCase().includes(searchLower) ||
-        bill.custodian?.toLowerCase().includes(searchLower)
-      );
-    }
+    const filteredBills = await repairStaleUtilityBillsFinanceStatus(bills, getActorId(req));
 
     res.json({
       success: true,

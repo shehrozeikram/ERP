@@ -96,7 +96,25 @@ const attachBillPaymentDetails = async (entries) => {
   const entryIds = docs.map((e) => e._id);
   const refIds = docs.map((e) => e.referenceId).filter(Boolean);
 
-  // 1. Match AccountsPayable (bills)
+  const formatEmployeeName = (emp) => {
+    if (!emp) return '';
+    const name = `${emp.firstName || ''} ${emp.lastName || ''}`.trim();
+    if (name && emp.employeeId) return `${name} (${emp.employeeId})`;
+    return name || emp.employeeId || '';
+  };
+
+  const partyFromBill = (bill) => {
+    if (!bill) return '';
+    // AP stores vendor as embedded { name, vendorId }; employee as payeeEmployee ref
+    return (
+      bill.vendor?.name ||
+      bill.vendorName ||
+      formatEmployeeName(bill.payeeEmployee) ||
+      ''
+    );
+  };
+
+  // 1. Match AccountsPayable (bills) — vendor.name is embedded; populate employee payee
   const matchedBills = await AccountsPayable.find({
     $or: [
       { _id: { $in: refIds } },
@@ -104,7 +122,8 @@ const attachBillPaymentDetails = async (entries) => {
       { journalEntryId: { $in: entryIds } }
     ]
   })
-    .select('_id status totalAmount amountPaid paidAmount advanceApplied advancePending paymentPending balanceDue billNumber vendor voucherEntryId journalEntryId')
+    .select('_id status totalAmount amountPaid paidAmount advanceApplied advancePending paymentPending balanceDue billNumber vendor vendorName payeeEmployee voucherEntryId journalEntryId')
+    .populate('payeeEmployee', 'firstName lastName employeeId')
     .lean();
 
   const billByRef = new Map(matchedBills.map((b) => [String(b._id), b]));
@@ -114,7 +133,7 @@ const attachBillPaymentDetails = async (entries) => {
     if (b.journalEntryId) billByVoucher.set(String(b.journalEntryId), b);
   });
 
-  // 2. Match VendorAdvance
+  // 2. Match VendorAdvance (vendor.name is embedded string on the doc)
   const matchedVendorAdvances = await VendorAdvance.find({
     $or: [
       { _id: { $in: refIds } },
@@ -134,8 +153,9 @@ const attachBillPaymentDetails = async (entries) => {
       { voucherEntryId: { $in: entryIds } }
     ]
   })
-    .select('_id advanceToName vendor voucherEntryId')
+    .select('_id advanceToName caNumber vendor voucherEntryId initiator')
     .populate('vendor', 'name')
+    .populate('initiator', 'firstName lastName employeeId')
     .lean();
 
   const caByRef = new Map(matchedCashApprovals.map((c) => [String(c._id), c]));
@@ -144,33 +164,42 @@ const attachBillPaymentDetails = async (entries) => {
   // 4. Match ApPaymentApplication (batch or single bill payments)
   const ApPaymentApplication = require('../models/finance/ApPaymentApplication');
   const matchedApApps = await ApPaymentApplication.find({ journalEntryId: { $in: entryIds } })
-    .populate('accountsPayableId', 'vendor')
-    .populate('bills.billId', 'vendor')
+    .populate({
+      path: 'accountsPayableId',
+      select: 'vendor vendorName payeeEmployee',
+      populate: [{ path: 'payeeEmployee', select: 'firstName lastName employeeId' }]
+    })
+    .populate({
+      path: 'bills.billId',
+      select: 'vendor vendorName payeeEmployee',
+      populate: [{ path: 'payeeEmployee', select: 'firstName lastName employeeId' }]
+    })
     .lean();
   const apAppByJe = new Map(matchedApApps.map((a) => [String(a.journalEntryId), a]));
 
   return docs.map((e) => {
-    // Check AP Bill lookup
     const bill = billByRef.get(String(e.referenceId)) || billByVoucher.get(String(e._id));
-
-    // Check Vendor Advance lookup
     const va = vaByRef.get(String(e.referenceId)) || vaByJe.get(String(e._id));
-
-    // Check Cash Approval lookup
     const ca = caByRef.get(String(e.referenceId)) || caByVoucher.get(String(e._id));
-
-    // Check AP Payment Application lookup
     const apApp = apAppByJe.get(String(e._id));
 
-    let vendorOrEmpName = bill?.vendor?.name || va?.vendor?.name || ca?.advanceToName || ca?.vendor?.name || '';
+    let vendorOrEmpName =
+      partyFromBill(bill) ||
+      va?.vendor?.name ||
+      ca?.advanceToName ||
+      ca?.vendor?.name ||
+      formatEmployeeName(ca?.initiator) ||
+      '';
+
     if (!vendorOrEmpName && apApp) {
-      if (apApp.accountsPayableId?.vendor?.name) {
-        vendorOrEmpName = apApp.accountsPayableId.vendor.name;
+      const fromHeader = partyFromBill(apApp.accountsPayableId);
+      if (fromHeader) {
+        vendorOrEmpName = fromHeader;
       } else if (apApp.bills?.length > 0) {
-        const vendorNames = Array.from(new Set(apApp.bills.map(b => b.billId?.vendor?.name).filter(Boolean)));
-        if (vendorNames.length > 0) {
-          vendorOrEmpName = vendorNames.join(', ');
-        }
+        const names = Array.from(
+          new Set(apApp.bills.map((b) => partyFromBill(b.billId)).filter(Boolean))
+        );
+        if (names.length > 0) vendorOrEmpName = names.join(', ');
       }
     }
 
@@ -214,7 +243,7 @@ const attachBillPaymentDetails = async (entries) => {
       billTotalAmount: total,
       billSettledAmount: settled,
       billBalanceDue: balance,
-      vendorOrEmployeeName: bill.vendor?.name || vendorOrEmpName,
+      vendorOrEmployeeName: partyFromBill(bill) || vendorOrEmpName,
       billPaymentStatus: paymentStatus
     };
   });
@@ -866,17 +895,21 @@ router.get('/journal-entries',
     const enrichedEntries = await attachBillPaymentDetails(entriesWithCaFlags);
 
     const finalEntries = enrichedEntries.map(e => {
-      let vName = e.vendorOrEmployeeName || e.customCompany || '';
+      let vName = e.vendorOrEmployeeName || '';
       if (!vName && e.description) {
-        if (e.description.startsWith('Batch Payment – ')) {
-          vName = e.description.replace('Batch Payment – ', '').split(' (pending')[0].split(' (Intercompany')[0];
-        } else if (e.description.startsWith('Vendor Advance: ')) {
-          vName = e.description.replace('Vendor Advance: ', '').split(' (pending')[0].split(' (Intercompany')[0];
-        } else if (e.description.startsWith('Advance payment to ')) {
-          vName = e.description.replace('Advance payment to ', '').split(' (')[0];
+        const desc = String(e.description);
+        if (desc.startsWith('Batch Payment – ')) {
+          vName = desc.replace('Batch Payment – ', '').split(' (pending')[0].split(' (Intercompany')[0];
+        } else if (desc.startsWith('Vendor Advance: ')) {
+          vName = desc.replace('Vendor Advance: ', '').split(' (pending')[0].split(' (Intercompany')[0];
+        } else if (desc.startsWith('Advance payment to ')) {
+          vName = desc.replace('Advance payment to ', '').split(' (')[0];
+        } else if (/payroll/i.test(desc)) {
+          // Company payroll BPV — party shown as company (payroll is not one vendor/employee)
+          vName = e.companyId?.name || e.customCompany || '';
         }
       }
-      return { ...e, vendorOrEmployeeName: vName };
+      return { ...e, vendorOrEmployeeName: vName || e.vendorOrEmployeeName };
     });
 
     // Safely enrich department ObjectId references with Department documents

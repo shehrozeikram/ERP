@@ -44,6 +44,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../../contexts/AuthContext';
+import api from '../../../services/api';
 import utilityBillService from '../../../services/utilityBillService';
 import centralizedStoreService from '../../../services/centralizedStoreService';
 import NarrationTableCell from '../../../components/common/NarrationTableCell';
@@ -74,6 +75,18 @@ const getBillCategories = (bill) => {
   return [...byId.entries()].map(([id, name]) => ({ id, name }));
 };
 
+/** Company names on a bill (header site + line-level company/site) */
+const getBillCompanies = (bill) => {
+  const names = new Set();
+  const header = String(bill?.site || '').trim();
+  if (header) names.add(header);
+  (bill.billLines || []).forEach((line) => {
+    const site = String(line?.site || '').trim();
+    if (site) names.add(site);
+  });
+  return [...names];
+};
+
 const CentralizedStoreBills = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -83,13 +96,22 @@ const CentralizedStoreBills = () => {
   const { user } = useAuth();
   const [bills, setBills] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [searchInput, setSearchInput] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState('');
+  const [filterCompany, setFilterCompany] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState('');
   const [rejectDialog, setRejectDialog] = useState({ open: false, bill: null });
   const [rejectReason, setRejectReason] = useState('');
+
+  // Debounce search so typing doesn't fire a request every keystroke / race results
+  useEffect(() => {
+    const t = setTimeout(() => setSearchTerm(searchInput.trim()), 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -100,17 +122,28 @@ const CentralizedStoreBills = () => {
     }
   }, []);
 
+  const loadCompanies = useCallback(async () => {
+    try {
+      const res = await api.get('/hr/companies', { params: { status: 'active' } });
+      setCompanies(res.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load companies', err);
+      setCompanies([]);
+    }
+  }, []);
+
   const fetchBills = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const params = {
-        search: searchTerm,
         centralizedStoreOnly: true,
         limit: 500,
         page: 1
       };
+      if (searchTerm) params.search = searchTerm;
       if (filterCategoryId) params.storeCategoryId = filterCategoryId;
+      if (filterCompany) params.company = filterCompany;
 
       const response = await utilityBillService.getUtilityBills(params);
       setBills(response.data || []);
@@ -120,11 +153,12 @@ const CentralizedStoreBills = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, filterCategoryId]);
+  }, [searchTerm, filterCategoryId, filterCompany]);
 
   useEffect(() => {
     loadCategories();
-  }, [loadCategories]);
+    loadCompanies();
+  }, [loadCategories, loadCompanies]);
 
   useEffect(() => {
     fetchBills();
@@ -182,9 +216,13 @@ const CentralizedStoreBills = () => {
   }, [bills]);
 
   const clearFilters = () => {
+    setSearchInput('');
     setSearchTerm('');
     setFilterCategoryId('');
+    setFilterCompany('');
   };
+
+  const hasActiveFilters = Boolean(searchTerm || filterCategoryId || filterCompany);
 
   const handleApprove = async (bill) => {
     try {
@@ -272,20 +310,37 @@ const CentralizedStoreBills = () => {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} md={5}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 label="Search bills"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 size="small"
                 InputProps={{
                   startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
                 }}
-                placeholder="Bill ID, vendor, narration..."
+                placeholder="Bill ID, vendor, company, narration..."
               />
             </Grid>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} sm={6} md={3}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Company</InputLabel>
+                <Select
+                  value={filterCompany}
+                  onChange={(e) => setFilterCompany(e.target.value)}
+                  label="Company"
+                >
+                  <MenuItem value="">All companies</MenuItem>
+                  {companies.map((c) => (
+                    <MenuItem key={c._id || c.name} value={c.name}>
+                      {c.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
               <FormControl fullWidth size="small">
                 <InputLabel>Category</InputLabel>
                 <Select
@@ -302,9 +357,9 @@ const CentralizedStoreBills = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={2}>
               <Stack direction="row" spacing={1}>
-                <Button variant="outlined" fullWidth onClick={clearFilters}>
+                <Button variant="outlined" fullWidth onClick={clearFilters} disabled={!hasActiveFilters && !searchInput}>
                   Clear
                 </Button>
                 <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchBills}>
@@ -324,8 +379,8 @@ const CentralizedStoreBills = () => {
         <Card>
           <CardContent>
             <Typography color="text.secondary" align="center" py={2}>
-              {filterCategoryId
-                ? 'No bills found for this category. Try another filter or create a bill.'
+              {hasActiveFilters
+                ? 'No bills found for these filters. Try clearing search/company/category.'
                 : 'No centralized store bills yet. Use Create Bill to add one.'}
             </Typography>
           </CardContent>
@@ -356,6 +411,7 @@ const CentralizedStoreBills = () => {
                       <TableRow>
                         <TableCell>Bill ID</TableCell>
                         <TableCell>Bill date</TableCell>
+                        <TableCell>Company</TableCell>
                         <TableCell>Category</TableCell>
                         <TableCell>Vendor</TableCell>
                         <TableCell sx={{ minWidth: 180, maxWidth: 280 }}>Narration / Description</TableCell>
@@ -370,10 +426,24 @@ const CentralizedStoreBills = () => {
                     <TableBody>
                       {periodBills.map((bill) => {
                         const billCategories = getBillCategories(bill);
+                        const billCompanies = getBillCompanies(bill);
                         return (
                           <TableRow key={bill._id} hover>
                             <TableCell>{bill.billId}</TableCell>
                             <TableCell>{formatDate(bill.billDate)}</TableCell>
+                            <TableCell>
+                              {billCompanies.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">
+                                  —
+                                </Typography>
+                              ) : (
+                                <Box display="flex" flexWrap="wrap" gap={0.5}>
+                                  {billCompanies.map((name) => (
+                                    <Chip key={name} label={name} size="small" variant="outlined" />
+                                  ))}
+                                </Box>
+                              )}
+                            </TableCell>
                             <TableCell>
                               {billCategories.length === 0 ? (
                                 <Typography variant="body2" color="text.secondary">
