@@ -617,16 +617,22 @@ const PayrollDetail = () => {
                 <Table size="small">
                   <TableBody>
                     <TableRow>
-                      <TableCell>Income Tax (Main Salary)</TableCell>
-                      <TableCell align="right">{formatPKR(payroll.incomeTax || 0)}</TableCell>
+                      <TableCell>Income Tax</TableCell>
+                      <TableCell align="right">{formatPKR(payroll.incomeTax || payroll.taxCalculation?.totalTax || 0)}</TableCell>
                     </TableRow>
-                    <TableRow>
-                      <TableCell>Income Tax (Arrears)</TableCell>
-                      <TableCell align="right">{formatPKR(payroll.taxCalculation?.arrearsTax || 0)}</TableCell>
-                    </TableRow>
+                    {(payroll.taxCalculation?.arrearsTaxableIncome > 0 || payroll.arrears > 0) && (
+                      <TableRow>
+                        <TableCell sx={{ pl: 4, color: 'text.secondary' }}>
+                          Arrears included in taxable
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                          {formatPKR(payroll.taxCalculation?.arrearsTaxableIncome || payroll.arrears || 0)}
+                        </TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell><strong>Total Income Tax</strong></TableCell>
-                      <TableCell align="right"><strong>{formatPKR((payroll.incomeTax || 0) + (payroll.taxCalculation?.arrearsTax || 0))}</strong></TableCell>
+                      <TableCell align="right"><strong>{formatPKR(payroll.incomeTax || payroll.taxCalculation?.totalTax || 0)}</strong></TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>EOBI</TableCell>

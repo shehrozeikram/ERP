@@ -227,9 +227,7 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
     totalEarnings: Math.round(figures.totalEarnings),
     medicalAllowance: Math.round(figures.medical),
     houseRentAllowance: Math.round(figures.houseRent),
-    taxableIncome: Math.round(
-      taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome
-    ),
+    taxableIncome: Math.round(taxCalculation.mainTaxableIncome),
     monthlyTax: finalTax,
     netSalary: netSalary,
     allowances: payrollAllowancesFromEmployee(figures.effectiveAllowances || employee.allowances),
@@ -1307,8 +1305,7 @@ router.get('/current-overview',
 
         const { taxCalculation, resolvedTax } = figures;
         const monthlyTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
-        const taxableIncome =
-          taxCalculation.mainTaxableIncome + taxCalculation.arrearsTaxableIncome;
+        const taxableIncome = taxCalculation.mainTaxableIncome;
         const empLoanDeduction = Math.round(loanDeductionsMap.get(employee._id.toString()) || 0);
         const netSalary = Math.round(
           figures.totalEarnings - monthlyTax - figures.eobiDeduction - (figures.employeeSecurityDeduction || 0) - empLoanDeduction

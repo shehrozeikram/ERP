@@ -66,8 +66,8 @@ const taxableAndExemptPartsForAllowance = (amount, policy) => {
 };
 
 /**
- * Legacy: 10% medical exemption on (mainSalary + arrears) combined.
- * Allowances are bundled into mainSalary in this path.
+ * Legacy: medical exemption on gross+allowances bundle, arrears added into same taxable base.
+ * Formula: taxable = (mainSalary − 10% medical) + arrears → single FBR tax
  */
 const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMonth = null, payrollYear = null) => {
   const taxFor = (amount) =>
@@ -75,31 +75,30 @@ const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMon
       ? calculateMonthlyTaxFYAware(amount, hireDate, payrollMonth, payrollYear)
       : calculateMonthlyTax(amount);
 
-  // Base salary tax
   const salaryMedicalExempt = Math.round(mainSalary * 0.1);
-  const mainTaxableIncome = mainSalary - salaryMedicalExempt;
-  const mainTax = taxFor(mainTaxableIncome);
-
-  // Arrears tax (taxed separately)
-  const arrearsTaxableIncome = arrears;
-  const arrearsTax = taxFor(arrearsTaxableIncome);
-
-  const totalTax = mainTax + arrearsTax;
-  const totalIncome = mainSalary + arrears;
+  const salaryAfterMedical = mainSalary - salaryMedicalExempt;
+  const arrearsAmt = Math.max(0, Number(arrears) || 0);
+  // Arrears included in the same taxable base (not taxed separately)
+  const mainTaxableIncome = salaryAfterMedical + arrearsAmt;
+  const totalTax = taxFor(mainTaxableIncome);
+  const totalIncome = mainSalary + arrearsAmt;
 
   return {
     mainSalary,
-    arrears,
+    arrears: arrearsAmt,
     mainTaxableIncome: Math.round(mainTaxableIncome),
-    arrearsTaxableIncome: Math.round(arrearsTaxableIncome),
-    mainTax: Math.round(mainTax),
-    arrearsTax: Math.round(arrearsTax),
+    // Informational: arrears amount included in mainTaxableIncome (do not add again)
+    arrearsTaxableIncome: Math.round(arrearsAmt),
+    mainTax: Math.round(totalTax),
+    arrearsTax: 0,
     totalTax: Math.round(totalTax),
-    mainNetSalary: Math.round(mainSalary - mainTax),
-    arrearsNetAmount: Math.round(arrears - arrearsTax),
+    mainNetSalary: Math.round(mainSalary - totalTax),
+    arrearsNetAmount: Math.round(arrearsAmt),
     totalNetSalary: Math.round(totalIncome - totalTax),
     salaryMedicalExempt,
-    allowanceTaxable: Math.round(mainTaxableIncome),
+    salaryAfterMedical: Math.round(salaryAfterMedical),
+    salaryBase: Math.round(salaryAfterMedical),
+    allowanceTaxable: Math.round(salaryAfterMedical),
     allowanceExempt: 0,
     usesAllowanceTaxPolicy: false
   };
@@ -109,18 +108,18 @@ const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMon
  * Dynamic tax calculation driven by PayrollTaxes page settings.
  *
  * Formula (medical exempt 10%, house/other allowance fully taxable):
- *   taxable = (grossSalary − 10% of gross) + taxable allowances
- *   tax     = FBR slab on taxable
+ *   taxable = (grossSalary − 10% of gross) + taxable allowances + arrears
+ *   tax     = FBR slab on that combined taxable (single calculation)
  *
  * Steps:
  *   1. Each allowance → taxable / fully_exempt / partial_exempt from Payroll Taxes
  *   2. Apply salaryMedicalExemptPercent on gross salary ONLY (e.g. 10%)
- *   3. taxable = (gross − medicalExempt) + sum(taxable allowance amounts)
- *   4. Arrears taxed separately (no medical exempt on arrears)
+ *   3. taxable = (gross − medicalExempt) + sum(taxable allowance amounts) + arrears
+ *   4. One FBR tax on that combined base (arrears are NOT taxed separately)
  *
- * Example (Faran Anwer): gross=312,000, houseRent=60,000 (taxable)
+ * Example: gross=312,000, houseRent=60,000 (taxable), arrears=40,000
  *   → 312,000 − 31,200 = 280,800
- *   → 280,800 + 60,000 = 340,800 taxable → FBR monthly tax
+ *   → 280,800 + 60,000 + 40,000 = 380,800 taxable → FBR monthly tax
  */
 const calculatePayrollTaxWithSettings = ({
   grossSalary = 0,
@@ -158,26 +157,19 @@ const calculatePayrollTaxWithSettings = ({
     };
   });
 
-  // Step 2–3: (gross − medical% of gross) + taxable allowances
-  // Medical exemption is on gross only — taxable allowances are added in full.
+  // Step 2–3: (gross − medical% of gross) + taxable allowances + arrears
   const salaryExemptPercent = config.salaryMedicalExemptPercent;
   const salaryExempt = Math.round((gross * salaryExemptPercent) / 100);
   const salaryAfterMedical = gross - salaryExempt;
-  const salaryBase = salaryAfterMedical + allowanceTaxable;
-  const mainTaxableIncome = salaryBase;
+  const salaryBase = salaryAfterMedical + allowanceTaxable; // without arrears (breakdown)
+  const mainTaxableIncome = salaryBase + arrearsAmt; // combined taxable for FBR
 
   const taxFor = (amount) =>
     hireDate && payrollMonth && payrollYear
       ? calculateMonthlyTaxFYAware(amount, hireDate, payrollMonth, payrollYear)
       : calculateMonthlyTax(amount);
 
-  const mainTax = taxFor(mainTaxableIncome);
-
-  // Step 4: Arrears tax (separate; no medical exempt)
-  const arrearsTaxableIncome = arrearsAmt;
-  const arrearsTax = taxFor(arrearsTaxableIncome);
-
-  const totalTax = mainTax + arrearsTax;
+  const totalTax = taxFor(mainTaxableIncome);
   const mainSalary = gross + totalAllowances;
   const totalIncome = mainSalary + arrearsAmt;
 
@@ -185,12 +177,13 @@ const calculatePayrollTaxWithSettings = ({
     mainSalary,
     arrears: arrearsAmt,
     mainTaxableIncome: Math.round(mainTaxableIncome),
-    arrearsTaxableIncome: Math.round(arrearsTaxableIncome),
-    mainTax: Math.round(mainTax),
-    arrearsTax: Math.round(arrearsTax),
+    // Informational only — already included in mainTaxableIncome; do not add again for totals
+    arrearsTaxableIncome: Math.round(arrearsAmt),
+    mainTax: Math.round(totalTax),
+    arrearsTax: 0,
     totalTax: Math.round(totalTax),
-    mainNetSalary: Math.round(mainSalary - mainTax),
-    arrearsNetAmount: Math.round(arrearsAmt - arrearsTax),
+    mainNetSalary: Math.round(mainSalary - totalTax),
+    arrearsNetAmount: Math.round(arrearsAmt),
     totalNetSalary: Math.round(totalIncome - totalTax),
     salaryMedicalExempt: salaryExempt,
     salaryAfterMedical: Math.round(salaryAfterMedical),

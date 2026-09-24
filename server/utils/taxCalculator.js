@@ -252,9 +252,9 @@ function calculateTaxableIncomeCorrected(salary) {
 }
 
 /**
- * Calculate tax with separate arrears taxation
- * Main salary: taxed at 90% (after 10% medical allowance deduction)
- * Arrears: taxed at 100% (full amount)
+ * Calculate tax with arrears included in the same taxable base
+ * Main salary: 90% taxable after 10% medical allowance deduction
+ * Arrears: added into the same base (not taxed separately)
  * @param {number} mainSalary - Main salary (gross + additional allowances)
  * @param {number} arrears - Arrears amount
  * @returns {Object} Tax calculation breakdown
@@ -275,31 +275,22 @@ function calculateTaxWithSeparateArrears(mainSalary, arrears = 0) {
     };
   }
 
-  // Main salary tax calculation (90% taxable after 10% medical allowance)
-  const mainTaxableIncome = mainSalary - (mainSalary * 0.1);
-  const mainTax = calculateMonthlyTax(mainTaxableIncome);
-  const mainNetSalary = mainSalary - mainTax;
-
-  // Arrears tax calculation (100% taxable - no medical allowance deduction)
-  const arrearsTaxableIncome = arrears;
-  const arrearsTax = calculateMonthlyTax(arrearsTaxableIncome);
-  const arrearsNetAmount = arrears - arrearsTax;
-
-  // Total calculations
-  const totalTax = mainTax + arrearsTax;
-  const totalNetSalary = mainNetSalary + arrearsNetAmount;
+  const arrearsAmt = Math.max(0, Number(arrears) || 0);
+  const mainTaxableIncome = mainSalary - (mainSalary * 0.1) + arrearsAmt;
+  const totalTax = calculateMonthlyTax(mainTaxableIncome);
+  const totalIncome = mainSalary + arrearsAmt;
 
   return {
     mainSalary,
-    arrears,
+    arrears: arrearsAmt,
     mainTaxableIncome,
-    arrearsTaxableIncome,
-    mainTax,
-    arrearsTax,
+    arrearsTaxableIncome: arrearsAmt,
+    mainTax: totalTax,
+    arrearsTax: 0,
     totalTax,
-    mainNetSalary,
-    arrearsNetAmount,
-    totalNetSalary
+    mainNetSalary: mainSalary - totalTax,
+    arrearsNetAmount: arrearsAmt,
+    totalNetSalary: totalIncome - totalTax
   };
 }
 

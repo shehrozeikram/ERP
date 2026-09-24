@@ -457,13 +457,19 @@ const EmployeePayrollDetails = () => {
                 <Table size="small">
                   <TableBody>
                     <TableRow>
-                      <TableCell>Income Tax (Main Salary)</TableCell>
-                      <TableCell align="right">{formatPKR(currentPayroll.taxCalculation?.mainTax || 0)}</TableCell>
+                      <TableCell>Income Tax</TableCell>
+                      <TableCell align="right">{formatPKR(currentPayroll.taxCalculation?.totalTax || currentPayroll.incomeTax || 0)}</TableCell>
                     </TableRow>
-                    <TableRow>
-                      <TableCell>Income Tax (Arrears)</TableCell>
-                      <TableCell align="right">{formatPKR(currentPayroll.taxCalculation?.arrearsTax || 0)}</TableCell>
-                    </TableRow>
+                    {(currentPayroll.taxCalculation?.arrearsTaxableIncome > 0 || currentPayroll.arrears > 0) && (
+                      <TableRow>
+                        <TableCell sx={{ pl: 4, color: 'text.secondary' }}>
+                          Arrears included in taxable
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                          {formatPKR(currentPayroll.taxCalculation?.arrearsTaxableIncome || currentPayroll.arrears || 0)}
+                        </TableCell>
+                      </TableRow>
+                    )}
                     <TableRow>
                       <TableCell><strong>Total Income Tax</strong></TableCell>
                       <TableCell align="right"><strong>{formatPKR(currentPayroll.taxCalculation?.totalTax || currentPayroll.incomeTax || 0)}</strong></TableCell>
