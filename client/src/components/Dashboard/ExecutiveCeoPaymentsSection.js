@@ -973,10 +973,75 @@ const ExecutiveCeoPaymentsSection = () => {
     return null;
   }
 
+  const actionBtnSx = (border, bg, hover) => ({
+    border: `1px solid ${border}`,
+    bgcolor: bg,
+    '&:hover': { bgcolor: hover },
+    minWidth: { xs: 42, sm: 34 },
+    minHeight: { xs: 42, sm: 34 }
+  });
+
+  const renderInboxItemActions = (item) => (
+    <Stack direction="row" spacing={0.8} justifyContent={{ xs: 'flex-start', sm: 'center' }} flexWrap="wrap" useFlexGap>
+      <Tooltip title="View">
+        <IconButton
+          size="small"
+          color="primary"
+          onClick={() => openView(item)}
+          sx={actionBtnSx('rgba(25, 118, 210, 0.3)', alpha('#1976d2', 0.05), alpha('#1976d2', 0.15))}
+        >
+          <ViewIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Workflow History">
+        <IconButton
+          size="small"
+          color="info"
+          onClick={() => openWorkflowHistory(item)}
+          sx={actionBtnSx('rgba(2, 136, 209, 0.3)', alpha('#0288d1', 0.05), alpha('#0288d1', 0.15))}
+        >
+          <HistoryIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Approve">
+        <IconButton
+          size="small"
+          color="success"
+          onClick={() => openApprove(item)}
+          sx={actionBtnSx('rgba(46, 125, 50, 0.3)', alpha('#2e7d32', 0.08), alpha('#2e7d32', 0.2))}
+        >
+          <CheckCircleIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Reject">
+        <IconButton
+          size="small"
+          color="error"
+          onClick={() => openReject(item)}
+          sx={actionBtnSx('rgba(211, 47, 47, 0.3)', alpha('#d32f2f', 0.05), alpha('#d32f2f', 0.15))}
+        >
+          <CancelIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      {!(item.isIndent || item.isUtilityBill || item.isVendorBill) && (
+        <Tooltip title="Return with observations">
+          <IconButton
+            size="small"
+            color="warning"
+            onClick={() => openReturn(item)}
+            sx={actionBtnSx('rgba(237, 108, 2, 0.3)', alpha('#ed6c02', 0.05), alpha('#ed6c02', 0.15))}
+          >
+            <WarningIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Stack>
+  );
+
   return (
     <Card
       sx={{
-        borderRadius: 5,
+        borderRadius: { xs: 3, sm: 5 },
         background: `linear-gradient(135deg, ${alpha('#0d47a1', 0.04)} 0%, ${alpha('#7b1fa2', 0.04)} 50%, ${alpha('#00897b', 0.03)} 100%)`,
         backdropFilter: 'blur(20px)',
         border: `1px solid ${alpha(theme.palette.primary.main, 0.18)}`,
@@ -984,6 +1049,7 @@ const ExecutiveCeoPaymentsSection = () => {
         mb: { xs: 3, md: 4 },
         position: 'relative',
         overflow: 'hidden',
+        mx: { xs: -0.25, sm: 0 },
         '&::before': {
           content: '""',
           position: 'absolute',
@@ -995,41 +1061,44 @@ const ExecutiveCeoPaymentsSection = () => {
         }
       }}
     >
-      <CardContent sx={{ p: { xs: 2.5, sm: 3.5 } }}>
+      <CardContent sx={{ p: { xs: 1.25, sm: 2.5, md: 3.5 }, '&:last-child': { pb: { xs: 1.5, sm: 2.5, md: 3.5 } } }}>
         {/* Header Bar */}
         <Box
           sx={{
             display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
             flexWrap: 'wrap',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 2,
-            mb: 3
+            alignItems: { xs: 'stretch', sm: 'center' },
+            gap: { xs: 1.5, sm: 2 },
+            mb: { xs: 2, sm: 3 }
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: { xs: 1.25, sm: 2 }, minWidth: 0 }}>
             <Box
               sx={{
-                width: 48,
-                height: 48,
+                width: { xs: 40, sm: 48 },
+                height: { xs: 40, sm: 48 },
                 borderRadius: 3,
                 background: 'linear-gradient(135deg, #1976d2 0%, #7b1fa2 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 color: '#fff',
-                boxShadow: '0 8px 20px rgba(25, 118, 210, 0.35)'
+                boxShadow: '0 8px 20px rgba(25, 118, 210, 0.35)',
+                flexShrink: 0
               }}
             >
-              <VerifiedUserIcon sx={{ fontSize: 26 }} />
+              <VerifiedUserIcon sx={{ fontSize: { xs: 22, sm: 26 } }} />
             </Box>
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                 <Typography
                   variant="h5"
                   sx={{
                     fontWeight: 800,
                     letterSpacing: '-0.02em',
+                    fontSize: { xs: '1.15rem', sm: '1.5rem' },
                     background: 'linear-gradient(135deg, #0d47a1 0%, #4a148c 100%)',
                     backgroundClip: 'text',
                     WebkitBackgroundClip: 'text',
@@ -1039,23 +1108,27 @@ const ExecutiveCeoPaymentsSection = () => {
                   My Executive Approvals
                 </Typography>
                 <Chip
-                  label={loading ? 'Checking...' : `${payments.length} Pending My Approval`}
+                  label={loading ? 'Checking...' : `${payments.length} Pending`}
                   size="small"
                   color={payments.length > 0 ? 'warning' : 'success'}
                   sx={{
                     fontWeight: 700,
-                    fontSize: '0.75rem',
+                    fontSize: '0.7rem',
                     animation: payments.length > 0 ? 'pulse 2s infinite' : 'none'
                   }}
                 />
               </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ fontWeight: 500, fontSize: { xs: '0.75rem', sm: '0.875rem' }, mt: 0.5, display: { xs: 'none', sm: 'block' } }}
+              >
                 Documents waiting on you — PO, Cash Approval, Settlement, Onboarding, Indent &amp; assigned bills
               </Typography>
             </Box>
           </Box>
 
-          <Stack direction="row" spacing={1.5} alignItems="center">
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ width: { xs: '100%', sm: 'auto' } }}>
             <Tooltip title="Refresh my approval inbox">
               <IconButton
                 onClick={fetchCeoPayments}
@@ -1063,7 +1136,9 @@ const ExecutiveCeoPaymentsSection = () => {
                 sx={{
                   border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
                   backgroundColor: alpha(theme.palette.primary.main, 0.05),
-                  '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.15) }
+                  '&:hover': { backgroundColor: alpha(theme.palette.primary.main, 0.15) },
+                  minWidth: 44,
+                  minHeight: 44
                 }}
               >
                 <RefreshIcon sx={{ animation: loading ? 'rotate 1s linear infinite' : 'none' }} />
@@ -1078,136 +1153,238 @@ const ExecutiveCeoPaymentsSection = () => {
                 borderRadius: 2.5,
                 fontWeight: 600,
                 textTransform: 'none',
+                flex: { xs: 1, sm: 'none' },
+                minHeight: 44,
                 borderColor: alpha(theme.palette.primary.main, 0.4),
                 '&:hover': { borderColor: theme.palette.primary.main, backgroundColor: alpha(theme.palette.primary.main, 0.05) }
               }}
             >
-              Full Payments Desk
+              {isMobile ? 'Payments Desk' : 'Full Payments Desk'}
             </Button>
           </Stack>
         </Box>
 
         {/* Metric Summary Cards */}
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid container spacing={{ xs: 1, sm: 2 }} sx={{ mb: { xs: 2, sm: 3 } }}>
           {/* Total Pending Value */}
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={6} sm={6} md={3}>
             <Paper
               elevation={0}
               sx={{
-                p: 2.2,
-                borderRadius: 3,
+                p: { xs: 1.25, sm: 2.2 },
+                height: '100%',
+                borderRadius: { xs: 2, sm: 3 },
                 background: 'linear-gradient(135deg, rgba(25, 118, 210, 0.08) 0%, rgba(25, 118, 210, 0.02) 100%)',
                 border: '1px solid rgba(25, 118, 210, 0.15)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2
+                gap: { xs: 1, sm: 2 },
+                minWidth: 0
               }}
             >
-              <Avatar sx={{ bgcolor: alpha('#1976d2', 0.15), color: '#1976d2', width: 44, height: 44, borderRadius: 2.5 }}>
+              <Avatar
+                sx={{
+                  bgcolor: alpha('#1976d2', 0.15),
+                  color: '#1976d2',
+                  width: { xs: 32, sm: 44 },
+                  height: { xs: 32, sm: 44 },
+                  borderRadius: 2.5,
+                  display: { xs: 'none', sm: 'flex' },
+                  flexShrink: 0
+                }}
+              >
                 <AttachMoneyIcon />
               </Avatar>
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Total Pending Amount
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: { xs: '0.62rem', sm: '0.75rem' } }}
+                >
+                  {isMobile ? 'Pending' : 'Total Pending Amount'}
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 800, color: '#1565c0', lineHeight: 1.2 }}>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    fontWeight: 800,
+                    color: '#1565c0',
+                    lineHeight: 1.2,
+                    fontSize: { xs: '0.85rem', sm: '1.25rem' },
+                    wordBreak: 'break-word'
+                  }}
+                >
                   {formatPKR(totalAmount)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {payments.length} total request{payments.length === 1 ? '' : 's'}
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                  {payments.length} request{payments.length === 1 ? '' : 's'}
                 </Typography>
               </Box>
             </Paper>
           </Grid>
 
           {/* Purchase Orders */}
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={6} sm={6} md={3}>
             <Paper
               elevation={0}
               sx={{
-                p: 2.2,
-                borderRadius: 3,
+                p: { xs: 1.25, sm: 2.2 },
+                height: '100%',
+                borderRadius: { xs: 2, sm: 3 },
                 background: 'linear-gradient(135deg, rgba(156, 39, 176, 0.08) 0%, rgba(156, 39, 176, 0.02) 100%)',
                 border: '1px solid rgba(156, 39, 176, 0.15)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2
+                gap: { xs: 1, sm: 2 },
+                minWidth: 0
               }}
             >
-              <Avatar sx={{ bgcolor: alpha('#9c27b0', 0.15), color: '#9c27b0', width: 44, height: 44, borderRadius: 2.5 }}>
+              <Avatar
+                sx={{
+                  bgcolor: alpha('#9c27b0', 0.15),
+                  color: '#9c27b0',
+                  width: { xs: 32, sm: 44 },
+                  height: { xs: 32, sm: 44 },
+                  borderRadius: 2.5,
+                  display: { xs: 'none', sm: 'flex' },
+                  flexShrink: 0
+                }}
+              >
                 <ShoppingBagIcon />
               </Avatar>
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Purchase Orders
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: { xs: '0.62rem', sm: '0.75rem' } }}
+                >
+                  {isMobile ? 'POs' : 'Purchase Orders'}
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 800, color: '#7b1fa2', lineHeight: 1.2 }}>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    fontWeight: 800,
+                    color: '#7b1fa2',
+                    lineHeight: 1.2,
+                    fontSize: { xs: '0.85rem', sm: '1.25rem' },
+                    wordBreak: 'break-word'
+                  }}
+                >
                   {formatPKR(poAmount)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {poItems.length} order{poItems.length === 1 ? '' : 's'} pending
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                  {poItems.length} pending
                 </Typography>
               </Box>
             </Paper>
           </Grid>
 
           {/* Cash Approvals */}
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={6} sm={6} md={3}>
             <Paper
               elevation={0}
               sx={{
-                p: 2.2,
-                borderRadius: 3,
+                p: { xs: 1.25, sm: 2.2 },
+                height: '100%',
+                borderRadius: { xs: 2, sm: 3 },
                 background: 'linear-gradient(135deg, rgba(0, 150, 136, 0.08) 0%, rgba(0, 150, 136, 0.02) 100%)',
                 border: '1px solid rgba(0, 150, 136, 0.15)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2
+                gap: { xs: 1, sm: 2 },
+                minWidth: 0
               }}
             >
-              <Avatar sx={{ bgcolor: alpha('#009688', 0.15), color: '#00796b', width: 44, height: 44, borderRadius: 2.5 }}>
+              <Avatar
+                sx={{
+                  bgcolor: alpha('#009688', 0.15),
+                  color: '#00796b',
+                  width: { xs: 32, sm: 44 },
+                  height: { xs: 32, sm: 44 },
+                  borderRadius: 2.5,
+                  display: { xs: 'none', sm: 'flex' },
+                  flexShrink: 0
+                }}
+              >
                 <WalletIcon />
               </Avatar>
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Cash Approvals
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: { xs: '0.62rem', sm: '0.75rem' } }}
+                >
+                  {isMobile ? 'Cash' : 'Cash Approvals'}
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 800, color: '#00796b', lineHeight: 1.2 }}>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    fontWeight: 800,
+                    color: '#00796b',
+                    lineHeight: 1.2,
+                    fontSize: { xs: '0.85rem', sm: '1.25rem' },
+                    wordBreak: 'break-word'
+                  }}
+                >
                   {formatPKR(caAmount)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {caItems.length} advance{caItems.length === 1 ? '' : 's'} pending
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                  {caItems.length} pending
                 </Typography>
               </Box>
             </Paper>
           </Grid>
 
           {/* Payment Settlements */}
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={6} sm={6} md={3}>
             <Paper
               elevation={0}
               sx={{
-                p: 2.2,
-                borderRadius: 3,
+                p: { xs: 1.25, sm: 2.2 },
+                height: '100%',
+                borderRadius: { xs: 2, sm: 3 },
                 background: 'linear-gradient(135deg, rgba(239, 108, 0, 0.08) 0%, rgba(239, 108, 0, 0.02) 100%)',
                 border: '1px solid rgba(239, 108, 0, 0.15)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2
+                gap: { xs: 1, sm: 2 },
+                minWidth: 0
               }}
             >
-              <Avatar sx={{ bgcolor: alpha('#ef6c00', 0.15), color: '#ef6c00', width: 44, height: 44, borderRadius: 2.5 }}>
+              <Avatar
+                sx={{
+                  bgcolor: alpha('#ef6c00', 0.15),
+                  color: '#ef6c00',
+                  width: { xs: 32, sm: 44 },
+                  height: { xs: 32, sm: 44 },
+                  borderRadius: 2.5,
+                  display: { xs: 'none', sm: 'flex' },
+                  flexShrink: 0
+                }}
+              >
                 <ReceiptIcon />
               </Avatar>
-              <Box>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: { xs: '0.62rem', sm: '0.75rem' } }}
+                >
                   Settlements
                 </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 800, color: '#e65100', lineHeight: 1.2 }}>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    fontWeight: 800,
+                    color: '#e65100',
+                    lineHeight: 1.2,
+                    fontSize: { xs: '0.85rem', sm: '1.25rem' },
+                    wordBreak: 'break-word'
+                  }}
+                >
                   {formatPKR(setAmount)}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {settlementItems.length} settlement{settlementItems.length === 1 ? '' : 's'} pending
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: { xs: '0.65rem', sm: '0.75rem' } }}>
+                  {settlementItems.length} pending
                 </Typography>
               </Box>
             </Paper>
@@ -1221,11 +1398,12 @@ const ExecutiveCeoPaymentsSection = () => {
             flexWrap: 'wrap',
             justifyContent: 'space-between',
             alignItems: 'center',
-            gap: 2,
+            gap: { xs: 1, sm: 2 },
             borderBottom: 1,
             borderColor: 'divider',
-            pb: 1.5,
-            mb: 2.5
+            pb: { xs: 1, sm: 1.5 },
+            mb: { xs: 1.75, sm: 2.5 },
+            mx: { xs: -0.5, sm: 0 }
           }}
         >
           <Tabs
@@ -1233,21 +1411,27 @@ const ExecutiveCeoPaymentsSection = () => {
             onChange={(_, val) => setFilterTab(val)}
             textColor="primary"
             indicatorColor="primary"
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
             sx={{
+              width: '100%',
+              minHeight: 44,
               '& .MuiTab-root': {
                 textTransform: 'none',
                 fontWeight: 700,
-                fontSize: '0.9rem',
-                minHeight: 40,
-                px: 2
+                fontSize: { xs: '0.78rem', sm: '0.9rem' },
+                minHeight: 44,
+                px: { xs: 1.25, sm: 2 },
+                minWidth: 'auto'
               }
             }}
           >
             <Tab label={`All (${payments.length})`} />
-            <Tab label={`Purchase Orders (${poItems.length})`} />
-            <Tab label={`Cash Approvals (${caItems.length})`} />
-            <Tab label={`Settlements (${settlementItems.length})`} />
-            <Tab label={`Onboardings (${onboardingItems.length})`} />
+            <Tab label={isMobile ? `PO (${poItems.length})` : `Purchase Orders (${poItems.length})`} />
+            <Tab label={isMobile ? `CA (${caItems.length})` : `Cash Approvals (${caItems.length})`} />
+            <Tab label={isMobile ? `Settle (${settlementItems.length})` : `Settlements (${settlementItems.length})`} />
+            <Tab label={isMobile ? `Onboard (${onboardingItems.length})` : `Onboardings (${onboardingItems.length})`} />
             <Tab label={`Other (${otherItems.length})`} />
           </Tabs>
         </Box>
@@ -1264,21 +1448,87 @@ const ExecutiveCeoPaymentsSection = () => {
           <Paper
             elevation={0}
             sx={{
-              p: 5,
+              p: { xs: 3, sm: 5 },
               textAlign: 'center',
-              borderRadius: 4,
+              borderRadius: { xs: 2.5, sm: 4 },
               border: '1px dashed rgba(67, 160, 71, 0.3)',
               backgroundColor: alpha('#43a047', 0.03)
             }}
           >
-            <CheckCircleOutlineIcon sx={{ fontSize: 52, color: '#43a047', mb: 1 }} />
-            <Typography variant="h6" sx={{ fontWeight: 700, color: '#2e7d32' }}>
+            <CheckCircleOutlineIcon sx={{ fontSize: { xs: 40, sm: 52 }, color: '#43a047', mb: 1 }} />
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#2e7d32', fontSize: { xs: '1rem', sm: '1.25rem' } }}>
               Inbox clear
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 460, mx: 'auto', mt: 0.5 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 460, mx: 'auto', mt: 0.5, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
               There are currently no documents waiting for your approval.
             </Typography>
           </Paper>
+        ) : isMobile ? (
+          <Stack spacing={1.5}>
+            {filteredPayments.map((item) => {
+              const typeColor = item.isPurchaseOrder ? 'secondary' : item.isCashApproval ? 'info' : 'warning';
+              return (
+                <Paper
+                  key={item._id}
+                  elevation={0}
+                  sx={{
+                    p: 1.75,
+                    borderRadius: 2.5,
+                    border: `1px solid ${alpha(theme.palette.divider, 0.9)}`,
+                    background: '#fff',
+                    boxShadow: `0 2px 8px ${alpha(theme.palette.common.black, 0.04)}`
+                  }}
+                >
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1} sx={{ mb: 1 }}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 0.5 }}>
+                        <Chip
+                          label={item.typeLabel}
+                          size="small"
+                          color={typeColor}
+                          variant="outlined"
+                          sx={{ fontWeight: 700, fontSize: '0.68rem', height: 22 }}
+                        />
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, wordBreak: 'break-word' }}>
+                          {item.displayRef}
+                        </Typography>
+                      </Stack>
+                      <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }} noWrap>
+                        {item.displayVendor}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                        {getCompanyValue(item)} · {item.department || 'General'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#1565c0' }}>
+                        {formatPKR(item.displayAmount)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatDateForDocument(item.displayDate)}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  {item.displayNotes ? (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                        mb: 1.25
+                      }}
+                    >
+                      {item.displayNotes}
+                    </Typography>
+                  ) : null}
+                  {renderInboxItemActions(item)}
+                </Paper>
+              );
+            })}
+          </Stack>
         ) : (
           <TableContainer
             component={Paper}
@@ -2506,6 +2756,8 @@ const ExecutiveCeoPaymentsSection = () => {
         }}
         maxWidth="lg"
         fullWidth
+        fullScreen={isMobile}
+        PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6">{imageViewer.imageName}</Typography>
@@ -2569,11 +2821,13 @@ const ExecutiveCeoPaymentsSection = () => {
         onClose={() => setApproveDialog({ open: false, settlement: null })}
         maxWidth="sm"
         fullWidth
+        fullScreen={isMobile}
+        PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
       >
-        <DialogTitle>
+        <DialogTitle sx={{ pr: 1, fontSize: { xs: '1.05rem', sm: '1.25rem' } }}>
           {`Approve ${approveDialog.settlement?.itemType || 'Payment'}`}
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             You are about to give CEO approval for{' '}
             <strong>{approveDialog.settlement?.displayRef}</strong> ({approveDialog.settlement?.itemType}) of amount{' '}
@@ -2610,16 +2864,18 @@ const ExecutiveCeoPaymentsSection = () => {
             label="I confirm that I have reviewed all payment details and authorize this approval as CEO"
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setApproveDialog({ open: false, settlement: null })}>
+        <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: { xs: 1.5, sm: 1 }, flexDirection: { xs: 'column-reverse', sm: 'row' }, gap: 1 }}>
+          <Button fullWidth={isMobile} onClick={() => setApproveDialog({ open: false, settlement: null })} sx={{ minHeight: 44 }}>
             Cancel
           </Button>
           <Button
+            fullWidth={isMobile}
             onClick={handleApproveSubmit}
             variant="contained"
             color="success"
             disabled={actionLoading || !approvalAgree}
             startIcon={<CheckCircleIcon />}
+            sx={{ minHeight: 44 }}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Authorize & Approve'}
           </Button>
@@ -2634,9 +2890,11 @@ const ExecutiveCeoPaymentsSection = () => {
         onClose={() => setRejectDialog({ open: false, settlement: null })}
         maxWidth="sm"
         fullWidth
+        fullScreen={isMobile}
+        PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
       >
-        <DialogTitle>Reject Payment (CEO)</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ fontSize: { xs: '1.05rem', sm: '1.25rem' } }}>Reject Payment (CEO)</DialogTitle>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             You are rejecting <strong>{rejectDialog.settlement?.displayRef}</strong>.
           </Typography>
@@ -2671,16 +2929,18 @@ const ExecutiveCeoPaymentsSection = () => {
             label="I confirm the rejection of this payment document"
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRejectDialog({ open: false, settlement: null })}>
+        <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: { xs: 1.5, sm: 1 }, flexDirection: { xs: 'column-reverse', sm: 'row' }, gap: 1 }}>
+          <Button fullWidth={isMobile} onClick={() => setRejectDialog({ open: false, settlement: null })} sx={{ minHeight: 44 }}>
             Cancel
           </Button>
           <Button
+            fullWidth={isMobile}
             onClick={handleRejectSubmit}
             variant="contained"
             color="error"
             disabled={actionLoading || !rejectionAgree || !rejectionComments.trim()}
             startIcon={<CancelIcon />}
+            sx={{ minHeight: 44 }}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Reject Payment'}
           </Button>
@@ -2695,9 +2955,11 @@ const ExecutiveCeoPaymentsSection = () => {
         onClose={() => setReturnDialog({ open: false, settlement: null })}
         maxWidth="md"
         fullWidth
+        fullScreen={isMobile}
+        PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
       >
-        <DialogTitle>Return with Observations (CEO)</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={{ fontSize: { xs: '1.05rem', sm: '1.25rem' } }}>Return with Observations (CEO)</DialogTitle>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Return <strong>{returnDialog.settlement?.displayRef}</strong> with required corrections.
           </Typography>
@@ -2793,16 +3055,18 @@ const ExecutiveCeoPaymentsSection = () => {
             label="I confirm returning this payment with observations as CEO"
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setReturnDialog({ open: false, settlement: null })}>
+        <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: { xs: 1.5, sm: 1 }, flexDirection: { xs: 'column-reverse', sm: 'row' }, gap: 1 }}>
+          <Button fullWidth={isMobile} onClick={() => setReturnDialog({ open: false, settlement: null })} sx={{ minHeight: 44 }}>
             Cancel
           </Button>
           <Button
+            fullWidth={isMobile}
             onClick={handleReturnSubmit}
             variant="contained"
             color="warning"
             disabled={actionLoading || !returnAgree || !returnComments.trim() || returnObservations.filter((o) => o.observation.trim()).length === 0}
             startIcon={<WarningIcon />}
+            sx={{ minHeight: 44 }}
           >
             {actionLoading ? <CircularProgress size={20} /> : 'Return with Observations'}
           </Button>

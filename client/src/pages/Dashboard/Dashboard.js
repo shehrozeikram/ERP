@@ -14,6 +14,7 @@ import {
   Stack,
   alpha,
   useTheme,
+  useMediaQuery,
   Alert,
   List,
   ListItem,
@@ -76,6 +77,7 @@ const logDebug = (...args) => {
 
 const Dashboard = () => {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
 
   // Add CSS animations for enhanced effects
@@ -497,12 +499,12 @@ const Dashboard = () => {
         background: `linear-gradient(135deg, ${alpha(color, 0.15)} 0%, ${alpha(color, 0.05)} 100%)`,
         backdropFilter: 'blur(20px)',
         border: `1px solid ${alpha(color, 0.2)}`,
-        borderRadius: 4,
+        borderRadius: { xs: 2.5, sm: 4 },
         position: 'relative',
         overflow: 'hidden',
           transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
           '&:hover': {
-            transform: 'translateY(-8px) scale(1.02)',
+            transform: { xs: 'none', sm: 'translateY(-8px) scale(1.02)' },
             boxShadow: `0 20px 40px ${alpha(color, 0.3)}`,
             border: `1px solid ${alpha(color, 0.4)}`,
             '& .card-glow': {
@@ -536,17 +538,18 @@ const Dashboard = () => {
             transition: 'opacity 0.3s ease'
           }}
         />
-        <CardContent sx={{ p: { xs: 2, sm: 2.5, md: 3 }, position: 'relative', zIndex: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2.5, md: 3 }, position: 'relative', zIndex: 1, '&:last-child': { pb: { xs: 1.5, sm: 2.5, md: 3 } } }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: { xs: 1.25, sm: 2 }, gap: 1 }}>
             <Box
               sx={{
-                p: 2,
-                borderRadius: 3,
+                p: { xs: 1.25, sm: 2 },
+                borderRadius: { xs: 2, sm: 3 },
                 background: `linear-gradient(135deg, ${alpha(color, 0.2)} 0%, ${alpha(color, 0.1)} 100%)`,
                 color: color,
                 display: 'flex',
                 alignItems: 'center',
-                boxShadow: `0 4px 12px ${alpha(color, 0.2)}`
+                boxShadow: `0 4px 12px ${alpha(color, 0.2)}`,
+                '& .MuiSvgIcon-root': { fontSize: { xs: 20, sm: 24 } }
               }}
             >
               {icon}
@@ -558,17 +561,20 @@ const Dashboard = () => {
               icon={trend === 'up' ? <TrendingUp /> : <TrendingDown />}
               sx={{ 
                 fontWeight: 700,
-                fontSize: '0.75rem',
-                height: 28,
+                fontSize: { xs: '0.65rem', sm: '0.75rem' },
+                height: { xs: 24, sm: 28 },
+                maxWidth: '100%',
                 background: trend === 'up' ? alpha(theme.palette.success.main, 0.1) : alpha(theme.palette.error.main, 0.1),
-                border: `1px solid ${trend === 'up' ? theme.palette.success.main : theme.palette.error.main}`
+                border: `1px solid ${trend === 'up' ? theme.palette.success.main : theme.palette.error.main}`,
+                '& .MuiChip-label': { px: { xs: 0.75, sm: 1 } },
+                '& .MuiChip-icon': { fontSize: { xs: 14, sm: 18 }, ml: { xs: 0.5, sm: 0.75 } }
               }}
             />
           </Box>
           <Typography variant="h3" sx={{ 
             fontWeight: 'bold', 
-            mb: 1, 
-            fontSize: { xs: '1.5rem', sm: '1.6rem', md: '1.4rem', lg: '1.6rem' },
+            mb: 0.75, 
+            fontSize: { xs: '1.15rem', sm: '1.6rem', md: '1.4rem', lg: '1.6rem' },
             lineHeight: 1.2,
             wordBreak: 'break-word',
             color: theme.palette.text.primary,
@@ -581,9 +587,9 @@ const Dashboard = () => {
           </Typography>
           <Typography variant="h6" sx={{ 
             color: theme.palette.text.secondary, 
-            mb: 1,
+            mb: 0.5,
             fontWeight: 600,
-            fontSize: { xs: '0.92rem', md: '0.85rem', lg: '0.92rem' }
+            fontSize: { xs: '0.78rem', sm: '0.92rem', md: '0.85rem', lg: '0.92rem' }
           }}>
             {title}
           </Typography>
@@ -591,7 +597,11 @@ const Dashboard = () => {
             <Typography variant="body2" sx={{ 
               color: theme.palette.text.secondary,
               opacity: 0.8,
-              fontSize: { xs: '0.75rem', md: '0.7rem', lg: '0.75rem' }
+              fontSize: { xs: '0.68rem', sm: '0.75rem', md: '0.7rem', lg: '0.75rem' },
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
             }}>
               {subtitle}
             </Typography>
@@ -1005,6 +1015,7 @@ const Dashboard = () => {
       minHeight: '100vh',
       background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.03)} 0%, ${alpha(theme.palette.secondary.main, 0.03)} 100%)`,
       position: 'relative',
+      overflowX: 'hidden',
       '&::before': {
         content: '""',
         position: 'fixed',
@@ -1017,33 +1028,43 @@ const Dashboard = () => {
         zIndex: -1
       }
     }}>
-      <Container maxWidth="xl" sx={{ p: { xs: 1.5, sm: 2, md: 2.5 } }}>
+      <Container maxWidth="xl" sx={{ p: { xs: 1, sm: 2, md: 2.5 }, px: { xs: 1.25, sm: 2, md: 2.5 } }}>
         {/* Premium Header */}
         <Box sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: { xs: 1.5, sm: 2, md: 2.5 } }}>
-            <Box>
+          <Box sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: { xs: 1, sm: 0 },
+            mb: { xs: 1.5, sm: 2, md: 2.5 }
+          }}>
+            <Box sx={{ minWidth: 0, width: { xs: '100%', sm: 'auto' } }}>
               <Typography variant="h2" sx={{ 
                 fontWeight: 'bold', 
-                fontSize: { xs: '1.8rem', sm: '2.2rem', md: '2.5rem' },
+                fontSize: { xs: '1.35rem', sm: '2.2rem', md: '2.5rem' },
+                lineHeight: 1.2,
                 background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
                 backgroundClip: 'text',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
-                mb: 1
+                mb: { xs: 0.5, sm: 1 }
               }}>
                 Welcome back, {user?.firstName}! 🚀
               </Typography>
               <Typography variant="h5" sx={{ 
                 color: theme.palette.text.secondary,
                 fontWeight: 500,
-                fontSize: { xs: '1rem', sm: '1.2rem', md: '1.4rem' }
+                fontSize: { xs: '0.85rem', sm: '1.2rem', md: '1.4rem' },
+                lineHeight: 1.35,
+                mb: { xs: 0, sm: 0 }
               }}>
-                Premium Executive Dashboard - Advanced Business Intelligence
+                {isMobile ? 'Executive Dashboard' : 'Premium Executive Dashboard - Advanced Business Intelligence'}
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignSelf: { xs: 'flex-end', sm: 'auto' } }}>
               <Tooltip title="Export Report">
-                <IconButton sx={{ 
+                <IconButton size={isMobile ? 'small' : 'medium'} sx={{ 
                   backgroundColor: alpha(theme.palette.success.main, 0.1),
                   '&:hover': {
                     backgroundColor: alpha(theme.palette.success.main, 0.2),
@@ -1051,11 +1072,11 @@ const Dashboard = () => {
                   },
                   transition: 'all 0.3s ease'
                 }}>
-                  <Download />
+                  <Download fontSize={isMobile ? 'small' : 'medium'} />
                 </IconButton>
               </Tooltip>
               <Tooltip title="Print Dashboard">
-                <IconButton sx={{ 
+                <IconButton size={isMobile ? 'small' : 'medium'} sx={{ 
                   backgroundColor: alpha(theme.palette.info.main, 0.1),
                   '&:hover': {
                     backgroundColor: alpha(theme.palette.info.main, 0.2),
@@ -1063,7 +1084,7 @@ const Dashboard = () => {
                   },
                   transition: 'all 0.3s ease'
                 }}>
-                  <Print />
+                  <Print fontSize={isMobile ? 'small' : 'medium'} />
                 </IconButton>
               </Tooltip>
             </Box>
@@ -1071,32 +1092,33 @@ const Dashboard = () => {
           <Box sx={{ 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 2,
-            p: 2,
-            borderRadius: 3,
+            gap: { xs: 1, sm: 2 },
+            p: { xs: 1.25, sm: 2 },
+            borderRadius: { xs: 2, sm: 3 },
             background: `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.8)} 0%, ${alpha(theme.palette.background.paper, 0.6)} 100%)`,
             backdropFilter: 'blur(20px)',
-            border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`
+            border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+            flexWrap: 'wrap'
           }}>
             <Badge color="success" variant="dot">
-              <Speed sx={{ color: theme.palette.success.main }} />
+              <Speed sx={{ color: theme.palette.success.main, fontSize: { xs: 18, sm: 24 } }} />
             </Badge>
-            <Typography variant="body2" sx={{ color: theme.palette.text.secondary }}>
-              Real-time updates via WebSocket
+            <Typography variant="body2" sx={{ color: theme.palette.text.secondary, fontSize: { xs: '0.75rem', sm: '0.875rem' }, flex: 1, minWidth: 0 }}>
+              {isMobile ? 'Live WebSocket updates' : 'Real-time updates via WebSocket'}
             </Typography>
             <Chip 
-              label="Real-Time Data" 
+              label={isMobile ? 'Live' : 'Real-Time Data'} 
               size="small" 
               color="success" 
               icon={<FlashOn />}
-              sx={{ ml: 'auto' }}
+              sx={{ ml: { xs: 0, sm: 'auto' }, height: { xs: 24, sm: 32 }, fontSize: { xs: '0.7rem', sm: '0.8125rem' } }}
             />
           </Box>
         </Box>
 
         {/* Premium KPI Cards */}
-        <Grid container spacing={{ xs: 2, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
-          <Grid item xs={12} sm={6} md={2}>
+        <Grid container spacing={{ xs: 1.25, sm: 3, md: 4 }} sx={{ mb: { xs: 2, sm: 3, md: 4 } }}>
+          <Grid item xs={6} sm={6} md={2}>
             <PremiumKPICard
               title="Total Employees"
               value={dashboardData.overview.totalEmployees.toLocaleString()}
@@ -1109,7 +1131,7 @@ const Dashboard = () => {
               onClick={() => navigate('/hr/employees')}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid item xs={6} sm={6} md={2}>
             <PremiumKPICard
               title="Monthly Payroll"
               value={formatPKR(dashboardData.overview.totalPayrollAmount)}
@@ -1122,15 +1144,15 @@ const Dashboard = () => {
               onClick={() => navigate('/hr/payroll')}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid item xs={6} sm={6} md={2}>
             <PremiumKPICard
-              title="Present Percentage"
+              title="Present %"
               value={`${dashboardData.overview.presentPercentage.toFixed(1)}%`}
               change="2.5"
               trend="up"
               icon={<Schedule />}
               color={theme.palette.success.main}
-              subtitle={`${dashboardData.overview.presentUsersCount || presentUsersCount} present users`}
+              subtitle={`${dashboardData.overview.presentUsersCount || presentUsersCount} present`}
               delay={200}
               onClick={() => {
                 setUsersDialogStatus('Present');
@@ -1140,15 +1162,15 @@ const Dashboard = () => {
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid item xs={6} sm={6} md={2}>
             <PremiumKPICard
-              title="Absent Users"
+              title="Absent"
               value={`${dashboardData.overview.absentUsersCount ?? absentUsersCount}`}
               change="1.2"
               trend="down"
               icon={<TrendingDown />}
               color={theme.palette.error.main}
-              subtitle="Click to view absent list"
+              subtitle="Tap to view list"
               delay={250}
               onClick={() => {
                 setUsersDialogStatus('Absent');
@@ -1158,7 +1180,7 @@ const Dashboard = () => {
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid item xs={6} sm={6} md={2}>
             <PremiumKPICard
               title="Total Indents"
               value={dashboardData.overview.totalIndents.toLocaleString()}
@@ -1167,14 +1189,14 @@ const Dashboard = () => {
               trend="up"
               icon={<ShoppingCart />}
               color={theme.palette.info.main}
-              subtitle={`${dashboardData.overview.pendingIndents} pending approval`}
+              subtitle={`${dashboardData.overview.pendingIndents} pending`}
               delay={300}
               onClick={() => navigate('/general/indents')}
             />
           </Grid>
-          <Grid item xs={12} sm={6} md={2}>
+          <Grid item xs={6} sm={6} md={2}>
             <PremiumKPICard
-              title="Online Users"
+              title="Online"
               value={`${onlineUsersCount}`}
               change={onlineUsersCount > 0 ? 'Live' : '0'}
               changeLabel={onlineUsersCount > 0 ? 'Live now' : 'No users'}
@@ -1184,7 +1206,7 @@ const Dashboard = () => {
               subtitle={
                 onlineUsersPreview.length
                   ? onlineUsersPreview.join(', ')
-                  : 'No users currently online'
+                  : 'No users online'
               }
               delay={350}
               onClick={() => navigate('/admin/users/online')}
@@ -1197,6 +1219,8 @@ const Dashboard = () => {
           onClose={() => setPresentUsersDialogOpen(false)}
           fullWidth
           maxWidth="md"
+          fullScreen={isMobile}
+          PaperProps={{ sx: { borderRadius: { xs: 0, sm: 2 } } }}
         >
           <DialogTitle>{usersDialogStatus} Employees</DialogTitle>
           <DialogContent dividers>
@@ -1231,7 +1255,13 @@ const Dashboard = () => {
               )
             )}
           </DialogContent>
-          <DialogActions sx={{ alignItems: 'center' }}>
+          <DialogActions sx={{
+            alignItems: { xs: 'stretch', sm: 'center' },
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: { xs: 1, sm: 0 },
+            px: { xs: 1.5, sm: 2 },
+            pb: { xs: 2, sm: 1.5 }
+          }}>
             <TablePagination
               component="div"
               count={presentEmployeesTotalCount}
@@ -1249,8 +1279,27 @@ const Dashboard = () => {
                 fetchUsersByPunch(usersDialogStatus, 1, nextRows);
               }}
               rowsPerPageOptions={[10, 20, 50, 100]}
+              sx={{
+                width: { xs: '100%', sm: 'auto' },
+                '.MuiTablePagination-toolbar': {
+                  flexWrap: 'wrap',
+                  justifyContent: { xs: 'center', sm: 'flex-end' },
+                  minHeight: { xs: 'auto', sm: 52 },
+                  px: { xs: 0, sm: 2 }
+                },
+                '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                  fontSize: { xs: '0.75rem', sm: '0.875rem' }
+                }
+              }}
             />
-            <Button onClick={() => setPresentUsersDialogOpen(false)} variant="contained">Close</Button>
+            <Button
+              onClick={() => setPresentUsersDialogOpen(false)}
+              variant="contained"
+              fullWidth={isMobile}
+              sx={{ minHeight: 44 }}
+            >
+              Close
+            </Button>
           </DialogActions>
         </Dialog>
 
@@ -1299,35 +1348,38 @@ const Dashboard = () => {
                   animation: 'float 6s ease-in-out infinite'
                 }
               }}>
-                <CardContent sx={{ p: 4, position: 'relative', zIndex: 1 }}>
+                <CardContent sx={{ p: { xs: 2, sm: 3, md: 4 }, position: 'relative', zIndex: 1 }}>
                   {/* Header Section */}
                   <Box sx={{ 
                     display: 'flex', 
                     alignItems: 'center', 
-                    gap: 2, 
-                    mb: 4,
+                    gap: { xs: 1.5, sm: 2 }, 
+                    mb: { xs: 2.5, sm: 4 },
                     position: 'relative'
                   }}>
                     <Box
                       sx={{
-                        p: 2,
+                        p: { xs: 1.25, sm: 2 },
                         borderRadius: 3,
                         background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.2)} 0%, ${alpha(theme.palette.primary.main, 0.1)} 100%)`,
                         color: theme.palette.primary.main,
                         boxShadow: `0 8px 25px ${alpha(theme.palette.primary.main, 0.2)}`,
                         border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
-                        animation: 'pulse 2s ease-in-out infinite'
+                        animation: 'pulse 2s ease-in-out infinite',
+                        flexShrink: 0
                       }}
                     >
-                      <PersonIcon sx={{ fontSize: 28 }} />
+                      <PersonIcon sx={{ fontSize: { xs: 22, sm: 28 } }} />
                     </Box>
-                    <Box>
+                    <Box sx={{ minWidth: 0 }}>
                       <Typography variant="h5" sx={{ 
                         fontWeight: 'bold', 
                         color: theme.palette.text.primary,
                         background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
                         backgroundClip: 'text',
                         WebkitBackgroundClip: 'text',
+                        fontSize: { xs: '1.1rem', sm: '1.5rem' },
+                        wordBreak: 'break-word',
                         WebkitTextFillColor: 'transparent',
                         mb: 0.5
                       }}>
