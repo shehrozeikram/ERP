@@ -1463,6 +1463,7 @@ const CashApprovalsPage = () => {
               <TableRow>
                 <TableCell><strong>CA Number</strong></TableCell>
                 <TableCell><strong>Vendor</strong></TableCell>
+                <TableCell><strong>Initiator</strong></TableCell>
                 <TableCell sx={{ minWidth: 180, maxWidth: 280 }}><strong>Narration / Description</strong></TableCell>
                 <TableCell><strong>Approval Date</strong></TableCell>
                 <TableCell><strong>Expected Purchase</strong></TableCell>
@@ -1475,11 +1476,11 @@ const CashApprovalsPage = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center"><CircularProgress /></TableCell>
+                  <TableCell colSpan={10} align="center"><CircularProgress /></TableCell>
                 </TableRow>
               ) : cashApprovals.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={10} align="center">
                     <Typography variant="body2" color="textSecondary">No cash approvals found</Typography>
                   </TableCell>
                 </TableRow>
@@ -1487,6 +1488,11 @@ const CashApprovalsPage = () => {
                 <TableRow key={ca._id} hover>
                   <TableCell>{ca.caNumber}</TableCell>
                   <TableCell>{ca.vendor?.name || 'N/A'}</TableCell>
+                  <TableCell>
+                    {ca.createdBy
+                      ? `${ca.createdBy.firstName || ''} ${ca.createdBy.lastName || ''}`.trim() || ca.createdBy.email || '—'
+                      : '—'}
+                  </TableCell>
                   <NarrationTableCell text={getCashApprovalNarrationDisplay(ca)} />
                   <TableCell>{formatDate(ca.approvalDate)}</TableCell>
                   <TableCell>{formatDate(ca.expectedPurchaseDate)}</TableCell>

@@ -1111,6 +1111,7 @@ const PurchaseOrders = () => {
               <TableRow>
                 <TableCell><strong>Order Number</strong></TableCell>
                 <TableCell><strong>Vendor</strong></TableCell>
+                <TableCell><strong>Initiator</strong></TableCell>
                 <TableCell><strong>Order Date</strong></TableCell>
                 <TableCell><strong>Expected Delivery</strong></TableCell>
                 <TableCell><strong>Status</strong></TableCell>
@@ -1123,13 +1124,13 @@ const PurchaseOrders = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={10} align="center">
                     <CircularProgress />
                   </TableCell>
                 </TableRow>
               ) : purchaseOrders.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
+                  <TableCell colSpan={10} align="center">
                     <Typography variant="body2" color="textSecondary">
                       No purchase orders found
                     </Typography>
@@ -1140,6 +1141,11 @@ const PurchaseOrders = () => {
                   <TableRow key={order._id} hover>
                     <TableCell>{order.orderNumber}</TableCell>
                     <TableCell>{order.vendor?.name || 'N/A'}</TableCell>
+                    <TableCell>
+                      {order.createdBy
+                        ? `${order.createdBy.firstName || ''} ${order.createdBy.lastName || ''}`.trim() || order.createdBy.email || '—'
+                        : '—'}
+                    </TableCell>
                     <TableCell>{formatDate(order.orderDate)}</TableCell>
                     <TableCell>{formatDate(order.expectedDeliveryDate)}</TableCell>
                     <TableCell>

@@ -161,6 +161,7 @@ const GeneralCashApprovalsList = () => {
             <TableHead>
               <TableRow>
                 <TableCell>CA #</TableCell>
+                <TableCell>Initiator</TableCell>
                 <TableCell>Department</TableCell>
                 <TableCell>Purpose</TableCell>
                 <TableCell align="right">Amount</TableCell>
@@ -173,7 +174,7 @@ const GeneralCashApprovalsList = () => {
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4, color: 'text.secondary' }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4, color: 'text.secondary' }}>
                     No cash approvals yet.
                   </TableCell>
                 </TableRow>
@@ -181,6 +182,11 @@ const GeneralCashApprovalsList = () => {
                 rows.map((row) => (
                   <TableRow key={row._id} hover>
                     <TableCell>{row.caNumber}</TableCell>
+                    <TableCell>
+                      {row.createdBy
+                        ? `${row.createdBy.firstName || ''} ${row.createdBy.lastName || ''}`.trim() || row.createdBy.email || '—'
+                        : '—'}
+                    </TableCell>
                     <TableCell>{row.requestingDepartment || '—'}</TableCell>
                     <TableCell sx={{ maxWidth: 240 }}>{row.purpose}</TableCell>
                     <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>

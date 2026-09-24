@@ -411,6 +411,7 @@ const CentralizedStoreBills = () => {
                       <TableRow>
                         <TableCell>Bill ID</TableCell>
                         <TableCell>Bill date</TableCell>
+                        <TableCell>Initiator</TableCell>
                         <TableCell>Company</TableCell>
                         <TableCell>Category</TableCell>
                         <TableCell>Vendor</TableCell>
@@ -431,6 +432,11 @@ const CentralizedStoreBills = () => {
                           <TableRow key={bill._id} hover>
                             <TableCell>{bill.billId}</TableCell>
                             <TableCell>{formatDate(bill.billDate)}</TableCell>
+                            <TableCell>
+                              {bill.createdBy
+                                ? `${bill.createdBy.firstName || ''} ${bill.createdBy.lastName || ''}`.trim() || bill.createdBy.email || '—'
+                                : '—'}
+                            </TableCell>
                             <TableCell>
                               {billCompanies.length === 0 ? (
                                 <Typography variant="body2" color="text.secondary">

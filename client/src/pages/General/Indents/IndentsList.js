@@ -697,7 +697,7 @@ const IndentsList = () => {
               <TableCell><strong>Number/Reference</strong></TableCell>
               <TableCell><strong>Title/Description</strong></TableCell>
               <TableCell><strong>Department</strong></TableCell>
-              <TableCell><strong>Requested By</strong></TableCell>
+              <TableCell><strong>Initiator</strong></TableCell>
               <TableCell><strong>Status</strong></TableCell>
               <TableCell><strong>Priority</strong></TableCell>
               <TableCell align="right"><strong>Amount</strong></TableCell>
@@ -730,7 +730,9 @@ const IndentsList = () => {
                       </TableCell>
                       <TableCell>{item.fromDepartment || '—'}</TableCell>
                       <TableCell>
-                        {item.createdBy?.firstName} {item.createdBy?.lastName}
+                        {item.createdBy
+                          ? `${item.createdBy.firstName || ''} ${item.createdBy.lastName || ''}`.trim() || item.createdBy.email || '—'
+                          : '—'}
                       </TableCell>
                       <TableCell>
                         <Chip 
@@ -810,7 +812,11 @@ const IndentsList = () => {
                     </TableCell>
                     <TableCell>{item.department?.name || '—'}</TableCell>
                     <TableCell>
-                      {item.requestedBy?.firstName} {item.requestedBy?.lastName}
+                      {item.requestedBy || item.createdBy
+                        ? `${(item.requestedBy || item.createdBy)?.firstName || ''} ${(item.requestedBy || item.createdBy)?.lastName || ''}`.trim()
+                          || (item.requestedBy || item.createdBy)?.email
+                          || '—'
+                        : '—'}
                     </TableCell>
                     <TableCell>
                       {(() => {
