@@ -77,6 +77,120 @@ const mapUploadedAttachments = (files = []) => files.map((file) => ({
   uploadedAt: new Date()
 }));
 
+/**
+ * Higher management / CEO / director / president (and ops admins) see all indents.
+ * Everyone else only sees own + indents they are assigned to approve or already approved.
+ */
+const canViewAllIndents = (user) => {
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase().trim();
+  const privilegedRoles = new Set([
+    'super_admin',
+    'admin',
+    'developer',
+    'higher_management',
+    'ceo',
+    'hr_manager',
+    'director',
+    'president',
+    'chairman',
+    'commercial_director'
+  ]);
+  if (privilegedRoles.has(role)) return true;
+  if (role.includes('director') || role.includes('president') || role.includes('chairman')) {
+    return true;
+  }
+  const titleBlob = [
+    user.position,
+    user.designation,
+    user.jobTitle,
+    user.title,
+    user.employeeCategory
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (/\b(director|president|chairman|ceo)\b/.test(titleBlob)) return true;
+  return false;
+};
+
+const mergeIndentQueryAnd = (filter, condition) => {
+  if (!condition || !Object.keys(condition).length) return filter;
+  if (filter.$and) {
+    filter.$and.push(condition);
+  } else if (filter.$or) {
+    filter.$and = [{ $or: filter.$or }, condition];
+    delete filter.$or;
+  } else {
+    Object.assign(filter, condition);
+  }
+  return filter;
+};
+
+const buildIndentPrivacyOr = (user) => {
+  const uid = user?._id || user?.id;
+  if (!uid) return [];
+  return [
+    { requestedBy: uid },
+    { createdBy: uid },
+    { approvedBy: uid },
+    { 'approvalChain.approver': uid },
+    { draftApproverIds: uid },
+    { 'comparativeStatementApprovals.preparedByUser': uid },
+    { 'comparativeStatementApprovals.verifiedByUser': uid },
+    { 'comparativeStatementApprovals.authorisedRepUser': uid },
+    { 'comparativeStatementApprovals.financeRepUser': uid },
+    { 'comparativeStatementApprovals.managerProcurementUser': uid },
+    { 'comparativeApproval.approvers.approver': uid },
+    { 'comparativeApprovals.approvers.approver': uid },
+    { 'procurementAssignment.assignedTo': uid },
+    { 'workflowHistory.changedBy': uid }
+  ];
+};
+
+const applyIndentPrivacyFilter = (filter, user) => {
+  if (canViewAllIndents(user)) return { filter, empty: false };
+  const privacyOr = buildIndentPrivacyOr(user);
+  if (!privacyOr.length) return { filter, empty: true };
+  mergeIndentQueryAnd(filter, { $or: privacyOr });
+  return { filter, empty: false };
+};
+
+const userCanViewIndent = (user, indent) => {
+  if (!user || !indent) return false;
+  if (canViewAllIndents(user)) return true;
+  const uid = String(user._id || user.id || '');
+  if (!uid) return false;
+  const same = (ref) => {
+    if (!ref) return false;
+    return String(ref._id || ref) === uid;
+  };
+  if (same(indent.requestedBy) || same(indent.createdBy) || same(indent.approvedBy)) return true;
+  if (Array.isArray(indent.approvalChain) && indent.approvalChain.some((s) => same(s.approver))) return true;
+  if (Array.isArray(indent.draftApproverIds) && indent.draftApproverIds.some((id) => same(id))) return true;
+  const csa = indent.comparativeStatementApprovals || {};
+  if (
+    same(csa.preparedByUser) ||
+    same(csa.verifiedByUser) ||
+    same(csa.authorisedRepUser) ||
+    same(csa.financeRepUser) ||
+    same(csa.managerProcurementUser)
+  ) {
+    return true;
+  }
+  const caApprovers = indent.comparativeApproval?.approvers || [];
+  if (caApprovers.some((s) => same(s.approver))) return true;
+  const lotApprovers = Array.isArray(indent.comparativeApprovals)
+    ? indent.comparativeApprovals.flatMap((lot) => lot.approvers || [])
+    : [];
+  if (lotApprovers.some((s) => same(s.approver))) return true;
+  if (same(indent.procurementAssignment?.assignedTo)) return true;
+  if (Array.isArray(indent.workflowHistory) && indent.workflowHistory.some((h) => same(h.changedBy))) {
+    return true;
+  }
+  return false;
+};
+
 const parseRemovedAttachmentIds = (body) => {
   const raw = body.removedAttachmentIds;
   if (!raw) return [];
@@ -221,6 +335,16 @@ router.get('/',
     // Build filter object
     const filter = { isActive: true };
 
+    // Privacy: leadership sees all; others see own + assigned/approved
+    const privacy = applyIndentPrivacyFilter(filter, req.user);
+    if (privacy.empty) {
+      return res.json({
+        success: true,
+        data: [],
+        pagination: { page, limit, total: 0, pages: 0 }
+      });
+    }
+
     if (req.query.status) {
       filter.status = req.query.status;
     }
@@ -244,7 +368,14 @@ router.get('/',
       });
     }
     if (andConditions.length > 0) {
-      filter.$and = andConditions;
+      if (filter.$and) {
+        filter.$and.push(...andConditions);
+      } else if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, ...andConditions];
+        delete filter.$or;
+      } else {
+        filter.$and = andConditions;
+      }
     }
     if (req.query.category) {
       filter.category = req.query.category;
@@ -414,8 +545,12 @@ router.get('/dashboard',
   asyncHandler(async (req, res) => {
     const userId = req.user.id;
 
-    // Get all indents for statistics
-    const allIndents = await Indent.find({ isActive: true });
+    const baseFilter = { isActive: true };
+    const privacy = applyIndentPrivacyFilter(baseFilter, req.user);
+    const scopeFilter = privacy.empty ? { _id: null } : baseFilter;
+
+    // Get scoped indents for statistics
+    const allIndents = await Indent.find(scopeFilter);
 
     // Get user's department
     const user = await User.findById(userId).populate('department');
@@ -441,17 +576,14 @@ router.get('/dashboard',
         Urgent: allIndents.filter(i => i.priority === 'Urgent').length
       },
       totalEstimatedCost: allIndents.reduce((sum, i) => sum + (i.totalEstimatedCost || 0), 0),
-      myIndents: userDepartment ? allIndents.filter(i =>
-        i.department?.toString() === userDepartment.toString() ||
-        i.requestedBy?.toString() === userId.toString()
-      ).length : allIndents.filter(i => i.requestedBy?.toString() === userId.toString()).length,
+      myIndents: allIndents.filter(i => i.requestedBy?.toString() === userId.toString()).length,
       pendingApproval: allIndents.filter(i =>
         i.status === 'Submitted' || i.status === 'Under Review'
       ).length
     };
 
-    // Get recent indents
-    const recentIndents = await Indent.find({ isActive: true })
+    // Get recent indents (privacy-scoped)
+    const recentIndents = await Indent.find(scopeFilter)
       .populate('department', 'name code')
       .populate('requestedBy', 'firstName lastName email digitalSignature')
       .sort({ createdAt: -1 })
@@ -571,6 +703,13 @@ router.get('/:id',
       return res.status(404).json({
         success: false,
         message: 'Indent not found'
+      });
+    }
+
+    if (!userCanViewIndent(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only view your own indents or ones assigned to you.'
       });
     }
 
