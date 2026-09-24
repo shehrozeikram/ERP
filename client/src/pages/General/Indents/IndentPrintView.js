@@ -90,11 +90,12 @@ const IndentPrintView = () => {
   return (
     <>
       {/* Print Controls - Hidden when printing */}
-      <Box sx={{ p: 2, display: 'flex', gap: 2, '@media print': { display: 'none' } }}>
+      <Box sx={{ p: { xs: 1.5, sm: 2 }, display: 'flex', gap: 1, flexWrap: 'wrap', '@media print': { display: 'none' } }}>
         <Button
           variant="outlined"
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate(`/general/indents/${id}`)}
+          sx={{ minHeight: 40 }}
         >
           Back
         </Button>
@@ -102,6 +103,7 @@ const IndentPrintView = () => {
           variant="contained"
           startIcon={<PrintIcon />}
           onClick={handlePrint}
+          sx={{ minHeight: 40 }}
         >
           Print
         </Button>
@@ -110,11 +112,13 @@ const IndentPrintView = () => {
       {/* Print Content */}
       <Paper
         sx={{
-          p: 4,
+          p: { xs: 2, sm: 4 },
           maxWidth: '210mm',
-          minHeight: '297mm',
+          width: '100%',
+          minHeight: { xs: 'auto', sm: '297mm' },
           mx: 'auto',
           backgroundColor: '#fff',
+          overflowX: 'auto',
           '@media print': {
             boxShadow: 'none',
             p: 2.5,
@@ -124,18 +128,30 @@ const IndentPrintView = () => {
         }}
       >
         {/* Header Section - Logo and Company Name */}
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 0, position: 'relative', minHeight: { xs: 150, print: 130 } }}>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            justifyContent: 'center',
+            alignItems: 'center',
+            mb: 0,
+            position: 'relative',
+            minHeight: { xs: 'auto', sm: 150 },
+            gap: { xs: 1, sm: 0 }
+          }}
+        >
           <Box
             component="img"
             src="/images/taj-logo.png"
             alt="Taj Residencia Logo"
             sx={{
-              height: { xs: 150, print: 130 },
+              height: { xs: 72, sm: 150 },
               width: 'auto',
               objectFit: 'contain',
-              position: 'absolute',
+              position: { xs: 'static', sm: 'absolute' },
               left: 0,
-              top: { xs: 10, print: 5 }
+              top: { sm: 10 },
+              alignSelf: { xs: 'flex-start', sm: 'auto' }
             }}
             onError={(e) => {
               e.target.style.display = 'none';
@@ -247,10 +263,11 @@ const IndentPrintView = () => {
         </Box>
 
         {/* Items Table */}
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 3, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
           <table
             style={{
               width: '100%',
+              minWidth: 640,
               borderCollapse: 'collapse',
               border: '1px solid #000',
               fontSize: '0.85rem',

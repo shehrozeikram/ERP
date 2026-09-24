@@ -856,14 +856,28 @@ const UtilityBillDetails = ({
   }
 
   return (
-    <Box sx={{ p: embedded ? 0 : 3 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} gap={2} flexWrap="wrap">
+    <Box sx={{ p: embedded ? 0 : { xs: 1.5, sm: 3 } }}>
+      <Box
+        display="flex"
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        mb={3}
+        gap={2}
+        flexDirection={{ xs: 'column', sm: 'row' }}
+        flexWrap="wrap"
+      >
         {!hideBack && !embedded && (
-          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(billsListPath)}>
+          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(billsListPath)} sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}>
             {isFinanceContext ? 'Back to Accounts Payable' : 'Back to Bills'}
           </Button>
         )}
-        <Stack direction="row" spacing={1} sx={{ ml: hideBack || embedded ? 0 : 'auto' }}>
+        <Stack
+          direction="row"
+          spacing={1}
+          flexWrap="wrap"
+          useFlexGap
+          sx={{ ml: hideBack || embedded ? 0 : { sm: 'auto' }, width: { xs: '100%', sm: 'auto' }, '& .MuiButton-root': { minHeight: 40 } }}
+        >
           <Chip label={`Approval: ${approvalStatus}`} color={getApprovalColor(approvalStatus)} sx={{ alignSelf: 'center' }} />
           {bill.auditStatus && bill.auditStatus !== 'Not Sent' && (
             <Chip

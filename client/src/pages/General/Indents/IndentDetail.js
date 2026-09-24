@@ -365,24 +365,30 @@ const IndentDetail = ({
   }
 
   return (
-    <Box sx={{ p: embedded ? 0 : 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
-        <Stack direction="row" spacing={2} alignItems="center">
+    <Box sx={{ p: embedded ? 0 : { xs: 1.5, sm: 3 } }}>
+      <Stack
+        direction={{ xs: 'column', md: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ xs: 'stretch', md: 'center' }}
+        spacing={2}
+        sx={{ mb: 3 }}
+      >
+        <Stack direction="row" spacing={1.5} alignItems="center">
           {!hideBack && !embedded && (
-            <IconButton onClick={() => navigate('/general/indents')}>
+            <IconButton onClick={() => navigate('/general/indents')} sx={{ flexShrink: 0 }}>
               <ArrowBackIcon />
             </IconButton>
           )}
-          <Box>
-            <Typography variant={embedded ? 'h5' : 'h4'} fontWeight={700}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant={embedded ? 'h5' : 'h4'} fontWeight={700} sx={{ fontSize: { xs: '1.25rem', sm: undefined }, wordBreak: 'break-word' }}>
               {indent.indentNumber}
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
               {indent.title}
             </Typography>
           </Box>
         </Stack>
-        <Stack direction="row" spacing={2}>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ '& .MuiButton-root': { minHeight: 40 } }}>
           <Button
             variant="outlined"
             startIcon={<PrintIcon />}
@@ -686,7 +692,7 @@ const IndentDetail = ({
                 <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
                   Approver progress
                 </Typography>
-                <TableContainer>
+                <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
@@ -740,7 +746,7 @@ const IndentDetail = ({
                 Items ({indent.items?.length || 0})
               </Typography>
               {indent.items && indent.items.length > 0 ? (
-                <TableContainer>
+                <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>

@@ -689,8 +689,8 @@ const IndentsList = () => {
       </Card>
 
       {/* Indents Table */}
-      <TableContainer component={Paper}>
-        <Table>
+      <TableContainer component={Paper} sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <Table sx={{ minWidth: 900 }}>
           <TableHead>
             <TableRow>
               <TableCell><strong>Type</strong></TableCell>

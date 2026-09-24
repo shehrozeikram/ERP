@@ -5,7 +5,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   MenuItem, Tooltip, Chip, Alert, Stack, Divider, Grid,
   CircularProgress, Autocomplete, Stepper, Step, StepLabel,
-  Card, CardContent, alpha, useTheme, Popper, Avatar
+  Card, CardContent, alpha, useTheme, useMediaQuery, Popper, Avatar
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
@@ -135,6 +135,7 @@ const CashApprovalsPage = () => {
   const location = useLocation();
   const { user } = useAuth();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isFinanceModule = location.pathname.startsWith('/finance/cash-approvals');
 
   const [approvalAuthority, setApprovalAuthority] = useState({
@@ -1457,8 +1458,8 @@ const CashApprovalsPage = () => {
       </Paper>
 
       <Paper>
-        <TableContainer>
-          <Table>
+        <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <Table sx={{ minWidth: 980 }}>
             <TableHead>
               <TableRow>
                 <TableCell><strong>CA Number</strong></TableCell>
@@ -1778,12 +1779,15 @@ const CashApprovalsPage = () => {
           onClose={() => setViewDialog({ open: false, data: null, tab: 0, quotations: [], linkedDocs: [] })}
           maxWidth={false}
           fullWidth
+          fullScreen={isMobile}
           PaperProps={{
             sx: {
-              width: '96%',
-              maxWidth: '1400px',
-              maxHeight: '95vh',
-              m: 2,
+              width: { xs: '100%', sm: '96%' },
+              maxWidth: { xs: '100%', sm: '1400px' },
+              maxHeight: { xs: '100%', sm: '95vh' },
+              height: { xs: '100%', sm: 'auto' },
+              m: { xs: 0, sm: 2 },
+              borderRadius: { xs: 0, sm: 1 },
               '@media print': {
                 boxShadow: 'none',
                 maxWidth: '100%',
@@ -1796,9 +1800,9 @@ const CashApprovalsPage = () => {
           }}
         >
           <DialogTitle sx={{ '@media print': { display: 'none' }, pb: 1 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="h6">Cash Approval Details</Typography>
-              <Stack direction="row" spacing={1}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>Cash Approval Details</Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 {canEditCashApproval(viewDialog.data) && (
                   <Button variant="outlined" size="small" startIcon={<EditIcon />} onClick={() => openCashApprovalEdit(viewDialog.data)}>Edit</Button>
                 )}

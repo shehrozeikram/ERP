@@ -99,10 +99,11 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
         Narration: {getStoreInvoiceNarration(bill)}
       </Box>
 
-      <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+      <TableContainer sx={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
         <Table
           size="small"
           sx={{
+            minWidth: 800,
             border: '1px solid',
             borderColor: 'grey.500',
             '& th': {
@@ -212,7 +213,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
 
       {showChargesSummary && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1.5 }}>
-          <Stack spacing={0.25} sx={{ width: 240, fontSize: 12 }}>
+          <Stack spacing={0.25} sx={{ width: { xs: '100%', sm: 240 }, fontSize: 12 }}>
             {CHARGE_LABELS.map((label) => (
               <Box
                 key={label}

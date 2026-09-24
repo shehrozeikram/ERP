@@ -80,11 +80,16 @@ const Login = () => {
     <Box
       sx={{
         minHeight: '100vh',
+        // Modern mobile browsers: account for dynamic toolbars
+        '@supports (min-height: 100dvh)': { minHeight: '100dvh' },
         background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: { xs: 'flex-start', sm: 'center' },
         justifyContent: 'center',
-        p: 2,
+        p: { xs: 1.5, sm: 2 },
+        py: { xs: 2, sm: 2 },
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
         '@keyframes revolveLeftToRight': {
           '0%': {
             transform: 'rotateY(0deg)',
@@ -98,11 +103,11 @@ const Login = () => {
         },
       }}
     >
-      <Container maxWidth="sm">
+      <Container maxWidth="sm" disableGutters={false} sx={{ width: '100%', maxWidth: { xs: '100%', sm: 600 } }}>
         <Paper
           elevation={24}
           sx={{
-            borderRadius: 4,
+            borderRadius: { xs: 3, sm: 4 },
             overflow: 'hidden',
             background: 'rgba(255, 255, 255, 0.95)',
             backdropFilter: 'blur(10px)'
@@ -113,7 +118,7 @@ const Login = () => {
             sx={{
               background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
               color: 'white',
-              p: 4,
+              p: { xs: 2.5, sm: 4 },
               textAlign: 'center'
             }}
           >
@@ -122,31 +127,47 @@ const Login = () => {
               src={process.env.PUBLIC_URL + '/images/sgc-logo.png'}
               alt="SGC Logo"
               sx={{
-                height: 90,
+                height: { xs: 64, sm: 90 },
                 width: 'auto',
-                maxWidth: '240px',
-                mb: 2,
+                maxWidth: { xs: 160, sm: 240 },
+                mb: { xs: 1, sm: 2 },
                 objectFit: 'contain',
                 display: 'block',
-                margin: '0 auto 16px auto',
+                margin: { xs: '0 auto 8px auto', sm: '0 auto 16px auto' },
                 animation: logoRotating ? 'revolveLeftToRight 1.5s ease-in-out infinite' : 'none',
                 transition: 'animation 0.5s ease-out'
               }}
             />
-            <Typography variant="h4" component="h1" gutterBottom>
+            <Typography
+              variant="h4"
+              component="h1"
+              gutterBottom
+              sx={{ fontSize: { xs: '1.45rem', sm: '2.125rem' }, fontWeight: 700, mb: { xs: 0.5, sm: 1 } }}
+            >
               Tovus ERP System
             </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.9 }}>
+            <Typography variant="body1" sx={{ opacity: 0.9, fontSize: { xs: '0.85rem', sm: '1rem' } }}>
               Enterprise Resource Planning Solution
             </Typography>
           </Box>
 
           {/* Login Form */}
-          <CardContent sx={{ p: 4 }}>
-            <Typography variant="h5" component="h2" gutterBottom align="center">
+          <CardContent sx={{ p: { xs: 2.5, sm: 4 }, '&:last-child': { pb: { xs: 2.5, sm: 4 } } }}>
+            <Typography
+              variant="h5"
+              component="h2"
+              gutterBottom
+              align="center"
+              sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' }, fontWeight: 600 }}
+            >
               Sign In
             </Typography>
-            <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 4 }}>
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              align="center"
+              sx={{ mb: { xs: 2.5, sm: 4 }, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}
+            >
               Enter your credentials to access the system
             </Typography>
 
@@ -162,6 +183,8 @@ const Login = () => {
                 error={formik.touched.email && Boolean(formik.errors.email)}
                 helperText={formik.touched.email && formik.errors.email}
                 margin="normal"
+                size="medium"
+                inputProps={{ autoComplete: 'email', inputMode: 'email' }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -184,6 +207,7 @@ const Login = () => {
                 error={formik.touched.password && Boolean(formik.errors.password)}
                 helperText={formik.touched.password && formik.errors.password}
                 margin="normal"
+                inputProps={{ autoComplete: 'current-password' }}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -197,6 +221,7 @@ const Login = () => {
                         onClick={() => setShowPassword(!showPassword)}
                         edge="end"
                         disabled={loading}
+                        size="large"
                       >
                         {showPassword ? <VisibilityOff /> : <Visibility />}
                       </IconButton>
@@ -212,9 +237,11 @@ const Login = () => {
                 variant="contained"
                 size="large"
                 sx={{
-                  mt: 3,
+                  mt: { xs: 2.5, sm: 3 },
                   mb: 2,
-                  py: 1.5,
+                  py: { xs: 1.35, sm: 1.5 },
+                  fontSize: { xs: '1rem', sm: '1.05rem' },
+                  minHeight: 48,
                   background: 'linear-gradient(135deg, #1976d2 0%, #1565c0 100%)',
                   '&:hover': {
                     background: 'linear-gradient(135deg, #1565c0 0%, #0d47a1 100%)',
@@ -228,11 +255,12 @@ const Login = () => {
 
               <Box sx={{ 
                 textAlign: 'center', 
-                mt: 3,
-                p: 2,
+                mt: { xs: 2, sm: 3 },
+                p: { xs: 1.5, sm: 2 },
                 borderRadius: 2,
                 background: 'linear-gradient(135deg, rgba(25, 118, 210, 0.05) 0%, rgba(25, 118, 210, 0.02) 100%)',
-                border: '1px solid rgba(25, 118, 210, 0.1)'
+                border: '1px solid rgba(25, 118, 210, 0.1)',
+                display: { xs: 'none', sm: 'block' }
               }}>
                 <Typography variant="h6" sx={{ 
                   color: 'primary.main', 
@@ -261,13 +289,22 @@ const Login = () => {
                   Need credentials? Contact your system administrator
                 </Typography>
               </Box>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                align="center"
+                display={{ xs: 'block', sm: 'none' }}
+                sx={{ mt: 1 }}
+              >
+                Need credentials? Contact your administrator
+              </Typography>
             </form>
           </CardContent>
         </Paper>
 
         {/* Footer */}
-        <Box sx={{ textAlign: 'center', mt: 3 }}>
-          <Typography variant="body2" color="white" sx={{ opacity: 0.8 }}>
+        <Box sx={{ textAlign: 'center', mt: { xs: 2, sm: 3 }, px: 1 }}>
+          <Typography variant="body2" color="white" sx={{ opacity: 0.8, fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
             © 2025 Tovus ERP System. All rights reserved.
           </Typography>
         </Box>

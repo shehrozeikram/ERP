@@ -405,7 +405,7 @@ const CentralizedStoreBills = () => {
                 </Box>
               </AccordionSummary>
               <AccordionDetails sx={{ pt: 0, px: 0 }}>
-                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 0 }}>
+                <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>

@@ -34,6 +34,7 @@ import {
   Divider,
   alpha,
   useTheme,
+  useMediaQuery,
   Avatar
 } from '@mui/material';
 import {
@@ -79,6 +80,7 @@ import PODocumentView from '../../pages/Procurement/Store/PODocumentView';
 
 const ExecutiveCeoPaymentsSection = () => {
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -1284,10 +1286,11 @@ const ExecutiveCeoPaymentsSection = () => {
             sx={{
               borderRadius: 3,
               border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
-              overflow: 'hidden'
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch'
             }}
           >
-            <Table size="small">
+            <Table size="small" sx={{ minWidth: 860 }}>
               <TableHead sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05) }}>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Type & Ref #</TableCell>
@@ -1485,17 +1488,22 @@ const ExecutiveCeoPaymentsSection = () => {
             poAuditTab: 0
           })
         }
-        maxWidth="md"
+        maxWidth={false}
         fullWidth
+        fullScreen={isMobile}
         PaperProps={{
           sx: {
-            borderRadius: 2.5,
+            borderRadius: { xs: 0, sm: 2.5 },
             boxShadow: '0 12px 40px rgba(15, 23, 42, 0.18)',
             background: '#f8fafc',
             width: '100%',
-            maxWidth: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? '210mm' : 820,
-            maxHeight: '88vh',
-            m: { xs: 1, sm: 2 },
+            maxWidth: {
+              xs: '100%',
+              sm: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? '210mm' : 820
+            },
+            maxHeight: { xs: '100%', sm: '88vh' },
+            height: { xs: '100%', sm: 'auto' },
+            m: { xs: 0, sm: 2 },
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
@@ -1525,14 +1533,27 @@ const ExecutiveCeoPaymentsSection = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              px: 2,
+              px: { xs: 1.5, sm: 2 },
               py: 1.25,
+              gap: 1,
+              flexWrap: 'wrap',
               borderBottom: '1px solid',
               borderColor: 'divider',
               background: '#ffffff'
             }}
           >
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'text.primary', letterSpacing: '-0.01em' }}>
+            <Typography
+              variant="subtitle1"
+              sx={{
+                fontWeight: 700,
+                color: 'text.primary',
+                letterSpacing: '-0.01em',
+                fontSize: { xs: '0.95rem', sm: '1rem' },
+                pr: 1,
+                flex: '1 1 auto',
+                minWidth: 0
+              }}
+            >
               {viewDialog.isPurchaseOrder
                 ? 'Purchase Order Details'
                 : viewDialog.isCashApproval
@@ -1616,9 +1637,10 @@ const ExecutiveCeoPaymentsSection = () => {
                   '& .MuiTypography-h4': { fontSize: '1.25rem !important', lineHeight: 1.3 },
                   '& .MuiTypography-h5': { fontSize: '1.1rem !important' },
                   '& .MuiTypography-h6': { fontSize: '0.95rem !important' },
-                  '& .MuiButton-root': { py: 0.4, px: 1.1, minHeight: 32, fontSize: '0.78rem' },
+                  '& .MuiButton-root': { py: 0.4, px: 1.1, minHeight: { xs: 40, sm: 32 }, fontSize: { xs: '0.8125rem', sm: '0.78rem' } },
                   '& .MuiChip-root': { height: 22, fontSize: '0.72rem' },
                   '& .MuiTableCell-root': { py: 0.65, px: 1, fontSize: '0.78rem' },
+                  '& .MuiTableContainer-root': { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
                   '& .MuiCardContent-root': { p: '12px !important', '&:last-child': { pb: '12px !important' } },
                   '& .MuiGrid-item': { pt: '8px !important' }
                 }),
@@ -2253,7 +2275,7 @@ const ExecutiveCeoPaymentsSection = () => {
 
         <DialogActions
           sx={{
-            px: 2,
+            px: { xs: 1.5, sm: 2 },
             py: 1.25,
             borderTop: '1px solid',
             borderColor: 'divider',
@@ -2265,7 +2287,7 @@ const ExecutiveCeoPaymentsSection = () => {
             '@media print': { display: 'none' }
           }}
         >
-          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap', width: { xs: '100%', sm: 'auto' } }}>
             {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && (
               <>
                 <Chip
@@ -2287,7 +2309,7 @@ const ExecutiveCeoPaymentsSection = () => {
             )}
           </Box>
 
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'stretch', sm: 'flex-end' }, '& .MuiButton-root': { flex: { xs: '1 1 auto', sm: '0 0 auto' }, minHeight: 40 } }}>
             <Button
               variant="contained"
               color="success"

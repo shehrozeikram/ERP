@@ -33,7 +33,8 @@ import {
   Tabs,
   Tab,
   Autocomplete,
-  Popper
+  Popper,
+  useMediaQuery
 } from '@mui/material';
 import {
   ShoppingCart as ShoppingCartIcon,
@@ -159,6 +160,7 @@ const PurchaseOrders = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const { user } = useAuth();
   
   // State management
@@ -1105,8 +1107,8 @@ const PurchaseOrders = () => {
 
       {/* Purchase Orders Table */}
       <Paper>
-        <TableContainer>
-          <Table>
+        <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <Table sx={{ minWidth: 960 }}>
             <TableHead>
               <TableRow>
                 <TableCell><strong>Order Number</strong></TableCell>
@@ -1863,12 +1865,18 @@ const PurchaseOrders = () => {
         onClose={() => setViewDialog({ open: false, data: null, attachedGrns: [], quotations: [], poDetailTab: 0 })}
         maxWidth={false}
         fullWidth
+        fullScreen={isMobile}
         PaperProps={{
           sx: {
-            width: '95%',
-            maxWidth: viewDialog.poDetailTab === 3 ? '1400px' : '230mm',
-            maxHeight: '95vh',
-            m: 2,
+            width: { xs: '100%', sm: '95%' },
+            maxWidth: {
+              xs: '100%',
+              sm: viewDialog.poDetailTab === 3 ? '1400px' : '230mm'
+            },
+            maxHeight: { xs: '100%', sm: '95vh' },
+            height: { xs: '100%', sm: 'auto' },
+            m: { xs: 0, sm: 2 },
+            borderRadius: { xs: 0, sm: 1 },
             '@media print': {
               boxShadow: 'none',
               maxWidth: '100%',
@@ -1881,9 +1889,9 @@ const PurchaseOrders = () => {
         }}
       >
         <DialogTitle sx={{ '@media print': { display: 'none' }, pb: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="h6">Purchase Order Details</Typography>
-            <Stack direction="row" spacing={1} alignItems="center">
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' } }}>Purchase Order Details</Typography>
+            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               {viewDialog.data && viewDialog.data.status === 'Pending Approval' && isAssignedAuthorityUser(viewDialog.data) && !hasCurrentUserApprovedAuthority(viewDialog.data) && (
                 <>
                   <Button

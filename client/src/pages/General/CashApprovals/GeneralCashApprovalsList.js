@@ -156,8 +156,8 @@ const GeneralCashApprovalsList = () => {
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
       ) : (
-        <TableContainer component={Paper}>
-          <Table size="small">
+        <TableContainer component={Paper} sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          <Table size="small" sx={{ minWidth: 720 }}>
             <TableHead>
               <TableRow>
                 <TableCell>CA #</TableCell>

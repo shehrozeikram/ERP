@@ -182,16 +182,16 @@ const PODocumentView = ({ data }) => {
       </Box>
 
 
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
-        <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
-          <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>{data.vendor?.name || 'Vendor Name'}</Typography>
+      <Box sx={{ mb: 3, display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', gap: { xs: 2, md: 3 } }}>
+        <Box sx={{ width: { xs: '100%', md: '45%' }, fontSize: '0.9rem' }}>
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: { xs: '1rem', sm: '1.1rem' } }}>{data.vendor?.name || 'Vendor Name'}</Typography>
           <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 1 }}>{data.vendor?.address || 'Vendor Address'}</Typography>
           {(data.vendor?.ntnCnic || data.vendor?.ntnNo || data.vendor?.cnic) && (
             <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, mb: 1.5, color: 'text.secondary' }}>
               ntn / cnic : {data.vendor.ntnCnic || data.vendor.ntnNo || data.vendor.cnic}
             </Typography>
           )}
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6, flexWrap: 'wrap' }}>
             <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
             <Typography component="span">
               Indent# {data.indent?.indentNumber || 'N/A'} Dated. {data.indent?.requestedDate ? formatDateForPrint(data.indent.requestedDate) : 'N/A'}.
@@ -200,9 +200,9 @@ const PODocumentView = ({ data }) => {
             </Typography>
           </Box>
         </Box>
-        <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
-          <Box sx={{ display: 'flex', mb: 0.5 }}>
-            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>P.O No.:</Typography>
+        <Box sx={{ width: { xs: '100%', md: '50%' }, fontSize: '0.9rem', lineHeight: 2 }}>
+          <Box sx={{ display: 'flex', mb: 0.5, flexWrap: 'wrap' }}>
+            <Typography component="span" sx={{ minWidth: { xs: 110, sm: 140 }, fontWeight: 600 }}>P.O No.:</Typography>
             <Typography component="span">
               {data.orderNumber
                 ? (data.orderNumber.startsWith('P') && !data.orderNumber.includes('-')
@@ -211,22 +211,22 @@ const PODocumentView = ({ data }) => {
                 : 'N/A'}
             </Typography>
           </Box>
-          <Box sx={{ display: 'flex', mb: 0.5 }}>
-            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
+          <Box sx={{ display: 'flex', mb: 0.5, flexWrap: 'wrap' }}>
+            <Typography component="span" sx={{ minWidth: { xs: 110, sm: 140 }, fontWeight: 600 }}>Date:</Typography>
             <Typography component="span">{formatDateForPrint(data.orderDate)}</Typography>
           </Box>
-          <Box sx={{ display: 'flex', mb: 0.5 }}>
-            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Date:</Typography>
+          <Box sx={{ display: 'flex', mb: 0.5, flexWrap: 'wrap' }}>
+            <Typography component="span" sx={{ minWidth: { xs: 110, sm: 140 }, fontWeight: 600 }}>Delivery Date:</Typography>
             <Typography component="span">{data.expectedDeliveryDate ? formatDateForPrint(data.expectedDeliveryDate) : '___________'}</Typography>
           </Box>
-          <Box sx={{ display: 'flex', mb: 0.5 }}>
-            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
+          <Box sx={{ display: 'flex', mb: 0.5, flexWrap: 'wrap' }}>
+            <Typography component="span" sx={{ minWidth: { xs: 110, sm: 140 }, fontWeight: 600 }}>Delivery Address:</Typography>
             <Typography component="span">
               {data.shippingAddress ? `${(data.shippingAddress.street || '')} ${(data.shippingAddress.city || '')}`.trim() || '___________' : '___________'}
             </Typography>
           </Box>
-          <Box sx={{ display: 'flex', mb: 0.5 }}>
-            <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
+          <Box sx={{ display: 'flex', mb: 0.5, flexWrap: 'wrap' }}>
+            <Typography component="span" sx={{ minWidth: { xs: 110, sm: 140 }, fontWeight: 600 }}>Cost Center:</Typography>
             <Typography component="span">
               {data.costCenter 
                 ? (typeof data.costCenter === 'object' ? `${data.costCenter.code || ''} - ${data.costCenter.name || ''}` : data.costCenter)
@@ -236,8 +236,8 @@ const PODocumentView = ({ data }) => {
         </Box>
       </Box>
 
-      <Box sx={{ mb: 3 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', border: '1px solid #000', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif' }}>
+      <Box sx={{ mb: 3, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <table style={{ width: '100%', minWidth: 700, borderCollapse: 'collapse', border: '1px solid #000', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif' }}>
           <thead>
             <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
               <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>Sr no</th>
@@ -273,8 +273,8 @@ const PODocumentView = ({ data }) => {
         </table>
       </Box>
 
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-        <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: { xs: 'stretch', sm: 'flex-end' } }}>
+        <Box sx={{ width: { xs: '100%', sm: 300 }, fontSize: '0.9rem' }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
             <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
             <Typography component="span">{formatNumber(data.totalAmount || 0)}</Typography>
