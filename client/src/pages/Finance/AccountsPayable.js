@@ -1960,6 +1960,14 @@ const AccountsPayable = () => {
                   {!isNonPOBill && <Tab value={4} label={selectedBill?.poDetail?.po ? 'Purchase Order' : 'PO'} />}
                   {!isNonPOBill && <Tab value={5} label={(selectedBill?.poDetail?.grns?.length || 0) > 0 ? `GRN(s) (${selectedBill.poDetail.grns.length})` : 'GRN(s)'} />}
                   <Tab value={6} label="Payment History" />
+                  <Tab
+                    value={7}
+                    label={`Workflow History${
+                      (selectedBill?.fullWorkflowHistory || selectedBill?.workflowHistory || []).length
+                        ? ` (${(selectedBill.fullWorkflowHistory || selectedBill.workflowHistory || []).length})`
+                        : ''
+                    }`}
+                  />
                 </Tabs>
 
                 {/* Tab 0: Vendor Bill & Approval Authorities */}
@@ -2633,13 +2641,115 @@ const AccountsPayable = () => {
                     )}
                   </Box>
                 )}
+
+                {/* Tab 7: Full Workflow History (Indent → PO → Audit/CEO → Store → Finance) */}
+                {billViewTab === 7 && (
+                  <Box sx={{ p: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                      <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <HistoryIcon /> Full Workflow History
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<HistoryIcon />}
+                        onClick={() => setWorkflowHistoryDialog({ open: true, document: selectedBill })}
+                        disabled={!(selectedBill?.fullWorkflowHistory?.length || selectedBill?.workflowHistory?.length)}
+                      >
+                        Open Timeline View
+                      </Button>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                      Complete trail across Indent, Requisition, Purchase Order, Pre-Audit / CEO, Cash Approval, Centralized Store, and Finance.
+                    </Typography>
+                    {(() => {
+                      const history = Array.isArray(selectedBill?.fullWorkflowHistory) && selectedBill.fullWorkflowHistory.length
+                        ? selectedBill.fullWorkflowHistory
+                        : (Array.isArray(selectedBill?.workflowHistory) ? selectedBill.workflowHistory : []);
+                      if (!history.length) {
+                        return (
+                          <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
+                            <Typography color="text.secondary">No workflow history recorded for this bill yet.</Typography>
+                          </Paper>
+                        );
+                      }
+                      const moduleChipColor = (module) => {
+                        if (!module) return 'default';
+                        if (module === 'Indent' || module === 'Requisition') return 'success';
+                        if (module === 'Procurement' || module === 'Cash Approval') return 'primary';
+                        if (module === 'Pre-Audit') return 'secondary';
+                        if (module === 'CEO Secretariat' || module === 'CEO') return 'info';
+                        if (module === 'Finance') return 'warning';
+                        if (module === 'Centralized Store') return 'default';
+                        return 'default';
+                      };
+                      const personName = (u) => {
+                        if (!u) return 'System';
+                        if (typeof u === 'string') return u;
+                        return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.name || u.email || 'System';
+                      };
+                      return (
+                        <TableContainer component={Paper} variant="outlined">
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell><strong>#</strong></TableCell>
+                                <TableCell><strong>When</strong></TableCell>
+                                <TableCell><strong>Module</strong></TableCell>
+                                <TableCell><strong>From → To</strong></TableCell>
+                                <TableCell><strong>By</strong></TableCell>
+                                <TableCell><strong>Comments</strong></TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {history.map((entry, idx) => (
+                                <TableRow key={`${entry.toStatus || 'step'}-${idx}-${entry.changedAt || ''}`} hover>
+                                  <TableCell>{idx + 1}</TableCell>
+                                  <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                    {entry.changedAt
+                                      ? new Date(entry.changedAt).toLocaleString('en-PK', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        year: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })
+                                      : '—'}
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip size="small" label={entry.module || '—'} color={moduleChipColor(entry.module)} variant="outlined" />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2" component="span" color="text.secondary">
+                                      {entry.fromStatus || '—'}
+                                    </Typography>
+                                    {' → '}
+                                    <Typography variant="body2" component="span" fontWeight={700}>
+                                      {entry.toStatus || '—'}
+                                    </Typography>
+                                  </TableCell>
+                                  <TableCell>{personName(entry.changedBy)}</TableCell>
+                                  <TableCell sx={{ maxWidth: 280 }}>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {entry.comments || '—'}
+                                    </Typography>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      );
+                    })()}
+                  </Box>
+                )}
               </>
             );
           })()}
         </DialogContent>
         <DialogActions sx={{ justifyContent: 'space-between', px: 3, py: 2 }}>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {selectedBill?.workflowHistory && selectedBill.workflowHistory.length > 0 && (
+            {(selectedBill?.fullWorkflowHistory?.length > 0 || selectedBill?.workflowHistory?.length > 0) && (
               <Button
                 variant="outlined"
                 startIcon={<HistoryIcon />}
@@ -2667,7 +2777,7 @@ const AccountsPayable = () => {
         open={workflowHistoryDialog.open}
         onClose={() => setWorkflowHistoryDialog({ open: false, document: null })}
         document={workflowHistoryDialog.document}
-        documentType="preAudit"
+        documentType="vendorBill"
       />
 
       {/* Create Bill from PO Dialog */}

@@ -44,6 +44,7 @@ const CashApproval = require('../models/procurement/CashApproval');
 const Employee = require('../models/hr/Employee');
 const UtilityBill = require('../models/hr/UtilityBill');
 const BankingSetup = require('../models/finance/BankingSetup');
+const { buildVendorBillFullWorkflowHistory } = require('../utils/vendorBillWorkflowHistory');
 
 const escapeRegex = (s) => String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -3342,7 +3343,9 @@ router.get('/accounts-payable/:id',
     const { q, companyId, company } = await financeScope(req);
     let bill = await AccountsPayable.findOne(q({ _id: req.params.id }))
       .populate('createdBy', 'firstName lastName email digitalSignature')
+      .populate('lastModifiedBy', 'firstName lastName email')
       .populate('payeeEmployee', 'firstName lastName employeeId')
+      .populate('approval.approvedBy', 'firstName lastName email digitalSignature')
       .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
       .populate('observations.addedBy', 'firstName lastName email')
       .populate('lineItems.account')
@@ -3398,7 +3401,12 @@ router.get('/accounts-payable/:id',
         if (indentId) {
           indent = await Indent.findById(indentId)
             .populate('requestedBy', 'firstName lastName name email digitalSignature')
+            .populate('createdBy', 'firstName lastName email digitalSignature')
+            .populate('updatedBy', 'firstName lastName email digitalSignature')
+            .populate('approvedBy', 'firstName lastName email digitalSignature')
+            .populate('movedToProcurementBy', 'firstName lastName email digitalSignature')
             .populate('department', 'name code')
+            .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
             .lean();
           quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
         }
@@ -3414,14 +3422,12 @@ router.get('/accounts-payable/:id',
     let cashApproval = null;
     const caId = bill.employeeAdvanceAllocations?.[0]?.cashApprovalId;
     if (caId) {
-      const CashApproval = require('../models/procurement/CashApproval');
       cashApproval = await CashApproval.findById(caId)
         .populate('workflowHistory.changedBy', 'firstName lastName name email digitalSignature')
         .lean();
     } else if (bill.internalNotes && /CA-\d{4}\d{2}-\d{4}/.test(bill.internalNotes)) {
       const caMatch = bill.internalNotes.match(/CA-\d{4}\d{2}-\d{4}/);
       if (caMatch) {
-        const CashApproval = require('../models/procurement/CashApproval');
         cashApproval = await CashApproval.findOne({ caNumber: caMatch[0] })
           .populate('workflowHistory.changedBy', 'firstName lastName name email digitalSignature')
           .lean();
@@ -3439,6 +3445,14 @@ router.get('/accounts-payable/:id',
         .lean();
     }
 
+    const fullWorkflowHistory = buildVendorBillFullWorkflowHistory({
+      bill,
+      indent: poDetail?.indent || null,
+      po: poDetail?.po || null,
+      cashApproval,
+      sourceUtilityBill
+    });
+
     res.json({
       success: true,
       data: {
@@ -3447,7 +3461,8 @@ router.get('/accounts-payable/:id',
         vendorEmail: bill.vendor?.email || '',
         poDetail,
         cashApproval,
-        sourceUtilityBill
+        sourceUtilityBill,
+        fullWorkflowHistory
       }
     });
   })

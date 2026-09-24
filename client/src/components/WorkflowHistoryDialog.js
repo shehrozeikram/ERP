@@ -171,7 +171,7 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
                documentType === 'preAudit' ? 'Pre Audit Document' : 
                documentType === 'indent' ? 'Indent' :
                documentType === 'onboarding' ? 'Onboarding Record' :
-               document?.billNumber ? 'Vendor Bill' :
+               documentType === 'vendorBill' || document?.billNumber ? 'Vendor Bill' :
                 document?.orderNumber ? 'Purchase Order' : 'Document';
   const currentStatus = String(
     document?.workflowStatus ||
@@ -204,9 +204,11 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
     if (module === 'Indent') return 'success';
     if (module === 'Requisition') return 'success'; // Procurement Requisition (indent in procurement)
     if (module === 'Procurement') return 'primary';
+    if (module === 'Cash Approval') return 'primary';
     if (module === 'Pre-Audit') return 'secondary';
-    if (module === 'CEO Secretariat') return 'info';
+    if (module === 'CEO Secretariat' || module === 'CEO') return 'info';
     if (module === 'Finance') return 'warning';
+    if (module === 'Centralized Store') return 'default';
     return 'default';
   };
 
@@ -239,6 +241,8 @@ const WorkflowHistoryDialog = ({ open, onClose, document, documentType = 'docume
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
           {documentType === 'indent'
             ? 'Track all status transitions and who handled each step.'
+            : documentType === 'vendorBill' || (document?.billNumber && document?.fullWorkflowHistory?.length)
+              ? 'Full flow: Indent → Requisition → PO → Pre-Audit / CEO → Cash Approval / Store → Finance'
             : document?.orderNumber && document?.fullWorkflowHistory?.length
               ? 'Full flow: Indent → Requisition → Purchase Order (Procurement → Pre-Audit → CEO Secretariat)'
               : 'Full flow: Procurement → Pre-Audit → CEO Secretariat'}
