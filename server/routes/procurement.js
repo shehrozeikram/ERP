@@ -95,13 +95,11 @@ const hasFinanceAccess = (user) => {
   return false;
 };
 
-const hasCeoSecretariatAccess = (user) => {
-  if (!user) return false;
-  if (['super_admin', 'admin', 'hr_manager', 'higher_management'].includes(user.role)) return true;
-  if (hasModuleAccess(user.roleRef, 'hr') || hasModuleAccess(user.roleRef, 'general')) return true;
-  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'hr') || hasModuleAccess(roleDoc, 'general'))) return true;
-  return false;
-};
+const {
+  hasCeoSecretariatAccess,
+  hasCeoSecretariatCoordinatorAccess,
+  isDesignatedCeoApprover
+} = require('../utils/executiveAccess');
 
 /** Quick vendor create from Centralized Store / General bills — not only procurement roles. */
 const canQuickCreateVendor = async (user) => {
@@ -350,10 +348,179 @@ const getAssignedIndentIdsForUser = async (userId) => {
       { 'comparativeStatementApprovals.authorisedRepUser': uid },
       { 'comparativeStatementApprovals.financeRepUser': uid },
       { 'comparativeStatementApprovals.managerProcurementUser': uid },
-      { 'comparativeApproval.approvers.approver': uid }
+      { 'comparativeApproval.approvers.approver': uid },
+      { requestedBy: uid },
+      { 'approvalChain.approver': uid },
+      { 'procurementAssignment.assignedTo': uid }
     ]
   }).select('_id').lean();
   return indents.map((i) => i._id);
+};
+
+/**
+ * Full PO list visibility (same as higher management / CEO / director / president):
+ * - leadership roles
+ * - procurement module users
+ * - store (centralized store) users
+ * Others only see POs they created, are assigned on, or already acted on.
+ */
+const canViewAllPurchaseOrders = async (user) => {
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase().trim();
+  const privilegedRoles = new Set([
+    'super_admin',
+    'admin',
+    'developer',
+    'higher_management',
+    'ceo',
+    'hr_manager',
+    'director',
+    'president',
+    'chairman',
+    'commercial_director',
+    'audit_director',
+    'audit_manager',
+    'auditor',
+    'finance_manager',
+    'procurement_manager'
+  ]);
+  if (privilegedRoles.has(role)) return true;
+  if (role === 'audit director') return true;
+  if (role.includes('director') || role.includes('president') || role.includes('chairman')) {
+    return true;
+  }
+  if (role.includes('procurement') || role.includes('store')) return true;
+
+  const titleBlob = [
+    user.position,
+    user.designation,
+    user.jobTitle,
+    user.title,
+    user.employeeCategory
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (/\b(director|president|chairman|ceo|avp)\b/.test(titleBlob)) return true;
+
+  // Procurement module access → see all POs
+  if (hasProcurementAccess(user)) return true;
+  if (hasFinanceAccess(user)) return true;
+
+  // Store / centralized-store submodule → see all POs
+  const uid = user._id || user.id;
+  if (uid) {
+    if (await checkSubRoleAccess(uid, 'general', 'centralized_store', 'read')) return true;
+    if (await checkSubRoleAccess(uid, 'general', 'centralized_store', 'create')) return true;
+    if (await checkSubRoleAccess(uid, 'general', 'centralized_store', 'update')) return true;
+    if (await checkSubRoleAccess(uid, 'procurement', 'store', 'read')) return true;
+    if (await checkSubRoleAccess(uid, 'procurement', 'purchase_orders', 'read')) return true;
+  }
+
+  const dept = String(user.department?.name || user.department || '').toLowerCase();
+  if (dept.includes('store') || dept.includes('procurement')) return true;
+
+  return false;
+};
+
+const mergePurchaseOrderQueryAnd = (query, condition) => {
+  if (!condition || !Object.keys(condition).length) return query;
+  if (query.$and) {
+    query.$and.push(condition);
+  } else if (query.$or) {
+    query.$and = [{ $or: query.$or }, condition];
+    delete query.$or;
+  } else {
+    Object.assign(query, condition);
+  }
+  return query;
+};
+
+/** Build $or conditions for POs this user is allowed to see (assigned / created / already acted). */
+const buildPurchaseOrderPrivacyOr = async (user) => {
+  const uid = user?._id || user?.id;
+  if (!uid) return [];
+  const indentIds = await getAssignedIndentIdsForUser(uid);
+  const tokens = getUserIdentityTokens(user);
+  const authorityTextConditions = buildAuthorityTextConditions(tokens);
+  return [
+    { createdBy: uid },
+    { approvedBy: uid },
+    { 'authorityApprovals.approver': uid },
+    { auditApprovedBy: uid },
+    { preAuditInitialApprovedBy: uid },
+    { auditReturnedBy: uid },
+    { auditRejectedBy: uid },
+    { ceoForwardedBy: uid },
+    { ceoApprovedBy: uid },
+    { ceoRejectedBy: uid },
+    { ceoReturnedBy: uid },
+    { financeApprovedBy: uid },
+    { financeReturnedBy: uid },
+    { receivedBy: uid },
+    { qaCheckedBy: uid },
+    { 'workflowHistory.changedBy': uid },
+    ...(indentIds.length ? [{ indent: { $in: indentIds } }] : []),
+    ...authorityTextConditions
+  ];
+};
+
+const applyPurchaseOrderPrivacyFilter = async (query, user) => {
+  if (await canViewAllPurchaseOrders(user)) return { query, empty: false };
+  const privacyOr = await buildPurchaseOrderPrivacyOr(user);
+  if (!privacyOr.length) return { query, empty: true };
+  mergePurchaseOrderQueryAnd(query, { $or: privacyOr });
+  return { query, empty: false };
+};
+
+const userIsInvolvedInPurchaseOrder = async (user, purchaseOrder) => {
+  if (!user || !purchaseOrder) return false;
+  const uid = String(user._id || user.id || '');
+  if (!uid) return false;
+  const same = (ref) => {
+    if (!ref) return false;
+    return String(ref._id || ref) === uid;
+  };
+  if (same(purchaseOrder.createdBy)) return true;
+  if (same(purchaseOrder.approvedBy)) return true;
+  if (same(purchaseOrder.auditApprovedBy)) return true;
+  if (same(purchaseOrder.preAuditInitialApprovedBy)) return true;
+  if (same(purchaseOrder.auditReturnedBy)) return true;
+  if (same(purchaseOrder.auditRejectedBy)) return true;
+  if (same(purchaseOrder.ceoForwardedBy)) return true;
+  if (same(purchaseOrder.ceoApprovedBy)) return true;
+  if (same(purchaseOrder.ceoRejectedBy)) return true;
+  if (same(purchaseOrder.ceoReturnedBy)) return true;
+  if (same(purchaseOrder.financeApprovedBy)) return true;
+  if (same(purchaseOrder.financeReturnedBy)) return true;
+  if (same(purchaseOrder.receivedBy)) return true;
+  if (same(purchaseOrder.qaCheckedBy)) return true;
+  if (Array.isArray(purchaseOrder.authorityApprovals)
+    && purchaseOrder.authorityApprovals.some((a) => same(a.approver))) {
+    return true;
+  }
+  if (Array.isArray(purchaseOrder.workflowHistory)
+    && purchaseOrder.workflowHistory.some((h) => same(h.changedBy))) {
+    return true;
+  }
+  if (isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, user)) return true;
+  const indentRef = purchaseOrder.indent?._id || purchaseOrder.indent;
+  if (await isAssignedComparativeAuthorityUser(indentRef, uid)) return true;
+  // Indent requester / chain / procurement assignee
+  if (indentRef) {
+    const indent = await Indent.findById(indentRef)
+      .select('requestedBy approvalChain procurementAssignment')
+      .lean();
+    if (indent) {
+      if (same(indent.requestedBy)) return true;
+      if (same(indent.procurementAssignment?.assignedTo)) return true;
+      if (Array.isArray(indent.approvalChain)
+        && indent.approvalChain.some((s) => same(s.approver))) {
+        return true;
+      }
+    }
+  }
+  return false;
 };
 
 const canManageProcurementAssignments = (user) => {
@@ -574,38 +741,8 @@ const purchaseOrderIndentPopulate = {
 
 const userCanViewPurchaseOrder = async (user, purchaseOrder) => {
   if (!user || !purchaseOrder) return false;
-  if (
-    [
-      'super_admin',
-      'admin',
-      'developer',
-      'procurement_manager',
-      'finance_manager',
-      'hr_manager',
-      'higher_management',
-      'audit_manager',
-      'auditor',
-      'audit_director'
-    ].includes(user.role)
-  ) {
-    return true;
-  }
-  if (hasCeoSecretariatAccess(user) || hasProcurementAccess(user) || hasFinanceAccess(user) || isAuditReadRole(user)) {
-    return true;
-  }
-  if (hasModuleAccess(user.roleRef, 'procurement') || hasModuleAccess(user.roleRef, 'audit')) return true;
-  if (Array.isArray(user.roles) && user.roles.some((roleDoc) => hasModuleAccess(roleDoc, 'procurement') || hasModuleAccess(roleDoc, 'audit'))) {
-    return true;
-  }
-  const uid = user._id || user.id;
-  const indentRef = purchaseOrder.indent?._id || purchaseOrder.indent;
-  if (
-    (await isAssignedComparativeAuthorityUser(indentRef, uid)) ||
-    isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, user)
-  ) {
-    return true;
-  }
-  return false;
+  if (await canViewAllPurchaseOrders(user)) return true;
+  return userIsInvolvedInPurchaseOrder(user, purchaseOrder);
 };
 
 const ensureComparativeApprovalObject = (indent, lotNumber = 'A') => {
@@ -854,29 +991,20 @@ router.get('/purchase-orders',
     } = req.query;
 
     const query = {};
-    const isProcurementOrFinance = hasProcurementAccess(req.user) || hasFinanceAccess(req.user);
-    if (!isProcurementOrFinance) {
-      const indentIds = await getAssignedIndentIdsForUser(req.user.id);
-      const tokens = getUserIdentityTokens(req.user);
-      const authorityTextConditions = buildAuthorityTextConditions(tokens);
-      if (!indentIds.length && !authorityTextConditions.length) {
-        return res.json({
-          success: true,
-          data: {
-            purchaseOrders: [],
-            pagination: {
-              currentPage: parseInt(page),
-              totalPages: 0,
-              totalItems: 0,
-              itemsPerPage: parseInt(limit)
-            }
+    const privacy = await applyPurchaseOrderPrivacyFilter(query, req.user);
+    if (privacy.empty) {
+      return res.json({
+        success: true,
+        data: {
+          purchaseOrders: [],
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: 0,
+            totalItems: 0,
+            itemsPerPage: parseInt(limit)
           }
-        });
-      }
-      query.$or = [
-        ...(indentIds.length ? [{ indent: { $in: indentIds } }] : []),
-        ...authorityTextConditions
-      ];
+        }
+      });
     }
 
     // Apply filters
@@ -891,13 +1019,15 @@ router.get('/purchase-orders',
       if (endDate) query.orderDate.$lte = new Date(endDate);
     }
 
-    // Search functionality
+    // Search functionality (must not overwrite privacy $or)
     if (search) {
-      query.$or = [
-        { orderNumber: { $regex: search, $options: 'i' } },
-        { notes: { $regex: search, $options: 'i' } },
-        { 'items.description': { $regex: search, $options: 'i' } }
-      ];
+      mergePurchaseOrderQueryAnd(query, {
+        $or: [
+          { orderNumber: { $regex: search, $options: 'i' } },
+          { notes: { $regex: search, $options: 'i' } },
+          { 'items.description': { $regex: search, $options: 'i' } }
+        ]
+      });
     }
 
     console.log('Query filters:', query);
@@ -960,8 +1090,8 @@ router.get('/purchase-orders/statistics',
     console.log('📊 GET /purchase-orders/statistics - User:', req.user?.role);
     
     try {
-      const isProcurementOrFinance = hasProcurementAccess(req.user) || hasFinanceAccess(req.user);
-      if (!isProcurementOrFinance) {
+      const privacy = await applyPurchaseOrderPrivacyFilter({}, req.user);
+      if (privacy.empty) {
         return res.json({
           success: true,
           data: {
@@ -972,21 +1102,48 @@ router.get('/purchase-orders/statistics',
           }
         });
       }
-      const stats = await PurchaseOrder.getStatistics();
-      
-      // Get recent orders
-      const recentOrders = await PurchaseOrder.find()
-        .populate('vendor', 'name')
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .select('orderNumber vendor status totalAmount orderDate');
+      const statsQuery = privacy.query;
+      if (await canViewAllPurchaseOrders(req.user)) {
+        const stats = await PurchaseOrder.getStatistics();
+        const recentOrders = await PurchaseOrder.find()
+          .populate('vendor', 'name')
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .select('orderNumber vendor status totalAmount orderDate');
+        return res.json({
+          success: true,
+          data: {
+            ...stats,
+            recentOrders
+          }
+        });
+      }
 
-      console.log('Statistics loaded successfully');
+      const [totalOrders, valueAgg, byStatus, recentOrders] = await Promise.all([
+        PurchaseOrder.countDocuments(statsQuery),
+        PurchaseOrder.aggregate([
+          { $match: statsQuery },
+          { $group: { _id: null, totalValue: { $sum: '$totalAmount' } } }
+        ]),
+        PurchaseOrder.aggregate([
+          { $match: statsQuery },
+          { $group: { _id: '$status', count: { $sum: 1 } } }
+        ]),
+        PurchaseOrder.find(statsQuery)
+          .populate('vendor', 'name')
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .select('orderNumber vendor status totalAmount orderDate')
+      ]);
+
+      console.log('Statistics loaded successfully (privacy-scoped)');
 
       res.json({
         success: true,
         data: {
-          ...stats,
+          totalOrders,
+          totalValue: valueAgg[0]?.totalValue || 0,
+          byStatus,
           recentOrders
         }
       });
@@ -1012,11 +1169,25 @@ router.get('/purchase-orders/statistics',
 router.get('/purchase-orders/ceo-secretariat',
   authMiddleware,
   asyncHandler(async (req, res) => {
-    const isCeoQueueUser = hasCeoSecretariatAccess(req.user);
-    let filter = {
-      status: { $in: ['Send to CEO Office', 'Forwarded to CEO', 'Returned from CEO Office'] }
-    };
-    if (!isCeoQueueUser) {
+    const isCoordinator = hasCeoSecretariatCoordinatorAccess(req.user);
+    const isCeo = isDesignatedCeoApprover(req.user);
+    const statuses = [];
+    if (isCoordinator) {
+      statuses.push('Send to CEO Office', 'Returned from CEO Office');
+    }
+    if (isCeo) {
+      statuses.push('Forwarded to CEO');
+    }
+    // Keep Returned visible to CEO as well when override/CEO
+    if (isCeo && !statuses.includes('Returned from CEO Office')) {
+      statuses.push('Returned from CEO Office');
+    }
+
+    let filter;
+    if (statuses.length) {
+      filter = { status: { $in: [...new Set(statuses)] } };
+    } else {
+      // Assigned authorities only (higher management without CEO/coordinator rights)
       const indentIds = await getAssignedIndentIdsForUser(req.user.id);
       const tokens = getUserIdentityTokens(req.user);
       const authorityTextConditions = buildAuthorityTextConditions(tokens);
@@ -1024,13 +1195,18 @@ router.get('/purchase-orders/ceo-secretariat',
         return res.json({ success: true, data: [] });
       }
       filter = {
-        ...filter,
+        status: { $in: ['Send to CEO Office', 'Forwarded to CEO', 'Returned from CEO Office'] },
         $or: [
           ...(indentIds.length ? [{ indent: { $in: indentIds } }] : []),
           ...authorityTextConditions
         ]
       };
+      // Never expose Forwarded to CEO to non-CEO via this branch
+      if (!isCeo) {
+        filter.status = { $in: ['Send to CEO Office', 'Returned from CEO Office'] };
+      }
     }
+
     const purchaseOrders = await PurchaseOrder.find(filter)
       .populate('vendor', 'name email phone contactPerson')
       .populate('createdBy', 'firstName lastName email')
@@ -2286,10 +2462,7 @@ router.put('/purchase-orders/:id/ceo-approve',
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    const assignedAuthorityAccess =
-      await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
-    if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+    if (!isDesignatedCeoApprover(req.user)) {
       return res.status(403).json({ success: false, message: 'CEO approval access required' });
     }
     if (purchaseOrder.status !== 'Forwarded to CEO') {
@@ -2382,10 +2555,7 @@ router.put('/purchase-orders/:id/ceo-reject',
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    const assignedAuthorityAccess =
-      await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
-    if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+    if (!isDesignatedCeoApprover(req.user)) {
       return res.status(403).json({ success: false, message: 'CEO rejection access required' });
     }
     if (purchaseOrder.status !== 'Forwarded to CEO') {
@@ -2436,10 +2606,7 @@ router.put('/purchase-orders/:id/ceo-return',
     if (!purchaseOrder) {
       return res.status(404).json({ success: false, message: 'Purchase order not found' });
     }
-    const assignedAuthorityAccess =
-      await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
-    if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+    if (!isDesignatedCeoApprover(req.user)) {
       return res.status(403).json({ success: false, message: 'CEO return access required' });
     }
     if (purchaseOrder.status !== 'Forwarded to CEO') {

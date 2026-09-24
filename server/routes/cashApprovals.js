@@ -210,12 +210,10 @@ const hasProcurementAccess = (user) => {
 };
 
 const hasCeoSecretariatAccess = (user) => {
-  if (!user) return false;
-  if (['super_admin', 'admin', 'hr_manager', 'higher_management'].includes(user.role)) return true;
-  if (hasModuleAccess(user.roleRef, 'hr') || hasModuleAccess(user.roleRef, 'general')) return true;
-  if (Array.isArray(user.roles) && user.roles.some((r) => hasModuleAccess(r, 'hr') || hasModuleAccess(r, 'general'))) return true;
-  return false;
+  const { hasCeoSecretariatAccess: shared } = require('../utils/executiveAccess');
+  return shared(user);
 };
+const { isDesignatedCeoApprover, hasCeoSecretariatCoordinatorAccess } = require('../utils/executiveAccess');
 
 const isAssignedComparativeAuthorityUser = async (indentId, userId) => {
   if (!indentId || !userId) return false;
@@ -899,26 +897,32 @@ router.get('/pending-finance', authMiddleware, asyncHandler(async (req, res) => 
 router.get('/ceo-secretariat',
   authMiddleware,
   asyncHandler(async (req, res) => {
-    const isCeoQueueUser = hasCeoSecretariatAccess(req.user);
-    let filter = {
-      status: {
-        $in: [
-          'Send to CEO Office',
-          'Forwarded to CEO',
-          'Returned from CEO Office',
-          'Returned from CEO Secretariat',
-          'Pending Finance',
-          'Finance Authority Approved',
-          'Advance Issued',
-          'Evidence Submitted',
-          'Payment Settled',
-          'Sent to Procurement',
-          'Completed',
-          'Rejected'
-        ]
-      }
-    };
-    if (!isCeoQueueUser) {
+    const isCoordinator = hasCeoSecretariatCoordinatorAccess(req.user);
+    const isCeo = isDesignatedCeoApprover(req.user);
+    const statuses = [];
+    if (isCoordinator) {
+      statuses.push(
+        'Send to CEO Office',
+        'Returned from CEO Office',
+        'Returned from CEO Secretariat',
+        'Pending Finance',
+        'Finance Authority Approved',
+        'Advance Issued',
+        'Evidence Submitted',
+        'Payment Settled',
+        'Sent to Procurement',
+        'Completed',
+        'Rejected'
+      );
+    }
+    if (isCeo) {
+      statuses.push('Forwarded to CEO', 'Returned from CEO Office');
+    }
+
+    let filter;
+    if (statuses.length) {
+      filter = { status: { $in: [...new Set(statuses)] } };
+    } else {
       const indentIds = await getAssignedIndentIdsForUser(req.user.id);
       const tokens = getUserIdentityTokens(req.user);
       const authorityTextConditions = tokens.length ? [
@@ -932,7 +936,20 @@ router.get('/ceo-secretariat',
         return res.json({ success: true, data: [] });
       }
       filter = {
-        ...filter,
+        status: {
+          $in: [
+            'Send to CEO Office',
+            'Returned from CEO Office',
+            'Returned from CEO Secretariat',
+            'Pending Finance',
+            'Advance Issued',
+            'Evidence Submitted',
+            'Payment Settled',
+            'Sent to Procurement',
+            'Completed',
+            'Rejected'
+          ]
+        },
         $or: [
           ...(indentIds.length ? [{ indent: { $in: indentIds } }] : []),
           ...authorityTextConditions
@@ -2005,10 +2022,7 @@ router.put('/:id/ceo-secretariat-reject', authMiddleware, asyncHandler(async (re
 router.put('/:id/ceo-approve', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  const assignedAuthorityAccess =
-    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
-    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
-  if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+  if (!isDesignatedCeoApprover(req.user)) {
     return res.status(403).json({ success: false, message: 'CEO approval access required' });
   }
   if (ca.status !== 'Forwarded to CEO') {
@@ -2042,10 +2056,7 @@ router.put('/:id/ceo-approve', authMiddleware, asyncHandler(async (req, res) => 
 router.put('/:id/ceo-reject', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  const assignedAuthorityAccess =
-    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
-    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
-  if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+  if (!isDesignatedCeoApprover(req.user)) {
     return res.status(403).json({ success: false, message: 'CEO rejection access required' });
   }
   if (ca.status !== 'Forwarded to CEO') {
@@ -2068,10 +2079,7 @@ router.put('/:id/ceo-reject', authMiddleware, asyncHandler(async (req, res) => {
 router.put('/:id/ceo-return', authMiddleware, asyncHandler(async (req, res) => {
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  const assignedAuthorityAccess =
-    await isAssignedComparativeAuthorityUser(ca.indent, req.user.id) ||
-    isAssignedByAuthorityText(ca.approvalAuthorities, req.user);
-  if (!['super_admin', 'admin', 'higher_management'].includes(req.user.role) && !assignedAuthorityAccess) {
+  if (!isDesignatedCeoApprover(req.user)) {
     return res.status(403).json({ success: false, message: 'CEO return access required' });
   }
   if (ca.status !== 'Forwarded to CEO') {

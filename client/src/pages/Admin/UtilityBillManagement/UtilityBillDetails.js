@@ -127,10 +127,16 @@ const utilityBillObservationKey = (obs) => {
 };
 
 /** Bill detail page: payment recording is not offered here (removed from toolbar). */
-const UtilityBillDetails = () => {
+const UtilityBillDetails = ({
+  id: idProp = null,
+  embedded = false,
+  hideBack = false,
+  hideModuleActions = false
+} = {}) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { id } = useParams();
+  const { id: idParam } = useParams();
+  const id = idProp || idParam;
   const isFinanceContext = location.pathname.startsWith('/finance/utility-bills');
   const isGeneralStoreContext = location.pathname.startsWith('/general/centralized-store');
   const isCentralizedStoreContext = location.pathname.startsWith('/admin/centralized-store') || isGeneralStoreContext;
@@ -850,12 +856,14 @@ const UtilityBillDetails = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: embedded ? 0 : 3 }}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3} gap={2} flexWrap="wrap">
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(billsListPath)}>
-          {isFinanceContext ? 'Back to Accounts Payable' : 'Back to Bills'}
-        </Button>
-        <Stack direction="row" spacing={1}>
+        {!hideBack && !embedded && (
+          <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(billsListPath)}>
+            {isFinanceContext ? 'Back to Accounts Payable' : 'Back to Bills'}
+          </Button>
+        )}
+        <Stack direction="row" spacing={1} sx={{ ml: hideBack || embedded ? 0 : 'auto' }}>
           <Chip label={`Approval: ${approvalStatus}`} color={getApprovalColor(approvalStatus)} sx={{ alignSelf: 'center' }} />
           {bill.auditStatus && bill.auditStatus !== 'Not Sent' && (
             <Chip
@@ -865,12 +873,12 @@ const UtilityBillDetails = () => {
               variant="outlined"
             />
           )}
-          {canSubmitForApproval && (
+          {!hideModuleActions && canSubmitForApproval && (
             <Button variant="contained" color="info" startIcon={<SendIcon />} onClick={() => setSubmitDialogOpen(true)}>
               Submit
             </Button>
           )}
-          {canApproveReject && (
+          {!hideModuleActions && canApproveReject && (
             <>
               <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={handleApprove}>
                 Approve
@@ -883,11 +891,12 @@ const UtilityBillDetails = () => {
           <Button variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
             Print
           </Button>
-          {workflowAudit.canResendToPreAudit && (
+          {!hideModuleActions && workflowAudit.canResendToPreAudit && (
             <Button variant="contained" color="warning" startIcon={<RestartAltIcon />} onClick={workflowAudit.openResendDialog}>
               Resend to Pre-Audit
             </Button>
           )}
+          {!hideModuleActions && (
           <Tooltip
             title={
               workflowAudit.auditBlocksEdit
@@ -906,6 +915,7 @@ const UtilityBillDetails = () => {
               </Button>
             </span>
           </Tooltip>
+          )}
         </Stack>
       </Box>
 

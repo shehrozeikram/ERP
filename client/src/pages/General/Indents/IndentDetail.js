@@ -58,8 +58,14 @@ const approverDisplayName = (u) => {
   return n || u.email || u.employeeId || '';
 };
 
-const IndentDetail = () => {
-  const { id } = useParams();
+const IndentDetail = ({
+  id: idProp = null,
+  embedded = false,
+  hideBack = false,
+  hideModuleActions = false
+} = {}) => {
+  const { id: idParam } = useParams();
+  const id = idProp || idParam;
   const navigate = useNavigate();
   const { user } = useAuth();
   const [indent, setIndent] = useState(null);
@@ -359,14 +365,16 @@ const IndentDetail = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: embedded ? 0 : 3 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
         <Stack direction="row" spacing={2} alignItems="center">
-          <IconButton onClick={() => navigate('/general/indents')}>
-            <ArrowBackIcon />
-          </IconButton>
+          {!hideBack && !embedded && (
+            <IconButton onClick={() => navigate('/general/indents')}>
+              <ArrowBackIcon />
+            </IconButton>
+          )}
           <Box>
-            <Typography variant="h4" fontWeight={700}>
+            <Typography variant={embedded ? 'h5' : 'h4'} fontWeight={700}>
               {indent.indentNumber}
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -382,7 +390,7 @@ const IndentDetail = () => {
           >
             View/Print
           </Button>
-          {canEdit && (
+          {!hideModuleActions && canEdit && (
             <Button
               variant="outlined"
               startIcon={<EditIcon />}
@@ -391,7 +399,7 @@ const IndentDetail = () => {
               Edit
             </Button>
           )}
-          {canSubmit && (
+          {!hideModuleActions && canSubmit && (
             <Button
               variant="contained"
               color="success"
@@ -401,7 +409,7 @@ const IndentDetail = () => {
               {indent?.status === 'Rejected' ? 'Resubmit for Approval' : 'Submit for Approval'}
             </Button>
           )}
-          {canResubmitToProcurement && (
+          {!hideModuleActions && canResubmitToProcurement && (
             <Button
               variant="contained"
               color="primary"
@@ -411,7 +419,7 @@ const IndentDetail = () => {
               Resubmit to Procurement
             </Button>
           )}
-          {canApproveReject && (
+          {!hideModuleActions && canApproveReject && (
             <>
               <Button
                 variant="contained"
@@ -445,7 +453,7 @@ const IndentDetail = () => {
           >
             Workflow History
           </Button>
-          {user?.role === 'developer' && (
+          {!hideModuleActions && user?.role === 'developer' && (
             <Button
               variant="contained"
               color="error"

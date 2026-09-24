@@ -70,6 +70,7 @@ const notificationRoutes = require('./routes/notifications');
 const chatRoutes = require('./routes/chat');
 const chatAdminRoutes = require('./routes/chatAdmin');
 const aiAssistantRoutes = require('./routes/aiAssistant');
+const executiveApprovalsRoutes = require('./routes/executiveApprovals');
 const { attachSocketRedisAdapter } = require('./services/socketRedisAdapter');
 const settingsRoutes = require('./routes/settings');
 // const publicApplicationRoutes = require('./routes/publicApplications');
@@ -663,6 +664,7 @@ app.use('/api/notifications', authMiddleware, activityLogger, notificationRoutes
 app.use('/api/chat/admin', authMiddleware, activityLogger, chatAdminRoutes);
 app.use('/api/chat', authMiddleware, activityLogger, chatRoutes);
 app.use('/api/ai', authMiddleware, activityLogger, aiAssistantRoutes);
+app.use('/api/executive', authMiddleware, activityLogger, executiveApprovalsRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/courses', authMiddleware, activityLogger, courseRoutes);
 app.use('/api/enrollments', authMiddleware, activityLogger, enrollmentRoutes);

@@ -59,16 +59,23 @@ import { useAuth } from '../../contexts/AuthContext';
 import paymentSettlementService from '../../services/paymentSettlementService';
 import api from '../../services/api';
 import nonEmployeeService from '../../services/nonEmployeeService';
+import executiveApprovalsService from '../../services/executiveApprovalsService';
+import indentService from '../../services/indentService';
+import utilityBillService from '../../services/utilityBillService';
 import { formatPKR } from '../../utils/currency';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../WorkflowHistoryDialog';
-import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../common/DigitalSignatureImage';
+import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 import CashApprovalDetailTabsView from '../Procurement/CashApprovalDetailTabsView';
 import CashApprovalGeneralDetailShell from '../CashApprovals/CashApprovalGeneralDetailShell';
 import { isGeneralModuleCashApproval } from '../CashApprovals/cashApprovalGeneralDocumentUtils';
 import ComparativeStatementView from '../Procurement/ComparativeStatementView';
 import { WorkflowAuditFeedbackPanel } from '../Admin/workflowAuditReturn';
+import IndentDetail from '../../pages/General/Indents/IndentDetail';
+import UtilityBillDetails from '../../pages/Admin/UtilityBillManagement/UtilityBillDetails';
+import CentralizedStoreBillInvoiceBody from '../UtilityBill/CentralizedStoreBillInvoiceBody';
+import PODocumentView from '../../pages/Procurement/Store/PODocumentView';
 
 const ExecutiveCeoPaymentsSection = () => {
   const theme = useTheme();
@@ -87,7 +94,7 @@ const ExecutiveCeoPaymentsSection = () => {
 
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
-  const [filterTab, setFilterTab] = useState(0); // 0: All, 1: PO, 2: CA, 3: Settlement
+  const [filterTab, setFilterTab] = useState(0); // 0: All, 1: PO, 2: CA, 3: Settlement, 4: Onboarding, 5: Other
   const [actionLoading, setActionLoading] = useState(false);
 
   // Dialog states
@@ -102,7 +109,10 @@ const ExecutiveCeoPaymentsSection = () => {
     poGrns: [],
     poLinkedDocs: [],
     poAuditTab: 0,
-    isOnboarding: false
+    isOnboarding: false,
+    isIndent: false,
+    isUtilityBill: false,
+    isVendorBill: false
   });
 
   const [imageViewer, setImageViewer] = useState({
@@ -129,89 +139,47 @@ const ExecutiveCeoPaymentsSection = () => {
   const [returnAgree, setReturnAgree] = useState(false);
   const [returnObservations, setReturnObservations] = useState([{ observation: '', severity: 'medium' }]);
 
-  // Fetch all items currently Forwarded to CEO
+  // Fetch personal executive inbox (only docs waiting on this user)
   const fetchCeoPayments = useCallback(async () => {
     try {
       setLoading(true);
-      const [settlementsRes, poRes, caRes, onboardingRes] = await Promise.all([
-        paymentSettlementService.getPaymentSettlements({ page: 1, limit: 100 }),
-        api.get('/procurement/purchase-orders/ceo-secretariat').catch(() => ({ data: { data: [] } })),
-        api.get('/cash-approvals/ceo-secretariat').catch(() => ({ data: { data: [] } })),
-        nonEmployeeService.getForCEO().catch(() => ({ data: { data: [] } }))
-      ]);
+      const res = await executiveApprovalsService.getMyApprovals();
+      const payload = res.data?.data || {};
+      const items = Array.isArray(payload.items) ? payload.items : [];
 
-      // 1. Payment Settlements
-      const rawSettlements = settlementsRes.data?.settlements || [];
-      const forwardedSettlements = rawSettlements
-        .filter((s) => s.workflowStatus === 'Forwarded to CEO')
-        .map((s) => ({
-          ...s,
-          isPaymentSettlement: true,
-          itemType: 'Payment Settlement',
-          typeLabel: 'Settlement',
-          displayRef: s.referenceNumber || s._id,
-          displayDate: s.date,
-          displayAmount: s.grandTotal || s.amount || 0,
-          displayVendor: s.toWhomPaid || s.custodian || '—',
-          displayNotes: s.forWhat || s.notes || 'Payment Settlement',
-          department: s.fromDepartment || 'Administration'
-        }));
+      const combined = items.map((item) => {
+        const raw = item.raw && typeof item.raw === 'object' ? item.raw : {};
+        return {
+          ...raw,
+          _id: item.id || raw._id,
+          isPurchaseOrder: Boolean(item.isPurchaseOrder),
+          isCashApproval: Boolean(item.isCashApproval),
+          isPaymentSettlement: Boolean(item.isPaymentSettlement),
+          isOnboarding: Boolean(item.isOnboarding),
+          isIndent: Boolean(item.isIndent),
+          isUtilityBill: Boolean(item.isUtilityBill),
+          isVendorBill: Boolean(item.isVendorBill),
+          itemType: item.itemType || 'Document',
+          typeLabel: item.itemType || 'Document',
+          displayRef: item.displayRef || item.number || raw.orderNumber || raw.caNumber || raw.referenceNumber || item.id,
+          displayDate: item.displayDate || item.date || raw.orderDate || raw.date || raw.updatedAt,
+          displayAmount: item.displayAmount != null ? item.displayAmount : (item.amount || 0),
+          displayVendor: item.displayVendor || item.party || '—',
+          displayNotes: item.displayNotes || item.subtitle || item.itemType || '',
+          department: item.department || raw.fromDepartment || '—',
+          workflowStatus: item.workflowStatus || item.status || raw.workflowStatus || raw.status,
+          status: item.status || raw.status || raw.workflowStatus,
+          path: item.path || raw.path || null
+        };
+      });
 
-      // 2. Purchase Orders
-      const rawPOs = poRes.data?.data || [];
-      const forwardedPOs = rawPOs
-        .filter((po) => po.status === 'Forwarded to CEO' || po.workflowStatus === 'Forwarded to CEO')
-        .map((po) => ({
-          ...po,
-          isPurchaseOrder: true,
-          itemType: 'Purchase Order',
-          typeLabel: 'Purchase Order',
-          displayRef: po.orderNumber || po._id,
-          displayDate: po.orderDate,
-          displayAmount: po.totalAmount || 0,
-          displayVendor: po.vendor?.name || 'Vendor',
-          displayNotes: po.notes || (po.indent?.title ? `PR: ${po.indent.title}` : 'Purchase Order'),
-          department: 'Procurement'
-        }));
-
-      // 3. Cash Approvals
-      const rawCAs = caRes.data?.data || [];
-      const forwardedCAs = rawCAs
-        .filter((ca) => ca.status === 'Forwarded to CEO' || ca.workflowStatus === 'Forwarded to CEO')
-        .map((ca) => ({
-          ...ca,
-          isCashApproval: true,
-          itemType: 'Cash Approval',
-          typeLabel: 'Cash Approval',
-          displayRef: ca.caNumber || ca._id,
-          displayDate: ca.approvalDate || ca.createdAt,
-          displayAmount: ca.totalAmount || 0,
-          displayVendor: ca.vendor?.name || ca.vendorName || ca.initiator?.name || 'Beneficiary',
-          displayNotes: ca.notes || ca.title || 'Cash Advance Approval',
-          department: ca.originatingModule === 'general' ? 'General' : 'Procurement'
-        }));
-
-      // 4. Non-Employee Onboardings
-      const rawOnboardings = onboardingRes.data?.data || [];
-      const forwardedOnboardings = rawOnboardings.map((ne) => ({
-        ...ne,
-        isOnboarding: true,
-        itemType: 'Onboarding',
-        typeLabel: 'Onboarding',
-        displayRef: ne.recordNumber || ne._id,
-        displayDate: ne.initiatedAt || ne.createdAt,
-        displayAmount: ne.expectedWages || 0,
-        displayVendor: `${ne.firstName} ${ne.lastName || ''}`,
-        displayNotes: `Role: ${ne.role}, CNIC: ${ne.cnic}`,
-        department: 'HR'
-      }));
-
-      const combined = [...forwardedPOs, ...forwardedCAs, ...forwardedSettlements, ...forwardedOnboardings];
+      // Sort by date descending
       combined.sort((a, b) => new Date(b.displayDate || 0) - new Date(a.displayDate || 0));
-
       setPayments(combined);
-    } catch (err) {
-      console.error('Error loading CEO payments:', err);
+    } catch (error) {
+      console.error('Error fetching executive approvals:', error);
+      toast.error(error.response?.data?.message || 'Failed to load your approval inbox');
+      setPayments([]);
     } finally {
       setLoading(false);
     }
@@ -226,6 +194,7 @@ const ExecutiveCeoPaymentsSection = () => {
   const caItems = payments.filter((p) => p.isCashApproval);
   const settlementItems = payments.filter((p) => p.isPaymentSettlement);
   const onboardingItems = payments.filter((p) => p.isOnboarding);
+  const otherItems = payments.filter((p) => p.isIndent || p.isUtilityBill || p.isVendorBill);
 
   const totalAmount = payments.reduce((sum, p) => sum + (Number(p.displayAmount) || 0), 0);
   const poAmount = poItems.reduce((sum, p) => sum + (Number(p.displayAmount) || 0), 0);
@@ -238,6 +207,7 @@ const ExecutiveCeoPaymentsSection = () => {
     if (filterTab === 2 && !p.isCashApproval) return false;
     if (filterTab === 3 && !p.isPaymentSettlement) return false;
     if (filterTab === 4 && !p.isOnboarding) return false;
+    if (filterTab === 5 && !(p.isIndent || p.isUtilityBill || p.isVendorBill)) return false;
     return true;
   });
 
@@ -469,8 +439,58 @@ const ExecutiveCeoPaymentsSection = () => {
         isPurchaseOrder: false, 
         isCashApproval: false, 
         isOnboarding: true,
+        isIndent: false,
+        isUtilityBill: false,
+        isVendorBill: false,
         poAuditTab: 0 
       });
+    } else if (settlement.isIndent || settlement.isUtilityBill || settlement.isVendorBill) {
+      const baseFlags = {
+        isPurchaseOrder: false,
+        isCashApproval: false,
+        isOnboarding: false,
+        isPaymentSettlement: false,
+        isIndent: Boolean(settlement.isIndent),
+        isUtilityBill: Boolean(settlement.isUtilityBill),
+        isVendorBill: Boolean(settlement.isVendorBill)
+      };
+      try {
+        let detail = settlement;
+        if (settlement.isIndent) {
+          const r = await indentService.getIndentById(settlement._id);
+          detail = r?.data || r || settlement;
+        } else if (settlement.isUtilityBill) {
+          const r = await utilityBillService.getUtilityBill(settlement._id);
+          detail = r?.data || r || settlement;
+        } else if (settlement.isVendorBill) {
+          const r = await api.get(`/finance/accounts-payable/${settlement._id}`);
+          detail = r.data?.data || r.data || settlement;
+        }
+        setViewDialog({
+          open: true,
+          settlement: withCeoDocTypeFlags({ ...settlement, ...detail }, baseFlags),
+          ...baseFlags,
+          quotations: [],
+          caLinkedDocs: [],
+          poQuotations: [],
+          poGrns: [],
+          poLinkedDocs: [],
+          poAuditTab: 0
+        });
+      } catch (e) {
+        console.error('Error fetching assigned document details:', e);
+        setViewDialog({
+          open: true,
+          settlement: withCeoDocTypeFlags(settlement, baseFlags),
+          ...baseFlags,
+          quotations: [],
+          caLinkedDocs: [],
+          poQuotations: [],
+          poGrns: [],
+          poLinkedDocs: [],
+          poAuditTab: 0
+        });
+      }
     } else {
       try {
         const response = await paymentSettlementService.getPaymentSettlement(settlement._id);
@@ -541,385 +561,6 @@ const ExecutiveCeoPaymentsSection = () => {
     }
   };
 
-  // Purchase Order View Component (identical to Payments.js)
-  const PurchaseOrderView = ({ poData }) => {
-    const observations = (poData?.auditObservations && poData.auditObservations.length > 0)
-      ? poData.auditObservations
-      : (poData?.auditRejectObservations || []).map((obs, idx) => ({
-          observation: typeof obs === 'object' ? obs.observation : obs,
-          severity: typeof obs === 'object' ? (obs.severity || 'medium') : 'medium',
-          addedBy: poData.auditRejectedBy,
-          addedAt: poData.auditRejectedAt,
-          answer: null,
-          answeredBy: null,
-          answeredAt: null,
-          resolved: false
-        }));
-    const hasObservations = Array.isArray(observations) && observations.length > 0;
-    const hasChangeSummary = poData?.resubmissionChangeSummary && String(poData.resubmissionChangeSummary).trim().length > 0;
-    const auth = poData?.approvalAuthorities || {};
-
-    return (
-      <Paper
-        sx={{
-          p: { xs: 3, sm: 3.5, md: 4 },
-          maxWidth: '210mm',
-          mx: 'auto',
-          backgroundColor: '#fff',
-          boxShadow: 'none',
-          width: '100%',
-          fontFamily: 'Arial, sans-serif',
-          '@media print': {
-            boxShadow: 'none',
-            p: 2.5,
-            maxWidth: '100%',
-            backgroundColor: '#fff',
-            mx: 0,
-            width: '100%',
-            pageBreakInside: 'avoid'
-          }
-        }}
-      >
-        <Typography
-          variant="h4"
-          fontWeight={700}
-          align="center"
-          sx={{
-            textTransform: 'uppercase',
-            mb: 3,
-            fontSize: { xs: '1.8rem', print: '1.6rem' },
-            letterSpacing: 1
-          }}
-        >
-          Purchase Order
-        </Typography>
-
-        {hasObservations && (
-          <Box sx={{ mb: 3, p: 2, bgcolor: alpha(theme.palette.warning.main, 0.08), border: '1px solid', borderColor: 'warning.main', borderRadius: 1 }}>
-            <Typography variant="h6" sx={{ mb: 2, color: 'warning.dark', fontWeight: 'bold' }}>
-              Audit Observations &amp; Procurement Responses
-            </Typography>
-            {poData.auditReturnComments && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Return Comments:</Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
-                  {poData.auditReturnComments}
-                </Typography>
-              </Box>
-            )}
-            {poData.auditRejectionComments && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>Rejection Comments:</Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'text.secondary' }}>
-                  {poData.auditRejectionComments}
-                </Typography>
-              </Box>
-            )}
-            {hasChangeSummary && (
-              <Box sx={{ mb: 2, p: 1.5, bgcolor: alpha(theme.palette.info.main, 0.08), borderRadius: 1, border: '1px solid', borderColor: 'info.light' }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5, color: 'info.dark' }}>
-                  Changes made to PO by Procurement (on resubmission):
-                </Typography>
-                <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: '0.875rem', m: 0 }}>
-                  {poData.resubmissionChangeSummary}
-                </Typography>
-              </Box>
-            )}
-            {observations.map((obs, index) => (
-              <Box key={obs._id || index} sx={{ mb: 2, p: 1.5, bgcolor: '#fff', borderRadius: 1, border: '1px solid', borderColor: 'warning.light' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Observation {index + 1}</Typography>
-                  {obs.severity && (
-                    <Chip
-                      label={String(obs.severity).charAt(0).toUpperCase() + String(obs.severity).slice(1)}
-                      size="small"
-                      color={obs.severity === 'critical' ? 'error' : obs.severity === 'high' ? 'warning' : 'default'}
-                    />
-                  )}
-                </Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
-                  Raised by Audit{obs.addedBy ? `: ${obs.addedBy?.firstName || ''} ${obs.addedBy?.lastName || ''}` : ''}
-                  {obs.addedAt ? ` on ${formatDate(obs.addedAt)}` : ''}
-                </Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: obs.answer ? 1.5 : 0 }}>{obs.observation}</Typography>
-                {obs.answer && (
-                  <Box sx={{ mt: 1.5, p: 1.5, bgcolor: alpha(theme.palette.success.main, 0.1), borderRadius: 1, border: '1px solid', borderColor: 'success.light' }}>
-                    <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', mb: 0.5, color: 'success.dark' }}>
-                      Response from Procurement (edit / correction):
-                    </Typography>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{obs.answer}</Typography>
-                    {obs.answeredBy && (
-                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                        Answered by: {obs.answeredBy?.firstName || ''} {obs.answeredBy?.lastName || ''}
-                        {obs.answeredAt ? ` on ${formatDate(obs.answeredAt)}` : ''}
-                      </Typography>
-                    )}
-                  </Box>
-                )}
-              </Box>
-            ))}
-          </Box>
-        )}
-
-        <Box sx={{ mb: 2.5 }}>
-          <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
-            Residencia
-          </Typography>
-          <Typography sx={{ fontSize: '0.9rem', mb: 0.5 }}>
-            1st Avenue 18 4 Islamabad
-          </Typography>
-          <Typography sx={{ fontSize: '0.9rem' }}>
-            1. Het Sne 1-8. Islamabad.
-          </Typography>
-        </Box>
-
-        <Divider sx={{ my: 2.5, borderWidth: 1, borderColor: '#ccc' }} />
-
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
-          <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
-            <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
-              {poData.vendor?.name || 'Vendor Name'}
-            </Typography>
-            <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 2 }}>
-              {poData.vendor?.address || 'Vendor Address'}
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
-              <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
-              <Typography component="span">
-                Indent# {poData.indent?.indentNumber || 'N/A'} Dated. {poData.indent?.requestedDate ? formatDateForPrint(poData.indent.requestedDate) : 'N/A'}.
-                {poData.indent?.title && ` ${poData.indent.title}.`}
-                {poData.indent?.requestedBy && ` End User. ${poData.indent.requestedBy.firstName} ${poData.indent.requestedBy.lastName}`}
-              </Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
-            <Box sx={{ display: 'flex', mb: 0.5 }}>
-              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>P.O No.:</Typography>
-              <Typography component="span">
-                {poData.orderNumber ? 
-                  (poData.orderNumber.startsWith('P') && !poData.orderNumber.includes('-')
-                    ? poData.orderNumber
-                    : 'P' + (poData.orderNumber.match(/\d+$/)?.[0] || poData.orderNumber.split('-').pop() || '').padStart(9, '0'))
-                  : 'N/A'}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', mb: 0.5 }}>
-              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
-              <Typography component="span">{formatDateForPrint(poData.orderDate)}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', mb: 0.5 }}>
-              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Date:</Typography>
-              <Typography component="span">{poData.expectedDeliveryDate ? formatDateForPrint(poData.expectedDeliveryDate) : '___________'}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', mb: 0.5 }}>
-              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
-              <Typography component="span">{poData.shippingAddress ? 
-                `${poData.shippingAddress.street || ''} ${poData.shippingAddress.city || ''}`.trim() || '___________' 
-                : '___________'}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', mb: 0.5 }}>
-              <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
-              <Typography component="span">{poData.indent?.department?.name || '___________'}</Typography>
-            </Box>
-          </Box>
-        </Box>
-
-        {/* Items Table */}
-        <Box sx={{ mb: 3 }}>
-          <table
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              border: '1px solid #000',
-              fontSize: '0.85rem',
-              fontFamily: 'Arial, sans-serif'
-            }}
-          >
-            <thead>
-              <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>Sr no</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Product</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '23%' }}>Description</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Specification</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Brand</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '11%' }}>Quantity Unit</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Rate</th>
-                <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {poData.items && poData.items.length > 0 ? (
-                poData.items.map((item, index) => (
-                  <tr key={index} style={{ border: '1px solid #000' }}>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>{index + 1}</td>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.productCode || poData.indent?.items?.[index]?.itemCode || `44-001-${String(index + 1).padStart(4, '0')}`}</td>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.description || poData.indent?.items?.[index]?.itemName || '___________'}</td>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.specification || poData.indent?.items?.[index]?.specification || '___________'}</td>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>{item.brand || poData.indent?.items?.[index]?.brand || '___________'}</td>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>{item.quantity ? `${formatNumber(item.quantity)} ${item.unit || 'Nos'}` : '___________'}</td>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>{item.unitPrice ? formatNumber(item.unitPrice) : '___________'}</td>
-                    <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>{item.amount ? formatNumber(item.amount) : '___________'}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={8} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>No items</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </Box>
-
-        {/* Financial Summary */}
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-          <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Typography component="span" fontWeight={600}>Total (Rupees):</Typography>
-              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Typography component="span" fontWeight={600}>Net Total:</Typography>
-              <Typography component="span">{formatNumber(poData.totalAmount || 0)}</Typography>
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-              <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
-              <Typography component="span">{formatNumber(poData.shippingCost || 0)}</Typography>
-            </Box>
-            <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic' }}>
-              Rupees {numberToWords(poData.totalAmount || 0)}
-            </Typography>
-          </Box>
-        </Box>
-
-        {/* Terms & Conditions */}
-        <Box sx={{ mb: 3, border: '1px solid #ccc', p: 2, fontSize: '0.9rem' }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, textDecoration: 'underline' }}>
-            TERMS & CONDITIONS
-          </Typography>
-          <Box sx={{ lineHeight: 1.8 }}>
-            <Typography sx={{ mb: 1, fontWeight: 600 }}>Main Terms & Conditions</Typography>
-            <Box sx={{ mb: 1 }}>
-              <Typography component="span" fontWeight={600}>Payment Terms:</Typography>
-              <Typography component="span" sx={{ ml: 1 }}>{poData.paymentTerms || '100% Advance Payment'}</Typography>
-            </Box>
-            <Box sx={{ mb: 1 }}>
-              <Typography component="span" fontWeight={600}>Delivery Terms:</Typography>
-              <Typography component="span" sx={{ ml: 1 }}>At-Site Delivery</Typography>
-            </Box>
-            <Box sx={{ mb: 1 }}>
-              <Typography component="span" fontWeight={600}>Delivery Time.</Typography>
-              <Typography component="span" sx={{ ml: 1 }}>Delivery within: {poData.quotation?.deliveryTime || '03 days'} of confirmed PO & Payment</Typography>
-            </Box>
-            <Typography sx={{ mb: 1 }}>Rates Are Exclusive Of all The Taxes</Typography>
-            {poData.vendor?.cnic && <Typography sx={{ mb: 1 }}>CNIC {poData.vendor.cnic}</Typography>}
-            {poData.vendor?.payeeName && <Typography>Payee Name: {poData.vendor.payeeName}</Typography>}
-          </Box>
-        </Box>
-
-        {/* Approval Progress */}
-        <Box sx={{ mt: 4 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5 }}>
-            Approval Progress
-          </Typography>
-          {(() => {
-            const indent = poData?.indent || {};
-            const approvals = indent?.comparativeStatementApprovals || {};
-            const approvalSteps = Array.isArray(indent?.comparativeApproval?.approvers)
-              ? indent.comparativeApproval.approvers
-              : [];
-            const stepByUserId = new Map(
-              approvalSteps.map((s) => [String(s?.approver?._id || s?.approver || ''), s])
-            );
-            const personName = (u, fallback = '') => {
-              if (fallback && String(fallback).trim()) return String(fallback).trim();
-              if (u) {
-                const n = [u?.firstName, u?.lastName].filter(Boolean).join(' ').trim();
-                if (n) return n;
-                if (u?.email) return u.email;
-              }
-              return '—';
-            };
-            const rows = [
-              { key: 'preparedBy', label: 'Prepared By', user: approvals.preparedByUser, fallback: poData.approvalAuthorities?.preparedBy || approvals.preparedBy || auth.preparedBy || '' },
-              { key: 'managerProcurement', label: 'Manager Procurement', user: approvals.managerProcurementUser, fallback: poData.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || '' },
-              { key: 'chiefOperatingOfficer', label: 'Chief operating officer', user: null, fallback: poData.approvalAuthorities?.chiefOperatingOfficer || poData.approvalAuthorities?.verifiedBy || approvals.verifiedBy || auth.verifiedBy || '' },
-              { key: 'avpTaj', label: 'AVP Taj', user: null, fallback: poData.approvalAuthorities?.avpTaj || poData.approvalAuthorities?.authorisedRep || approvals.authorisedRep || auth.authorisedRep || '' },
-              ...(poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment ? [{ key: 'technicalDepartment', label: 'Technical Department', user: null, fallback: poData.approvalAuthorities?.technicalDepartment || auth.technicalDepartment || '' }] : []),
-              { key: 'preAuditInitial', label: 'Pre-Audit Initial Approval', directApproval: true, approver: poData.preAuditInitialApprovedBy || null, approvedAt: poData.preAuditInitialApprovedAt || null, fallback: '' },
-              { key: 'auditDirectorApproval', label: 'Audit Final Approval', directApproval: true, approver: poData.auditApprovedBy || null, approvedAt: poData.auditApprovedAt || null, fallback: '' },
-              { key: 'ceoSecretariatForward', label: 'CEO Secretariat', directApproval: true, approver: poData.ceoForwardedBy || null, approvedAt: poData.ceoForwardedAt || null, fallback: '' },
-              { key: 'ceoApproval', label: 'CEO Approval', directApproval: true, approver: poData.ceoApprovedBy || null, approvedAt: poData.ceoApprovedAt || null, fallback: '' }
-            ];
-            const authorityApprovals = Array.isArray(poData?.authorityApprovals) ? poData.authorityApprovals : [];
-            const byKey = new Map(authorityApprovals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
-            return (
-              <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'grey.100' }}>
-                      <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Digital Signature</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Date & Time</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {rows.map((row) => {
-                      const uid = String(row?.user?._id || row?.user || '');
-                      const step = uid ? stepByUserId.get(uid) : null;
-                      const explicitApproval = row?.key ? byKey.get(row.key) : null;
-                      const approvalUser = row?.directApproval
-                        ? row.approver
-                        : (explicitApproval?.approver && typeof explicitApproval.approver === 'object'
-                          ? explicitApproval.approver
-                          : step?.approver && typeof step.approver === 'object'
-                            ? step.approver
-                            : row.user);
-                      const approvedAt = row?.directApproval
-                        ? (row.approvedAt || null)
-                        : (explicitApproval?.approvedAt || step?.actedAt || null);
-                      const isApproved = Boolean(approvedAt);
-                      const displayAuthorityName = explicitApproval?.approver
-                        ? ([explicitApproval.approver.firstName, explicitApproval.approver.lastName].filter(Boolean).join(' ').trim() || explicitApproval.approver.email || row.fallback || '—')
-                        : personName(approvalUser, row.fallback);
-                      return (
-                        <TableRow key={row.key || row.label}>
-                          <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
-                          <TableCell>{displayAuthorityName}</TableCell>
-                          <TableCell>
-                            <Chip
-                              size="small"
-                              label={isApproved ? 'Approved' : 'Pending'}
-                              color={isApproved ? 'success' : 'warning'}
-                              variant={isApproved ? 'filled' : 'outlined'}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            {isApproved && approvalUser?.digitalSignature ? (
-                              <DigitalSignatureImage userOrPath={approvalUser} alt={`${row.label} signature`} />
-                            ) : isApproved ? (
-                              <Typography variant="caption" color="text.secondary">No signature on file</Typography>
-                            ) : (
-                              <Typography variant="caption" color="text.secondary">—</Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>{formatDateTime(approvedAt)}</TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            );
-          })()}
-          <ProcurementDigitalSignaturesRow purchaseOrder={poData} />
-        </Box>
-      </Paper>
-    );
-  };
-
   /** Keep document-type flags when acting from the view dialog (API payload lacks them). */
   const withCeoDocTypeFlags = (doc, flags = {}) => {
     if (!doc) return doc;
@@ -941,16 +582,33 @@ const ExecutiveCeoPaymentsSection = () => {
       Boolean(doc.cnic) ||
       doc.itemType === 'Onboarding' ||
       doc.typeLabel === 'Onboarding';
+    const isIndent =
+      Boolean(flags.isIndent) ||
+      Boolean(doc.isIndent) ||
+      doc.itemType === 'Indent' ||
+      Boolean(doc.indentNumber);
+    const isUtilityBill =
+      Boolean(flags.isUtilityBill) ||
+      Boolean(doc.isUtilityBill) ||
+      doc.itemType === 'Store / Utility Bill' ||
+      Boolean(doc.billId && doc.utilityType);
+    const isVendorBill =
+      Boolean(flags.isVendorBill) ||
+      Boolean(doc.isVendorBill) ||
+      doc.itemType === 'Vendor Bill';
     const isPaymentSettlement =
       Boolean(flags.isPaymentSettlement) ||
       Boolean(doc.isPaymentSettlement) ||
-      (!isPurchaseOrder && !isCashApproval && !isOnboarding);
+      (!isPurchaseOrder && !isCashApproval && !isOnboarding && !isIndent && !isUtilityBill && !isVendorBill);
 
     return {
       ...doc,
       isPurchaseOrder,
       isCashApproval,
       isOnboarding,
+      isIndent,
+      isUtilityBill,
+      isVendorBill,
       isPaymentSettlement,
       itemType: isPurchaseOrder
         ? 'Purchase Order'
@@ -958,11 +616,20 @@ const ExecutiveCeoPaymentsSection = () => {
           ? 'Cash Approval'
           : isOnboarding
             ? 'Onboarding'
-            : doc.itemType || 'Payment Settlement',
+            : isIndent
+              ? 'Indent'
+              : isUtilityBill
+                ? 'Store / Utility Bill'
+                : isVendorBill
+                  ? 'Vendor Bill'
+                  : doc.itemType || 'Payment Settlement',
       displayRef:
         doc.displayRef ||
         doc.orderNumber ||
         doc.caNumber ||
+        doc.indentNumber ||
+        doc.billNumber ||
+        doc.billId ||
         doc.referenceNumber ||
         doc.recordNumber ||
         doc._id
@@ -1013,6 +680,25 @@ const ExecutiveCeoPaymentsSection = () => {
   };
 
   // Submit Approval
+  const resolveOnboardingStatus = (item) =>
+    String(item?.workflowStatus || item?.status || '');
+
+  const approveOnboardingForStatus = async (item, payload) => {
+    const status = resolveOnboardingStatus(item);
+    if (status === 'Pending AVP') return nonEmployeeService.approveByAVP(item._id, payload);
+    if (status === 'Pending Chairman') return nonEmployeeService.approveByChairman(item._id, payload);
+    if (status === 'Pending HOD HR') return nonEmployeeService.approveByHOD(item._id, payload);
+    return nonEmployeeService.approveByCEO(item._id, payload);
+  };
+
+  const rejectOnboardingForStatus = async (item, payload) => {
+    const status = resolveOnboardingStatus(item);
+    if (status === 'Pending AVP') return nonEmployeeService.rejectByAVP(item._id, payload);
+    if (status === 'Pending Chairman') return nonEmployeeService.rejectByChairman(item._id, payload);
+    if (status === 'Pending HOD HR') return nonEmployeeService.rejectByHOD(item._id, payload);
+    return nonEmployeeService.rejectByCEO(item._id, payload);
+  };
+
   const handleApproveSubmit = async () => {
     if (!approvalAgree) {
       toast.error('Please confirm approval checkbox');
@@ -1022,7 +708,7 @@ const ExecutiveCeoPaymentsSection = () => {
     if (!item) return;
 
     const effectiveSig = getAutoDigitalSignature();
-    if (!item.isCashApproval && !item.isOnboarding && !effectiveSig) {
+    if (!item.isCashApproval && !item.isOnboarding && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
@@ -1034,27 +720,39 @@ const ExecutiveCeoPaymentsSection = () => {
           approvalComments,
           digitalSignature: effectiveSig
         });
-        toast.success(`Purchase order ${item.displayRef} approved by CEO!`);
+        toast.success(`Purchase order ${item.displayRef} approved`);
       } else if (item.isCashApproval) {
         await api.put(`/cash-approvals/${item._id}/ceo-approve`, {
           comments: approvalComments,
           approvalComments,
           digitalSignature: effectiveSig
         });
-        toast.success(`Cash approval ${item.displayRef} approved by CEO and sent to Finance!`);
+        toast.success(`Cash approval ${item.displayRef} approved`);
       } else if (item.isOnboarding) {
-        await nonEmployeeService.approveByCEO(item._id, {
+        await approveOnboardingForStatus(item, {
           comments: approvalComments,
           signature: effectiveSig
         });
-        toast.success(`Onboarding ${item.displayRef} approved by CEO!`);
-      } else {
-        await paymentSettlementService.approvePayment(item._id, {
-          comments: approvalComments || 'Approved by CEO',
-          approvalComments: approvalComments || 'Approved by CEO',
+        toast.success(`Onboarding ${item.displayRef} approved`);
+      } else if (item.isIndent) {
+        await indentService.approveIndent(item._id);
+        toast.success(`Indent ${item.displayRef || item.indentNumber} approved`);
+      } else if (item.isUtilityBill) {
+        await utilityBillService.approveUtilityBill(item._id, {
+          comments: approvalComments,
           digitalSignature: effectiveSig
         });
-        toast.success(`Payment settlement ${item.displayRef} approved by CEO!`);
+        toast.success(`Utility bill ${item.displayRef} approved`);
+      } else if (item.isVendorBill) {
+        toast.error('Approve this vendor bill from Accounts Payable');
+        return;
+      } else {
+        await paymentSettlementService.approvePayment(item._id, {
+          comments: approvalComments || 'Approved',
+          approvalComments: approvalComments || 'Approved',
+          digitalSignature: effectiveSig
+        });
+        toast.success(`Payment settlement ${item.displayRef} approved`);
       }
       setApproveDialog({ open: false, settlement: null });
       fetchCeoPayments();
@@ -1075,7 +773,7 @@ const ExecutiveCeoPaymentsSection = () => {
     if (!item) return;
 
     const effectiveSig = getAutoDigitalSignature();
-    if (!item.isOnboarding && !effectiveSig) {
+    if (!item.isOnboarding && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
@@ -1098,11 +796,18 @@ const ExecutiveCeoPaymentsSection = () => {
           observations: validObs
         });
       } else if (item.isOnboarding) {
-        await nonEmployeeService.rejectByCEO(item._id, {
+        await rejectOnboardingForStatus(item, {
           comments: rejectionComments,
           signature: effectiveSig,
           observations: validObs
         });
+      } else if (item.isIndent) {
+        await indentService.rejectIndent(item._id, rejectionComments);
+      } else if (item.isUtilityBill) {
+        await utilityBillService.rejectUtilityBill(item._id, rejectionComments);
+      } else if (item.isVendorBill) {
+        toast.error('Reject this vendor bill from Accounts Payable');
+        return;
       } else {
         await paymentSettlementService.rejectPayment(item._id, {
           comments: rejectionComments,
@@ -1252,6 +957,20 @@ const ExecutiveCeoPaymentsSection = () => {
     printWindow.print();
   };
 
+  const role = String(user?.role || '');
+  const canReceiveExecutiveApprovals = [
+    'higher_management',
+    'ceo',
+    'super_admin',
+    'admin',
+    'developer'
+  ].includes(role);
+
+  // Hide cleanly for users who cannot receive executive/HM approvals and have an empty inbox
+  if (!loading && !canReceiveExecutiveApprovals && payments.length === 0) {
+    return null;
+  }
+
   return (
     <Card
       sx={{
@@ -1315,10 +1034,10 @@ const ExecutiveCeoPaymentsSection = () => {
                     WebkitTextFillColor: 'transparent'
                   }}
                 >
-                  CEO Payment Authorizations
+                  My Executive Approvals
                 </Typography>
                 <Chip
-                  label={loading ? 'Checking...' : `${payments.length} Awaiting Authorization`}
+                  label={loading ? 'Checking...' : `${payments.length} Pending My Approval`}
                   size="small"
                   color={payments.length > 0 ? 'warning' : 'success'}
                   sx={{
@@ -1329,13 +1048,13 @@ const ExecutiveCeoPaymentsSection = () => {
                 />
               </Box>
               <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
-                High-priority Purchase Orders, Cash Approvals & Payment Settlements forwarded for executive sign-off
+                Documents waiting on you — PO, Cash Approval, Settlement, Onboarding, Indent &amp; assigned bills
               </Typography>
             </Box>
           </Box>
 
           <Stack direction="row" spacing={1.5} alignItems="center">
-            <Tooltip title="Refresh Pending CEO Authorizations">
+            <Tooltip title="Refresh my approval inbox">
               <IconButton
                 onClick={fetchCeoPayments}
                 disabled={loading}
@@ -1527,6 +1246,7 @@ const ExecutiveCeoPaymentsSection = () => {
             <Tab label={`Cash Approvals (${caItems.length})`} />
             <Tab label={`Settlements (${settlementItems.length})`} />
             <Tab label={`Onboardings (${onboardingItems.length})`} />
+            <Tab label={`Other (${otherItems.length})`} />
           </Tabs>
         </Box>
 
@@ -1535,7 +1255,7 @@ const ExecutiveCeoPaymentsSection = () => {
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 6, gap: 2 }}>
             <CircularProgress size={36} thickness={4} />
             <Typography variant="body2" color="text.secondary">
-              Loading CEO payment authorization queue...
+              Loading your approval inbox...
             </Typography>
           </Box>
         ) : filteredPayments.length === 0 ? (
@@ -1551,10 +1271,10 @@ const ExecutiveCeoPaymentsSection = () => {
           >
             <CheckCircleOutlineIcon sx={{ fontSize: 52, color: '#43a047', mb: 1 }} />
             <Typography variant="h6" sx={{ fontWeight: 700, color: '#2e7d32' }}>
-              All CEO Payment Approvals Cleared
+              Inbox clear
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 460, mx: 'auto', mt: 0.5 }}>
-              There are currently no Purchase Orders, Cash Approvals, or Payment Settlements waiting for CEO authorization.
+              There are currently no documents waiting for your approval.
             </Typography>
           </Paper>
         ) : (
@@ -1580,7 +1300,7 @@ const ExecutiveCeoPaymentsSection = () => {
                     Amount (PKR)
                   </TableCell>
                   <TableCell align="center" sx={{ fontWeight: 700, width: 240 }}>
-                    CEO Actions
+                    Actions
                   </TableCell>
                 </TableRow>
               </TableHead>
@@ -1686,53 +1406,55 @@ const ExecutiveCeoPaymentsSection = () => {
                             </IconButton>
                           </Tooltip>
 
-                          {/* Quick CEO Approve */}
-                          <Tooltip title="Approve as CEO">
-                            <IconButton
-                              size="small"
-                              color="success"
-                              onClick={() => openApprove(item)}
-                              sx={{
-                                border: '1px solid rgba(46, 125, 50, 0.3)',
-                                bgcolor: alpha('#2e7d32', 0.08),
-                                '&:hover': { bgcolor: alpha('#2e7d32', 0.2) }
-                              }}
-                            >
-                              <CheckCircleIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                          {/* Approve / reject / return — in-place for all inbox types */}
+                          <>
+                              <Tooltip title="Approve">
+                                <IconButton
+                                  size="small"
+                                  color="success"
+                                  onClick={() => openApprove(item)}
+                                  sx={{
+                                    border: '1px solid rgba(46, 125, 50, 0.3)',
+                                    bgcolor: alpha('#2e7d32', 0.08),
+                                    '&:hover': { bgcolor: alpha('#2e7d32', 0.2) }
+                                  }}
+                                >
+                                  <CheckCircleIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
 
-                          {/* Quick CEO Reject */}
-                          <Tooltip title="Reject as CEO">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => openReject(item)}
-                              sx={{
-                                border: '1px solid rgba(211, 47, 47, 0.3)',
-                                bgcolor: alpha('#d32f2f', 0.05),
-                                '&:hover': { bgcolor: alpha('#d32f2f', 0.15) }
-                              }}
-                            >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                              <Tooltip title="Reject">
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => openReject(item)}
+                                  sx={{
+                                    border: '1px solid rgba(211, 47, 47, 0.3)',
+                                    bgcolor: alpha('#d32f2f', 0.05),
+                                    '&:hover': { bgcolor: alpha('#d32f2f', 0.15) }
+                                  }}
+                                >
+                                  <CancelIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
 
-                          {/* Quick CEO Return */}
-                          <Tooltip title="Return with Observations">
-                            <IconButton
-                              size="small"
-                              color="warning"
-                              onClick={() => openReturn(item)}
-                              sx={{
-                                border: '1px solid rgba(237, 108, 2, 0.3)',
-                                bgcolor: alpha('#ed6c02', 0.05),
-                                '&:hover': { bgcolor: alpha('#ed6c02', 0.15) }
-                              }}
-                            >
-                              <WarningIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                              {!(item.isIndent || item.isUtilityBill || item.isVendorBill) && (
+                              <Tooltip title="Return with observations">
+                                <IconButton
+                                  size="small"
+                                  color="warning"
+                                  onClick={() => openReturn(item)}
+                                  sx={{
+                                    border: '1px solid rgba(237, 108, 2, 0.3)',
+                                    bgcolor: alpha('#ed6c02', 0.05),
+                                    '&:hover': { bgcolor: alpha('#ed6c02', 0.15) }
+                                  }}
+                                >
+                                  <WarningIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                              )}
+                            </>
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -1763,26 +1485,30 @@ const ExecutiveCeoPaymentsSection = () => {
             poAuditTab: 0
           })
         }
-        maxWidth={(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? false : 'md'}
+        maxWidth="md"
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: 0,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-            background: '#ffffff',
-            ...((viewDialog.isPurchaseOrder || viewDialog.isCashApproval) && {
-              width: '90%',
-              maxWidth: '210mm',
-              maxHeight: '95vh',
-              '@media print': {
-                boxShadow: 'none',
-                maxWidth: '100%',
-                margin: 0,
-                height: '100%',
-                width: '100%',
-                maxHeight: '100%'
-              }
-            })
+            borderRadius: 2.5,
+            boxShadow: '0 12px 40px rgba(15, 23, 42, 0.18)',
+            background: '#f8fafc',
+            width: '100%',
+            maxWidth: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? '210mm' : 820,
+            maxHeight: '88vh',
+            m: { xs: 1, sm: 2 },
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            '@media print': {
+              boxShadow: 'none',
+              maxWidth: '100%',
+              margin: 0,
+              height: '100%',
+              width: '100%',
+              maxHeight: '100%',
+              borderRadius: 0,
+              background: '#ffffff'
+            }
           }
         }}
       >
@@ -1790,6 +1516,7 @@ const ExecutiveCeoPaymentsSection = () => {
           sx={{
             p: 0,
             m: 0,
+            flexShrink: 0,
             '@media print': { display: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 'none' : 'block' }
           }}
         >
@@ -1798,25 +1525,36 @@ const ExecutiveCeoPaymentsSection = () => {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              p: 2,
-              borderBottom: '1px solid #e0e0e0'
+              px: 2,
+              py: 1.25,
+              borderBottom: '1px solid',
+              borderColor: 'divider',
+              background: '#ffffff'
             }}
           >
-            <Typography variant="h6" sx={{ fontWeight: 600, color: '#333' }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'text.primary', letterSpacing: '-0.01em' }}>
               {viewDialog.isPurchaseOrder
                 ? 'Purchase Order Details'
                 : viewDialog.isCashApproval
                 ? 'Cash Approval Details'
+                : viewDialog.isOnboarding
+                ? 'Onboarding Details'
+                : viewDialog.isIndent
+                ? 'Indent Details'
+                : viewDialog.isUtilityBill
+                ? 'Utility Bill Details'
+                : viewDialog.isVendorBill
+                ? 'Vendor Bill Details'
                 : 'PAYMENT SETTLEMENT'}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
               {viewDialog.isPurchaseOrder && (
                 <Button
-                  variant="contained"
+                  variant="outlined"
                   startIcon={<PrintIcon />}
                   onClick={() => window.print()}
                   size="small"
-                  sx={{ '@media print': { display: 'none' } }}
+                  sx={{ '@media print': { display: 'none' }, textTransform: 'none', fontWeight: 600 }}
                 >
                   Print
                 </Button>
@@ -1834,12 +1572,16 @@ const ExecutiveCeoPaymentsSection = () => {
                     poQuotations: [],
                     poGrns: [],
                     poLinkedDocs: [],
-                    poAuditTab: 0
+                    poAuditTab: 0,
+                    isOnboarding: false,
+                    isIndent: false,
+                    isUtilityBill: false,
+                    isVendorBill: false
                   })
                 }
-                sx={{ color: '#666', '@media print': { display: 'none' } }}
+                sx={{ color: 'text.secondary', '@media print': { display: 'none' } }}
               >
-                <CloseIcon />
+                <CloseIcon fontSize="small" />
               </IconButton>
             </Box>
           </Box>
@@ -1848,19 +1590,41 @@ const ExecutiveCeoPaymentsSection = () => {
         <DialogContent
           sx={{
             p: 0,
-            background: '#ffffff',
+            background: '#f8fafc',
             overflow: 'auto',
-            '@media print': { p: 0, overflow: 'visible' }
+            flex: 1,
+            '@media print': { p: 0, overflow: 'visible', background: '#ffffff' }
           }}
         >
           {viewDialog.settlement && (
             <Box
               sx={{
-                p: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 0 : 4,
-                background: '#ffffff',
+                p: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 0 : 1.5,
+                background: '#f8fafc',
                 fontFamily: (viewDialog.isPurchaseOrder || viewDialog.isCashApproval)
                   ? 'Arial, sans-serif'
-                  : '"Times New Roman", serif'
+                  : 'inherit',
+                ...(!(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) && {
+                  '& > *': {
+                    background: '#ffffff',
+                    borderRadius: 2,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    p: 1.5,
+                    boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)'
+                  },
+                  '& .MuiTypography-h4': { fontSize: '1.25rem !important', lineHeight: 1.3 },
+                  '& .MuiTypography-h5': { fontSize: '1.1rem !important' },
+                  '& .MuiTypography-h6': { fontSize: '0.95rem !important' },
+                  '& .MuiButton-root': { py: 0.4, px: 1.1, minHeight: 32, fontSize: '0.78rem' },
+                  '& .MuiChip-root': { height: 22, fontSize: '0.72rem' },
+                  '& .MuiTableCell-root': { py: 0.65, px: 1, fontSize: '0.78rem' },
+                  '& .MuiCardContent-root': { p: '12px !important', '&:last-child': { pb: '12px !important' } },
+                  '& .MuiGrid-item': { pt: '8px !important' }
+                }),
+                ...((viewDialog.isPurchaseOrder || viewDialog.isCashApproval) && {
+                  background: '#ffffff'
+                })
               }}
               className={(viewDialog.isPurchaseOrder || viewDialog.isCashApproval) ? 'print-content' : ''}
             >
@@ -1978,7 +1742,7 @@ const ExecutiveCeoPaymentsSection = () => {
 
                   {/* Tab 1: Purchase Order View */}
                   {viewDialog.poAuditTab === 1 && (
-                    <PurchaseOrderView poData={viewDialog.settlement} />
+                    <PODocumentView data={viewDialog.settlement} />
                   )}
 
                   {/* Tab 2: Comparative Statement */}
@@ -2260,7 +2024,56 @@ const ExecutiveCeoPaymentsSection = () => {
                     </Grid>
                   </Paper>
                 </Box>
+              ) : viewDialog.isIndent ? (
+                <IndentDetail
+                  id={viewDialog.settlement?._id}
+                  embedded
+                  hideBack
+                  hideModuleActions
+                />
+              ) : viewDialog.isUtilityBill ? (
+                <UtilityBillDetails
+                  id={viewDialog.settlement?._id}
+                  embedded
+                  hideBack
+                  hideModuleActions
+                />
+              ) : viewDialog.isVendorBill ? (
+                <Box sx={{ p: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+                    Bill Details: {viewDialog.settlement?.billNumber || viewDialog.settlement?.displayRef || '—'}
+                  </Typography>
+                  <CentralizedStoreBillInvoiceBody
+                    bill={{
+                      ...viewDialog.settlement,
+                      billId: viewDialog.settlement?.billNumber || viewDialog.settlement?.billId,
+                      billDate: viewDialog.settlement?.billDate,
+                      createdAt: viewDialog.settlement?.createdAt || viewDialog.settlement?.billDate,
+                      provider: viewDialog.settlement?.vendorName || viewDialog.settlement?.vendor?.name || viewDialog.settlement?.provider,
+                      location: viewDialog.settlement?.company?.name || viewDialog.settlement?.companyName || viewDialog.settlement?.department || 'N/A',
+                      notes: viewDialog.settlement?.notes || viewDialog.settlement?.internalNotes || '',
+                      forWhat: viewDialog.settlement?.forWhat || viewDialog.settlement?.notes || '',
+                      billLines: (viewDialog.settlement?.lineItems && viewDialog.settlement.lineItems.length > 0)
+                        ? viewDialog.settlement.lineItems.map((line, idx) => ({
+                            ...line,
+                            description: line.description || line.itemName || line.name,
+                            quantity: line.quantity ?? line.qty,
+                            amount: line.amount ?? line.total ?? line.lineTotal,
+                            attachments: idx === 0 && viewDialog.settlement?.attachments?.length
+                              ? viewDialog.settlement.attachments.map((a) => ({
+                                  url: a.path || a.url || a.filename,
+                                  originalName: a.originalName || a.filename
+                                }))
+                              : line.attachments
+                          }))
+                        : (viewDialog.settlement?.billLines || []),
+                      totalAmount: viewDialog.settlement?.totalAmount || viewDialog.settlement?.displayAmount
+                    }}
+                    showChargesSummary
+                  />
+                </Box>
               ) : (
+
                 <>
                   {/* Payment Settlement View */}
                   <Box sx={{ mb: 3, borderBottom: '2px solid #000', pb: 2 }}>
@@ -2440,27 +2253,29 @@ const ExecutiveCeoPaymentsSection = () => {
 
         <DialogActions
           sx={{
-            p: 2,
-            borderTop: '1px solid #e0e0e0',
-            background: '#f9f9f9',
+            px: 2,
+            py: 1.25,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            background: '#ffffff',
             justifyContent: 'space-between',
+            gap: 1,
+            flexShrink: 0,
+            flexWrap: 'wrap',
             '@media print': { display: 'none' }
           }}
         >
-          <Box>
+          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
             {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && (
               <>
                 <Chip
-                  label={viewDialog.settlement?.workflowStatus || 'Draft'}
-                  color={getWorkflowStatusColor(viewDialog.settlement?.workflowStatus || 'Draft')}
-                  size="small"
-                  sx={{ mr: 1 }}
-                />
-                <Chip
-                  label={viewDialog.settlement?.paymentType}
-                  variant="outlined"
+                  label={viewDialog.settlement?.workflowStatus || viewDialog.settlement?.status || viewDialog.settlement?.approvalStatus || 'Pending'}
+                  color={getWorkflowStatusColor(viewDialog.settlement?.workflowStatus || viewDialog.settlement?.status || 'Draft')}
                   size="small"
                 />
+                {viewDialog.settlement?.paymentType ? (
+                  <Chip label={viewDialog.settlement.paymentType} variant="outlined" size="small" />
+                ) : null}
               </>
             )}
             {viewDialog.isCashApproval && (
@@ -2476,64 +2291,93 @@ const ExecutiveCeoPaymentsSection = () => {
             <Button
               variant="contained"
               color="success"
+              size="small"
               startIcon={<CheckCircleIcon />}
               onClick={() => {
                 const flags = {
                   isPurchaseOrder: viewDialog.isPurchaseOrder,
                   isCashApproval: viewDialog.isCashApproval,
-                  isOnboarding: viewDialog.isOnboarding
+                  isOnboarding: viewDialog.isOnboarding,
+                  isIndent: viewDialog.isIndent,
+                  isUtilityBill: viewDialog.isUtilityBill,
+                  isVendorBill: viewDialog.isVendorBill
                 };
                 const itemToApprove = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
                 openApprove(itemToApprove, flags);
               }}
+              sx={{ textTransform: 'none', fontWeight: 600 }}
             >
-              Approve (CEO)
+              Approve
             </Button>
             <Button
               variant="contained"
               color="error"
+              size="small"
               startIcon={<CancelIcon />}
               onClick={() => {
                 const flags = {
                   isPurchaseOrder: viewDialog.isPurchaseOrder,
                   isCashApproval: viewDialog.isCashApproval,
-                  isOnboarding: viewDialog.isOnboarding
+                  isOnboarding: viewDialog.isOnboarding,
+                  isIndent: viewDialog.isIndent,
+                  isUtilityBill: viewDialog.isUtilityBill,
+                  isVendorBill: viewDialog.isVendorBill
                 };
                 const itemToReject = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
                 openReject(itemToReject, flags);
               }}
+              sx={{ textTransform: 'none', fontWeight: 600 }}
             >
-              Reject (CEO)
+              Reject
             </Button>
+            {!(viewDialog.isIndent || viewDialog.isUtilityBill || viewDialog.isVendorBill) && (
             <Button
               variant="contained"
               color="warning"
+              size="small"
               startIcon={<WarningIcon />}
               onClick={() => {
                 const flags = {
                   isPurchaseOrder: viewDialog.isPurchaseOrder,
                   isCashApproval: viewDialog.isCashApproval,
-                  isOnboarding: viewDialog.isOnboarding
+                  isOnboarding: viewDialog.isOnboarding,
+                  isIndent: viewDialog.isIndent,
+                  isUtilityBill: viewDialog.isUtilityBill,
+                  isVendorBill: viewDialog.isVendorBill
                 };
                 const itemToReturn = viewDialog.settlement;
                 setViewDialog((prev) => ({ ...prev, open: false }));
                 openReturn(itemToReturn, flags);
               }}
+              sx={{ textTransform: 'none', fontWeight: 600 }}
             >
-              Return with Observations
+              Return
             </Button>
+            )}
             <Button
               variant="outlined"
+              size="small"
               startIcon={<HistoryIcon />}
               onClick={() => openWorkflowHistory(viewDialog.settlement)}
-              sx={{ minWidth: 150, mr: 1 }}
+              sx={{ textTransform: 'none', fontWeight: 600 }}
             >
-              See Workflow History
+              History
             </Button>
+            {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && !viewDialog.isIndent && !viewDialog.isUtilityBill && !viewDialog.isVendorBill && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<PrintIcon />}
+                onClick={handlePrint}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
+              >
+                Print
+              </Button>
+            )}
             <Button
-              variant="outlined"
+              size="small"
               onClick={() =>
                 setViewDialog({
                   open: false,
@@ -2545,23 +2389,17 @@ const ExecutiveCeoPaymentsSection = () => {
                   poQuotations: [],
                   poGrns: [],
                   poLinkedDocs: [],
-                  poAuditTab: 0
+                  poAuditTab: 0,
+                  isOnboarding: false,
+                  isIndent: false,
+                  isUtilityBill: false,
+                  isVendorBill: false
                 })
               }
-              sx={{ minWidth: 80, mr: 1 }}
+              sx={{ textTransform: 'none' }}
             >
               Close
             </Button>
-            {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && (
-              <Button
-                variant="outlined"
-                startIcon={<PrintIcon />}
-                onClick={handlePrint}
-                sx={{ minWidth: 100 }}
-              >
-                Print
-              </Button>
-            )}
           </Box>
         </DialogActions>
       </Dialog>

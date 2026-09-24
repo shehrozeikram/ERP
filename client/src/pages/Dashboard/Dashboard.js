@@ -1254,7 +1254,7 @@ const Dashboard = () => {
           </DialogActions>
         </Dialog>
 
-        {/* Executive CEO Payment Authorizations Section */}
+        {/* My Executive Approvals (per-user inbox) */}
         <ExecutiveCeoPaymentsSection />
 
         {/* User Profile and Modules */}

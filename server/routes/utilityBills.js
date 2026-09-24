@@ -266,20 +266,103 @@ const normalizeApproverIds = (value) => {
 const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
 const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
 
+/**
+ * Leadership / oversight roles may see all centralized-store bills.
+ * Everyone else only sees bills they created or are assigned to approve.
+ */
+const canViewAllCentralizedStoreBills = (user) => {
+  if (!user) return false;
+  const role = String(user.role || '').toLowerCase().trim();
+  const privilegedRoles = new Set([
+    'super_admin',
+    'admin',
+    'developer',
+    'higher_management',
+    'ceo',
+    'hr_manager',
+    'director',
+    'president',
+    'chairman',
+    'commercial_director',
+    'audit_director'
+  ]);
+  if (privilegedRoles.has(role)) return true;
+  if (role.includes('director') || role.includes('president') || role.includes('chairman')) {
+    return true;
+  }
+  const titleBlob = [
+    user.position,
+    user.designation,
+    user.jobTitle,
+    user.title,
+    user.employeeCategory
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (/\b(director|president|chairman|ceo|avp)\b/.test(titleBlob)) return true;
+  return false;
+};
+
+const mergeQueryAnd = (query, condition) => {
+  if (!condition || !Object.keys(condition).length) return query;
+  if (query.$and) {
+    query.$and.push(condition);
+  } else if (query.$or) {
+    query.$and = [{ $or: query.$or }, condition];
+    delete query.$or;
+  } else {
+    Object.assign(query, condition);
+  }
+  return query;
+};
+
+/** Restrict centralized-store bill lists to own + assigned for non-leadership users. */
+const applyCentralizedStoreBillPrivacy = (query, user, { centralizedStoreOnly } = {}) => {
+  if (centralizedStoreOnly !== 'true' && centralizedStoreOnly !== true) {
+    return query;
+  }
+  if (canViewAllCentralizedStoreBills(user)) {
+    return query;
+  }
+  const uid = user?._id || user?.id;
+  if (!uid) {
+    // Force empty result if no user id
+    return mergeQueryAnd(query, { _id: null });
+  }
+  return mergeQueryAnd(query, {
+    $or: [
+      { createdBy: uid },
+      { 'approvalChain.approver': uid },
+      { draftApproverIds: uid }
+    ]
+  });
+};
+
 const canAccessUtilityBillAction = async (req, action = 'read') => {
   const actorId = getActorId(req);
   if (!actorId) return false;
   
-  // If it's a centralized store bill in the request body/query, allow authenticated access
+  // Centralized store list/create: allow authenticated access (row privacy applied on list/get)
   const isStoreInReq = req.body?.useCentralizedStore === true || req.body?.useCentralizedStore === 'true' || req.query?.centralizedStoreOnly === 'true';
   if (isStoreInReq) return true;
 
-  // If a specific bill ID is accessed, check if bill is centralized store OR if user is one of the approvers or creator
+  // If a specific bill ID is accessed, check store privacy + creator/approver
   if (req.params?.id && mongoose.Types.ObjectId.isValid(req.params.id)) {
     try {
-      const bill = await UtilityBill.findById(req.params.id).select('useCentralizedStore createdBy approvalChain').lean();
+      const bill = await UtilityBill.findById(req.params.id).select('useCentralizedStore createdBy approvalChain draftApproverIds').lean();
       if (bill) {
-        if (bill.useCentralizedStore) return true;
+        if (bill.useCentralizedStore) {
+          if (canViewAllCentralizedStoreBills(req.user)) return true;
+          if (String(bill.createdBy) === actorId) return true;
+          const isApprover = (bill.approvalChain || []).some(
+            (step) => String(step.approver) === actorId
+          );
+          if (isApprover) return true;
+          const isDraftApprover = (bill.draftApproverIds || []).some((id) => String(id) === actorId);
+          if (isDraftApprover) return true;
+          return false;
+        }
         if (String(bill.createdBy) === actorId) return true;
         const isApprover = (bill.approvalChain || []).some(
           (step) => String(step.approver) === actorId
@@ -404,6 +487,9 @@ router.get('/', requireBillPermission('read'), async (req, res) => {
     const query = {
       ...buildUtilityBillStoreScope({ excludeCentralizedStore, centralizedStoreOnly })
     };
+
+    // Privacy: non-leadership users only see their own / assigned centralized-store bills
+    applyCentralizedStoreBillPrivacy(query, req.user, { centralizedStoreOnly });
 
     if (storeCategoryId && mongoose.Types.ObjectId.isValid(storeCategoryId)) {
       const itemIds = await UtilityStoreItem.find({ category: storeCategoryId }).distinct('_id');
