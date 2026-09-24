@@ -11,6 +11,7 @@ const ROLES = {
   DEVELOPER: 'developer',
   ADMIN: 'admin',
   HR_MANAGER: 'hr_manager',
+  PAYROLL_MANAGER: 'payroll_manager',
   FINANCE_MANAGER: 'finance_manager',
   PROCUREMENT_MANAGER: 'procurement_manager',
   SALES_MANAGER: 'sales_manager',
@@ -221,6 +222,11 @@ const ROLE_MODULE_ACCESS = {
     modules: [MODULES.HR],
     description: 'Payroll & HR module access'
   },
+  [ROLES.PAYROLL_MANAGER]: {
+    canAccessAll: false,
+    modules: [MODULES.HR],
+    description: 'Payroll & HR module access'
+  },
   'payroll manager': {
     canAccessAll: false,
     modules: [MODULES.HR],
@@ -333,9 +339,11 @@ const PERMISSION_MAPPINGS = {
   'hr.leave.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   'hr.leave.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
-  'hr.loan.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.EMPLOYEE, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
-  'hr.loan.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
-  'hr.loan.disburse': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.loan.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.EMPLOYEE, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.loan.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.loan.disburse': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.loan.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.loan.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
   'hr.settlement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   'hr.settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
