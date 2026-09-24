@@ -138,13 +138,15 @@ const Vouchers = () => {
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState([]);
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
+  /** '' | 'all' = no status filter; never send literal status=all to API historically matched nothing */
+  const [status, setStatus] = useState('all');
   const [initialDraftCheckDone, setInitialDraftCheckDone] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(100);
   const [totalCount, setTotalCount] = useState(0);
   /** Default: PAYMENT vouchers (referenceType payment on journal) */
   const [voucherType, setVoucherType] = useState('payment');
+  const fetchSeqRef = React.useRef(0);
   const [viewDialog, setViewDialog] = useState({
     open: false,
     voucher: null,
@@ -578,31 +580,40 @@ const Vouchers = () => {
     const nextPage = opts.page ?? page;
     const nextRowsPerPage = opts.rowsPerPage ?? rowsPerPage;
     const currentStatus = opts.status !== undefined ? opts.status : status;
+    const seq = ++fetchSeqRef.current;
     try {
       setLoading(true);
       const params = new URLSearchParams();
       params.append('page', String(nextPage + 1));
       params.append('limit', String(nextRowsPerPage));
-      if (currentStatus) params.append('status', currentStatus);
+      // Only send real journal/signed filters — never "all" / blank (those match zero docs)
+      const statusFilter = String(currentStatus || '').trim().toLowerCase();
+      if (statusFilter && statusFilter !== 'all') {
+        params.append('status', statusFilter);
+      }
       if (search.trim()) params.append('search', search.trim());
       if (voucherType) params.append('referenceType', voucherType);
       // Payroll accrual JVs are auto-posted backend entries; finance uses Payroll Queue + BPV on payment.
       params.append('excludeReferenceTypes', 'payroll');
       if (selectedCompanyId) params.append('companyId', selectedCompanyId);
       const res = await api.get(`/finance/journal-entries?${params.toString()}`);
+      if (seq !== fetchSeqRef.current) return; // stale response
       setEntries(res?.data?.data?.entries || []);
       setTotalCount(res?.data?.data?.pagination?.totalCount || 0);
-    } catch (_e) {
+    } catch (err) {
+      if (seq !== fetchSeqRef.current) return;
+      console.error('Error loading vouchers:', err);
       setEntries([]);
       setTotalCount(0);
+      toast.error(err.response?.data?.message || 'Failed to load vouchers');
     } finally {
-      setLoading(false);
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   };
 
   const applyFilters = () => {
     setPage(0);
-    fetchEntries({ page: 0 });
+    fetchEntries({ page: 0, status });
   };
 
   useEffect(() => {
@@ -630,10 +641,11 @@ const Vouchers = () => {
             setStatus('draft');
             await fetchEntries({ page: 0, status: 'draft' });
           } else {
-            await fetchEntries({ page: 0, status: '' });
+            setStatus('all');
+            await fetchEntries({ page: 0, status: 'all' });
           }
         } catch (e) {
-          await fetchEntries({ page: 0 });
+          await fetchEntries({ page: 0, status: 'all' });
         } finally {
           setInitialDraftCheckDone(true);
         }
@@ -712,7 +724,7 @@ const Vouchers = () => {
               value={status}
               onChange={(e) => setStatus(e.target.value)}
             >
-              <MenuItem value="">All</MenuItem>
+              <MenuItem value="all">All</MenuItem>
               <MenuItem value="posted">Posted</MenuItem>
               <MenuItem value="draft">Draft</MenuItem>
               <MenuItem value="signed">Signed (document)</MenuItem>

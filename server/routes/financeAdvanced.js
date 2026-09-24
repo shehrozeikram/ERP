@@ -146,16 +146,16 @@ const attachBillPaymentDetails = async (entries) => {
   const vaByRef = new Map(matchedVendorAdvances.map((v) => [String(v._id), v]));
   const vaByJe = new Map(matchedVendorAdvances.filter(v => v.journalEntryId).map((v) => [String(v.journalEntryId), v]));
 
-  // 3. Match CashApproval
+  // 3. Match CashApproval — party from advanceToName, vendor, or advanceToEmployee
   const matchedCashApprovals = await CashApproval.find({
     $or: [
       { _id: { $in: refIds } },
       { voucherEntryId: { $in: entryIds } }
     ]
   })
-    .select('_id advanceToName caNumber vendor voucherEntryId initiator')
+    .select('_id advanceToName caNumber vendor voucherEntryId advanceToEmployee')
     .populate('vendor', 'name')
-    .populate('initiator', 'firstName lastName employeeId')
+    .populate('advanceToEmployee', 'firstName lastName employeeId')
     .lean();
 
   const caByRef = new Map(matchedCashApprovals.map((c) => [String(c._id), c]));
@@ -188,7 +188,7 @@ const attachBillPaymentDetails = async (entries) => {
       va?.vendor?.name ||
       ca?.advanceToName ||
       ca?.vendor?.name ||
-      formatEmployeeName(ca?.initiator) ||
+      formatEmployeeName(ca?.advanceToEmployee) ||
       '';
 
     if (!vendorOrEmpName && apApp) {
@@ -847,11 +847,13 @@ router.get('/journal-entries',
 
     if (department) baseFilters.department = department;
     if (module) baseFilters.module = module;
-    if (status === 'signed') {
+    // Treat blank / "all" as no status filter (literal status:"all" matches nothing)
+    const statusFilter = String(status || '').trim().toLowerCase();
+    if (statusFilter === 'signed') {
       baseFilters.signedDocumentStatus = 'signed';
       baseFilters.signedDocumentAt = { $exists: true, $ne: null };
-    } else if (status) {
-      baseFilters.status = status;
+    } else if (statusFilter && statusFilter !== 'all') {
+      baseFilters.status = statusFilter;
     }
     if (search) {
       baseFilters.$or = [
@@ -877,6 +879,10 @@ router.get('/journal-entries',
     const filters = voucherCompanyQuery(baseFilters, company);
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
+    // Ensure populate refs are registered (hr routes usually load these first)
+    require('../models/hr/Project');
+    require('../models/hr/Department');
+
     const [entries, totalCount] = await Promise.all([
       JournalEntry.find(filters)
         .populate('companyId', 'name companyCode')
@@ -891,56 +897,70 @@ router.get('/journal-entries',
     ]);
 
     const totalPages = Math.ceil(totalCount / parseInt(limit));
-    const entriesWithCaFlags = await attachCashApprovalWorkflowFlags(entries);
-    const enrichedEntries = await attachBillPaymentDetails(entriesWithCaFlags);
 
-    const finalEntries = enrichedEntries.map(e => {
-      let vName = e.vendorOrEmployeeName || '';
-      if (!vName && e.description) {
-        const desc = String(e.description);
-        if (desc.startsWith('Batch Payment – ')) {
-          vName = desc.replace('Batch Payment – ', '').split(' (pending')[0].split(' (Intercompany')[0];
-        } else if (desc.startsWith('Vendor Advance: ')) {
-          vName = desc.replace('Vendor Advance: ', '').split(' (pending')[0].split(' (Intercompany')[0];
-        } else if (desc.startsWith('Advance payment to ')) {
-          vName = desc.replace('Advance payment to ', '').split(' (')[0];
-        } else if (/payroll/i.test(desc)) {
-          // Company payroll BPV — party shown as company (payroll is not one vendor/employee)
-          vName = e.companyId?.name || e.customCompany || '';
+    let finalEntries;
+    try {
+      const entriesWithCaFlags = await attachCashApprovalWorkflowFlags(entries);
+      const enrichedEntries = await attachBillPaymentDetails(entriesWithCaFlags);
+
+      finalEntries = enrichedEntries.map(e => {
+        let vName = e.vendorOrEmployeeName || '';
+        if (!vName && e.description) {
+          const desc = String(e.description);
+          if (desc.startsWith('Batch Payment – ')) {
+            vName = desc.replace('Batch Payment – ', '').split(' (pending')[0].split(' (Intercompany')[0];
+          } else if (desc.startsWith('Vendor Advance: ')) {
+            vName = desc.replace('Vendor Advance: ', '').split(' (pending')[0].split(' (Intercompany')[0];
+          } else if (desc.startsWith('Advance payment to ')) {
+            vName = desc.replace('Advance payment to ', '').split(' (')[0];
+          } else if (/payroll/i.test(desc)) {
+            // Company payroll BPV — party shown as company (payroll is not one vendor/employee)
+            vName = e.companyId?.name || e.customCompany || '';
+          }
         }
-      }
-      return { ...e, vendorOrEmployeeName: vName || e.vendorOrEmployeeName };
-    });
+        return { ...e, vendorOrEmployeeName: vName || e.vendorOrEmployeeName };
+      });
+    } catch (enrichErr) {
+      console.error('[journal-entries] enrichment failed; returning base entries:', enrichErr.message);
+      finalEntries = entries.map((e) => (e.toObject ? e.toObject() : { ...e }));
+    }
 
     // Safely enrich department ObjectId references with Department documents
-    const Department = mongoose.model('Department');
-    const deptIds = new Set();
-    finalEntries.forEach((e) => {
-      if (e.department && mongoose.Types.ObjectId.isValid(e.department)) {
-        deptIds.add(String(e.department));
-      }
-      (e.lines || []).forEach((l) => {
-        if (l.department && mongoose.Types.ObjectId.isValid(l.department)) {
-          deptIds.add(String(l.department));
-        }
-      });
-    });
+    try {
+      const Department = require('../models/hr/Department');
+      const isDeptObjectId = (v) =>
+        v != null &&
+        v !== '' &&
+        !(typeof v === 'object' && v.name) &&
+        mongoose.Types.ObjectId.isValid(v) &&
+        String(v).length === 24;
 
-    if (deptIds.size > 0) {
-      const depts = await Department.find({ _id: { $in: Array.from(deptIds) } }).select('name code').lean();
-      const deptMap = new Map();
-      depts.forEach((d) => deptMap.set(String(d._id), d));
-
+      const deptIds = new Set();
       finalEntries.forEach((e) => {
-        if (e.department && deptMap.has(String(e.department))) {
-          e.department = deptMap.get(String(e.department));
-        }
+        if (isDeptObjectId(e.department)) deptIds.add(String(e.department));
         (e.lines || []).forEach((l) => {
-          if (l.department && deptMap.has(String(l.department))) {
-            l.department = deptMap.get(String(l.department));
-          }
+          if (isDeptObjectId(l.department)) deptIds.add(String(l.department));
         });
       });
+
+      if (deptIds.size > 0) {
+        const depts = await Department.find({ _id: { $in: Array.from(deptIds) } }).select('name code').lean();
+        const deptMap = new Map();
+        depts.forEach((d) => deptMap.set(String(d._id), d));
+
+        finalEntries.forEach((e) => {
+          if (e.department && deptMap.has(String(e.department))) {
+            e.department = deptMap.get(String(e.department));
+          }
+          (e.lines || []).forEach((l) => {
+            if (l.department && deptMap.has(String(l.department))) {
+              l.department = deptMap.get(String(l.department));
+            }
+          });
+        });
+      }
+    } catch (deptErr) {
+      console.error('[journal-entries] department enrichment failed:', deptErr.message);
     }
 
     res.json({
