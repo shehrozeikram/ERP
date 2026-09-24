@@ -107,19 +107,16 @@ const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMon
 /**
  * Dynamic tax calculation driven by PayrollTaxes page settings.
  *
- * Formula (medical exempt 10%, house/other allowance fully taxable):
- *   taxable = (grossSalary − 10% of gross) + taxable allowances + arrears
- *   tax     = FBR slab on that combined taxable (single calculation)
+ * Monthly taxable =
+ *   (gross − medical% of gross) + taxable allowances + arrears
  *
- * Steps:
- *   1. Each allowance → taxable / fully_exempt / partial_exempt from Payroll Taxes
- *   2. Apply salaryMedicalExemptPercent on gross salary ONLY (e.g. 10%)
- *   3. taxable = (gross − medicalExempt) + sum(taxable allowance amounts) + arrears
- *   4. One FBR tax on that combined base (arrears are NOT taxed separately)
+ * Then DOJ / FY annualization (July–June):
+ *   annual taxable = monthly taxable × remaining FY months from join
+ *   (e.g. DOJ 1 Sep → ×10; hired before FY → ×12)
+ *   monthly tax = FBR tax(annual) ÷ those same months
  *
- * Example: gross=312,000, houseRent=60,000 (taxable), arrears=40,000
- *   → 312,000 − 31,200 = 280,800
- *   → 280,800 + 60,000 + 40,000 = 380,800 taxable → FBR monthly tax
+ * Example (sheet): gross 200,000 − 10% + arrears 10,000 = 190,000
+ *   DOJ 1 Sep → ×10 = 1,900,000 annual taxable → FBR slab → ÷10 monthly tax
  */
 const calculatePayrollTaxWithSettings = ({
   grossSalary = 0,

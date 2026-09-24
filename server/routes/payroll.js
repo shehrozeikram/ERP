@@ -1814,9 +1814,8 @@ router.post('/', [
           // 🔧 TOTAL EARNINGS = Gross Salary + All Allowances + Overtime + Bonuses + Arrears
           const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
 
-          // 🔧 NEW SEPARATE TAX CALCULATION
-          // Main salary: Gross Salary + Additional Allowances (taxed at 90%)
-          // Arrears: taxed at 100% (full amount)
+          // Taxable = (gross − medical%) + taxable allowances + arrears
+          // Then FBR on DOJ-based FY annualization (not separate arrears tax)
           const taxCalculation = calculatePayrollTaxWithSettings({
             grossSalary,
             allowances: effectiveAllowances,

@@ -168,9 +168,11 @@ const syncDraftPayrollsAllowancesFromEmployee = async (employee) => {
 /**
  * Recalculate income tax on all Draft payrolls after tax settings change.
  * Approved payrolls are not modified.
+ * Uses DOJ-based FY months: taxable = (gross−medical%) + taxable allowances + arrears, then × FY months.
  */
 const syncDraftPayrollsTaxFromSettings = async (settings) => {
   const Payroll = require('../models/hr/Payroll');
+  const Employee = require('../models/hr/Employee');
   const { calculatePayrollTaxWithSettings, normalizeSettings } = require('./allowanceTaxCalculator');
   const config = normalizeSettings(settings);
 
@@ -186,12 +188,21 @@ const syncDraftPayrollsTaxFromSettings = async (settings) => {
     const arrears = payroll.arrears || 0;
     const employeeId = payroll.employee;
 
+    let hireDate = null;
+    if (employeeId) {
+      const emp = await Employee.findById(employeeId).select('hireDate appointmentDate').lean();
+      hireDate = emp?.hireDate || emp?.appointmentDate || null;
+    }
+
     const taxCalculation = calculatePayrollTaxWithSettings({
       grossSalary,
       allowances: payroll.allowances,
       arrears,
       employeeId,
-      settings: config
+      settings: config,
+      hireDate,
+      payrollMonth: payroll.month,
+      payrollYear: payroll.year
     });
 
     payroll.incomeTax = Math.round(taxCalculation.totalTax);
