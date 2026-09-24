@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import AssistantWidget from '../AssistantWidget';
 
 const Layout = ({ children }) => {
   return (
@@ -11,8 +12,9 @@ const Layout = ({ children }) => {
       }}
     >
       {children}
+      <AssistantWidget />
     </Box>
   );
 };
 
-export default Layout; 
+export default Layout;
