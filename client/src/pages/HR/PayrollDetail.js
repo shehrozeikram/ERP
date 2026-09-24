@@ -623,10 +623,20 @@ const PayrollDetail = () => {
                     {(payroll.taxCalculation?.arrearsTaxableIncome > 0 || payroll.arrears > 0) && (
                       <TableRow>
                         <TableCell sx={{ pl: 4, color: 'text.secondary' }}>
-                          Arrears included in taxable
+                          Arrears in annual taxable (once, not × months)
                         </TableCell>
                         <TableCell align="right" sx={{ color: 'text.secondary' }}>
                           {formatPKR(payroll.taxCalculation?.arrearsTaxableIncome || payroll.arrears || 0)}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {payroll.taxCalculation?.annualTaxableIncome > 0 && (
+                      <TableRow>
+                        <TableCell sx={{ pl: 4, color: 'text.secondary' }}>
+                          Annual taxable ({payroll.taxCalculation?.fyMonths || 12} FY mo.)
+                        </TableCell>
+                        <TableCell align="right" sx={{ color: 'text.secondary' }}>
+                          {formatPKR(payroll.taxCalculation.annualTaxableIncome)}
                         </TableCell>
                       </TableRow>
                     )}

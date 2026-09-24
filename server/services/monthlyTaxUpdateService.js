@@ -188,8 +188,12 @@ class MonthlyTaxUpdateService {
       if (payroll.taxCalculation) {
         payroll.taxCalculation.mainTax = taxCalculation.mainTax;
         payroll.taxCalculation.arrearsTax = taxCalculation.arrearsTax;
+        payroll.taxCalculation.totalTax = taxCalculation.totalTax;
         payroll.taxCalculation.mainTaxableIncome = taxCalculation.mainTaxableIncome;
         payroll.taxCalculation.arrearsTaxableIncome = taxCalculation.arrearsTaxableIncome;
+        payroll.taxCalculation.annualTaxableIncome = taxCalculation.annualTaxableIncome || 0;
+        payroll.taxCalculation.annualTax = taxCalculation.annualTax || 0;
+        payroll.taxCalculation.fyMonths = taxCalculation.fyMonths || 12;
       }
 
       payroll.totalDeductions =

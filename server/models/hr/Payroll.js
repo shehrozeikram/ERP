@@ -500,6 +500,21 @@ const payrollSchema = new mongoose.Schema({
       type: Number,
       default: 0,
       min: [0, 'Arrears taxable income cannot be negative']
+    },
+    annualTaxableIncome: {
+      type: Number,
+      default: 0,
+      min: [0, 'Annual taxable income cannot be negative']
+    },
+    annualTax: {
+      type: Number,
+      default: 0,
+      min: [0, 'Annual tax cannot be negative']
+    },
+    fyMonths: {
+      type: Number,
+      default: 12,
+      min: [1, 'FY months must be at least 1']
     }
   },
   // Metadata

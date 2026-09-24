@@ -212,6 +212,9 @@ const syncDraftPayrollsTaxFromSettings = async (settings) => {
       totalTax: taxCalculation.totalTax,
       mainTaxableIncome: taxCalculation.mainTaxableIncome,
       arrearsTaxableIncome: taxCalculation.arrearsTaxableIncome,
+      annualTaxableIncome: taxCalculation.annualTaxableIncome || 0,
+      annualTax: taxCalculation.annualTax || 0,
+      fyMonths: taxCalculation.fyMonths || 12,
       usesAllowanceTaxPolicy: taxCalculation.usesAllowanceTaxPolicy
     };
 

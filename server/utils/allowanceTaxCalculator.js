@@ -1,4 +1,6 @@
-const { calculateMonthlyTax, calculateMonthlyTaxFYAware } = require('./taxCalculator');
+const {
+  calculateMonthlyTaxFYAwareWithOneTimeArrears
+} = require('./taxCalculator');
 const { activeAmount, additionalAllowancesTotal } = require('./allowanceHelpers');
 const PayrollTaxSettings = require('../models/hr/PayrollTaxSettings');
 const {
@@ -65,58 +67,99 @@ const taxableAndExemptPartsForAllowance = (amount, policy) => {
   return { taxable: amt - exempt, exempt };
 };
 
-/**
- * Legacy: medical exemption on gross+allowances bundle, arrears added into same taxable base.
- * Formula: taxable = (mainSalary − 10% medical) + arrears → single FBR tax
- */
-const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMonth = null, payrollYear = null) => {
-  const taxFor = (amount) =>
-    hireDate && payrollMonth && payrollYear
-      ? calculateMonthlyTaxFYAware(amount, hireDate, payrollMonth, payrollYear)
-      : calculateMonthlyTax(amount);
+const buildTaxResult = ({
+  mainSalary,
+  arrearsAmt,
+  salaryBase,
+  salaryExempt,
+  salaryAfterMedical,
+  allowanceTaxable,
+  allowanceExempt,
+  allowanceBreakdown,
+  usesAllowanceTaxPolicy,
+  hireDate,
+  payrollMonth,
+  payrollYear
+}) => {
+  const {
+    monthlyTax,
+    fyMonths,
+    annualTaxableIncome,
+    annualTax
+  } = calculateMonthlyTaxFYAwareWithOneTimeArrears(
+    salaryBase,
+    arrearsAmt,
+    hireDate,
+    payrollMonth,
+    payrollYear
+  );
 
-  const salaryMedicalExempt = Math.round(mainSalary * 0.1);
-  const salaryAfterMedical = mainSalary - salaryMedicalExempt;
-  const arrearsAmt = Math.max(0, Number(arrears) || 0);
-  // Arrears included in the same taxable base (not taxed separately)
-  const mainTaxableIncome = salaryAfterMedical + arrearsAmt;
-  const totalTax = taxFor(mainTaxableIncome);
   const totalIncome = mainSalary + arrearsAmt;
 
   return {
     mainSalary,
     arrears: arrearsAmt,
-    mainTaxableIncome: Math.round(mainTaxableIncome),
-    // Informational: arrears amount included in mainTaxableIncome (do not add again)
+    // Recurring monthly taxable (gross−medical + taxable allowances) — NOT including arrears
+    mainTaxableIncome: Math.round(salaryBase),
+    // One-time arrears added to annual only (not × FY months)
     arrearsTaxableIncome: Math.round(arrearsAmt),
-    mainTax: Math.round(totalTax),
+    annualTaxableIncome,
+    annualTax,
+    fyMonths,
+    mainTax: monthlyTax,
     arrearsTax: 0,
-    totalTax: Math.round(totalTax),
-    mainNetSalary: Math.round(mainSalary - totalTax),
+    totalTax: monthlyTax,
+    mainNetSalary: Math.round(mainSalary - monthlyTax),
     arrearsNetAmount: Math.round(arrearsAmt),
-    totalNetSalary: Math.round(totalIncome - totalTax),
-    salaryMedicalExempt,
+    totalNetSalary: Math.round(totalIncome - monthlyTax),
+    salaryMedicalExempt: salaryExempt,
     salaryAfterMedical: Math.round(salaryAfterMedical),
-    salaryBase: Math.round(salaryAfterMedical),
-    allowanceTaxable: Math.round(salaryAfterMedical),
-    allowanceExempt: 0,
-    usesAllowanceTaxPolicy: false
+    salaryBase: Math.round(salaryBase),
+    allowanceTaxable: Math.round(allowanceTaxable),
+    allowanceExempt: Math.round(allowanceExempt),
+    allowanceBreakdown: allowanceBreakdown || undefined,
+    usesAllowanceTaxPolicy
   };
+};
+
+/**
+ * Legacy: medical exemption on gross+allowances bundle.
+ * annual = (main−10%) × FY months + arrears (once) → FBR ÷ FY months
+ */
+const calculateTaxLegacy = (mainSalary, arrears = 0, hireDate = null, payrollMonth = null, payrollYear = null) => {
+  const salaryMedicalExempt = Math.round(mainSalary * 0.1);
+  const salaryAfterMedical = mainSalary - salaryMedicalExempt;
+  const arrearsAmt = Math.max(0, Number(arrears) || 0);
+
+  return buildTaxResult({
+    mainSalary,
+    arrearsAmt,
+    salaryBase: salaryAfterMedical,
+    salaryExempt: salaryMedicalExempt,
+    salaryAfterMedical,
+    allowanceTaxable: salaryAfterMedical,
+    allowanceExempt: 0,
+    allowanceBreakdown: undefined,
+    usesAllowanceTaxPolicy: false,
+    hireDate,
+    payrollMonth,
+    payrollYear
+  });
 };
 
 /**
  * Dynamic tax calculation driven by PayrollTaxes page settings.
  *
- * Monthly taxable =
- *   (gross − medical% of gross) + taxable allowances + arrears
+ * Recurring monthly taxable =
+ *   (gross − medical% of gross) + taxable allowances
  *
- * Then DOJ / FY annualization (July–June):
- *   annual taxable = monthly taxable × remaining FY months from join
- *   (e.g. DOJ 1 Sep → ×10; hired before FY → ×12)
- *   monthly tax = FBR tax(annual) ÷ those same months
+ * DOJ / FY annualization (July–June):
+ *   annual taxable = recurring monthly × FY months  +  arrears (ONCE, not × months)
+ *   monthly tax    = FBR(annual) ÷ FY months
  *
- * Example (sheet): gross 200,000 − 10% + arrears 10,000 = 190,000
- *   DOJ 1 Sep → ×10 = 1,900,000 annual taxable → FBR slab → ÷10 monthly tax
+ * Example — Javed Karim, DOJ 24/08/2026 (late join → Sep–Jun = 10):
+ *   230,000 − 23,000 = 207,000 × 10 = 2,070,000 + 59,354 = 2,129,354
+ *   → slab ≈ 108,228 ÷ 10 ≈ 10,823 monthly tax
  */
 const calculatePayrollTaxWithSettings = ({
   grossSalary = 0,
@@ -137,7 +180,6 @@ const calculatePayrollTaxWithSettings = ({
     return calculateTaxLegacy(gross + totalAllowances, arrearsAmt, hireDate, payrollMonth, payrollYear);
   }
 
-  // Step 1: Each allowance gets its own exemption policy from Payroll Taxes
   let allowanceTaxable = 0;
   let allowanceExempt = 0;
   const allowanceBreakdown = {};
@@ -154,42 +196,25 @@ const calculatePayrollTaxWithSettings = ({
     };
   });
 
-  // Step 2–3: (gross − medical% of gross) + taxable allowances + arrears
   const salaryExemptPercent = config.salaryMedicalExemptPercent;
   const salaryExempt = Math.round((gross * salaryExemptPercent) / 100);
   const salaryAfterMedical = gross - salaryExempt;
-  const salaryBase = salaryAfterMedical + allowanceTaxable; // without arrears (breakdown)
-  const mainTaxableIncome = salaryBase + arrearsAmt; // combined taxable for FBR
+  const salaryBase = salaryAfterMedical + allowanceTaxable;
 
-  const taxFor = (amount) =>
-    hireDate && payrollMonth && payrollYear
-      ? calculateMonthlyTaxFYAware(amount, hireDate, payrollMonth, payrollYear)
-      : calculateMonthlyTax(amount);
-
-  const totalTax = taxFor(mainTaxableIncome);
-  const mainSalary = gross + totalAllowances;
-  const totalIncome = mainSalary + arrearsAmt;
-
-  return {
-    mainSalary,
-    arrears: arrearsAmt,
-    mainTaxableIncome: Math.round(mainTaxableIncome),
-    // Informational only — already included in mainTaxableIncome; do not add again for totals
-    arrearsTaxableIncome: Math.round(arrearsAmt),
-    mainTax: Math.round(totalTax),
-    arrearsTax: 0,
-    totalTax: Math.round(totalTax),
-    mainNetSalary: Math.round(mainSalary - totalTax),
-    arrearsNetAmount: Math.round(arrearsAmt),
-    totalNetSalary: Math.round(totalIncome - totalTax),
-    salaryMedicalExempt: salaryExempt,
-    salaryAfterMedical: Math.round(salaryAfterMedical),
-    salaryBase: Math.round(salaryBase),
-    allowanceTaxable: Math.round(allowanceTaxable),
-    allowanceExempt: Math.round(allowanceExempt),
+  return buildTaxResult({
+    mainSalary: gross + totalAllowances,
+    arrearsAmt,
+    salaryBase,
+    salaryExempt,
+    salaryAfterMedical,
+    allowanceTaxable,
+    allowanceExempt,
     allowanceBreakdown,
-    usesAllowanceTaxPolicy: true
-  };
+    usesAllowanceTaxPolicy: true,
+    hireDate,
+    payrollMonth,
+    payrollYear
+  });
 };
 
 const loadPayrollTaxSettings = async () => {

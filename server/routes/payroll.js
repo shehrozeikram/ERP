@@ -227,7 +227,11 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
     totalEarnings: Math.round(figures.totalEarnings),
     medicalAllowance: Math.round(figures.medical),
     houseRentAllowance: Math.round(figures.houseRent),
-    taxableIncome: Math.round(taxCalculation.mainTaxableIncome),
+    taxableIncome: Math.round(
+      taxCalculation.annualTaxableIncome != null && taxCalculation.fyMonths
+        ? taxCalculation.annualTaxableIncome / taxCalculation.fyMonths
+        : taxCalculation.mainTaxableIncome
+    ),
     monthlyTax: finalTax,
     netSalary: netSalary,
     allowances: payrollAllowancesFromEmployee(figures.effectiveAllowances || employee.allowances),
@@ -268,7 +272,10 @@ const buildEmployeeCurrentPayrollPayload = (employee, gross, figures, month, yea
       arrearsTax: Math.round(taxCalculation.arrearsTax),
       totalTax: Math.round(taxCalculation.totalTax),
       mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
-      arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome)
+      arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome),
+      annualTaxableIncome: Math.round(taxCalculation.annualTaxableIncome || 0),
+      annualTax: Math.round(taxCalculation.annualTax || 0),
+      fyMonths: taxCalculation.fyMonths || 12
     }
   };
 };
@@ -1305,7 +1312,10 @@ router.get('/current-overview',
 
         const { taxCalculation, resolvedTax } = figures;
         const monthlyTax = Math.round(resolvedTax ?? taxCalculation.totalTax);
-        const taxableIncome = taxCalculation.mainTaxableIncome;
+        const taxableIncome =
+          taxCalculation.annualTaxableIncome != null && taxCalculation.fyMonths
+            ? taxCalculation.annualTaxableIncome / taxCalculation.fyMonths
+            : taxCalculation.mainTaxableIncome;
         const empLoanDeduction = Math.round(loanDeductionsMap.get(employee._id.toString()) || 0);
         const netSalary = Math.round(
           figures.totalEarnings - monthlyTax - figures.eobiDeduction - (figures.employeeSecurityDeduction || 0) - empLoanDeduction
@@ -1952,6 +1962,9 @@ router.post('/', [
               totalTax: Math.round(taxCalculation.totalTax),
               mainTaxableIncome: Math.round(taxCalculation.mainTaxableIncome),
               arrearsTaxableIncome: Math.round(taxCalculation.arrearsTaxableIncome),
+              annualTaxableIncome: Math.round(taxCalculation.annualTaxableIncome || 0),
+              annualTax: Math.round(taxCalculation.annualTax || 0),
+              fyMonths: taxCalculation.fyMonths || 12,
               usesAllowanceTaxPolicy: taxCalculation.usesAllowanceTaxPolicy
             },
             currency: 'PKR',

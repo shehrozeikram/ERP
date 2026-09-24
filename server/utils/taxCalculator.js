@@ -252,9 +252,79 @@ function calculateTaxableIncomeCorrected(salary) {
 }
 
 /**
- * Calculate tax with arrears included in the same taxable base
- * Main salary: 90% taxable after 10% medical allowance deduction
- * Arrears: added into the same base (not taxed separately)
+ * FY-aware monthly tax where arrears are added ONCE to annual taxable
+ * (not multiplied by FY months). Matches HR sheet for mid-year joiners:
+ *
+ *   annual taxable = (monthly salary taxable × FY months) + arrears
+ *   monthly tax    = FBR(annual) ÷ FY months
+ *
+ * Example (Javed Karim, DOJ 24 Aug → ×10):
+ *   (230,000 − 10%) = 207,000 × 10 = 2,070,000 + 59,354 = 2,129,354
+ *   → slab tax ≈ 108,228 ÷ 10 ≈ 10,823
+ *
+ * @param {number}       monthlySalaryBase - Recurring monthly taxable (after medical + taxable allowances; NO arrears)
+ * @param {number}       arrears           - One-time arrears added to annual only
+ * @param {Date|string}  hireDate
+ * @param {number}       payrollMonth
+ * @param {number}       payrollYear
+ * @returns {{ monthlyTax: number, fyMonths: number, annualTaxableIncome: number, annualTax: number }}
+ */
+function calculateMonthlyTaxFYAwareWithOneTimeArrears(
+  monthlySalaryBase,
+  arrears = 0,
+  hireDate = null,
+  payrollMonth = null,
+  payrollYear = null
+) {
+  const base = Math.max(0, Number(monthlySalaryBase) || 0);
+  const arrearsAmt = Math.max(0, Number(arrears) || 0);
+
+  if (base <= 0 && arrearsAmt <= 0) {
+    return { monthlyTax: 0, fyMonths: 12, annualTaxableIncome: 0, annualTax: 0 };
+  }
+
+  let fyMonths = 12;
+  if (hireDate && payrollMonth && payrollYear) {
+    fyMonths = getRemainingFYMonths(hireDate, payrollMonth, payrollYear);
+  }
+
+  const annualTaxableIncome = base * fyMonths + arrearsAmt;
+  const annualTax = calculateAnnualTaxFromSlabs(annualTaxableIncome);
+  const monthlyTax = Math.round(annualTax / fyMonths);
+
+  return {
+    monthlyTax,
+    fyMonths,
+    annualTaxableIncome: Math.round(annualTaxableIncome),
+    annualTax: Math.round(annualTax)
+  };
+}
+
+/**
+ * FY-aware version of calculateMonthlyTax for mid-year joiners in the current FY.
+ * Projects annual income as monthly × (months from DOJ through June),
+ * then monthly tax = annual ÷ those months.
+ * Employees hired before the current FY keep the normal ×12 / ÷12 path.
+ *
+ * @param {number}       monthlySalary  - Monthly taxable income (after medical exempt deduction)
+ * @param {Date|string}  hireDate       - Employee's hire/joining date
+ * @param {number}       payrollMonth   - The payroll month being processed (1-12)
+ * @param {number}       payrollYear    - The payroll year being processed
+ * @returns {number} Monthly tax amount
+ */
+function calculateMonthlyTaxFYAware(monthlySalary, hireDate, payrollMonth, payrollYear) {
+  return calculateMonthlyTaxFYAwareWithOneTimeArrears(
+    monthlySalary,
+    0,
+    hireDate,
+    payrollMonth,
+    payrollYear
+  ).monthlyTax;
+}
+
+/**
+ * Calculate tax with arrears added once to annual taxable (not ×12 / ×FY on arrears).
+ * Main salary: 90% taxable after 10% medical; annualized ×12 (no DOJ context here).
  * @param {number} mainSalary - Main salary (gross + additional allowances)
  * @param {number} arrears - Arrears amount
  * @returns {Object} Tax calculation breakdown
@@ -276,72 +346,63 @@ function calculateTaxWithSeparateArrears(mainSalary, arrears = 0) {
   }
 
   const arrearsAmt = Math.max(0, Number(arrears) || 0);
-  const mainTaxableIncome = mainSalary - (mainSalary * 0.1) + arrearsAmt;
-  const totalTax = calculateMonthlyTax(mainTaxableIncome);
+  const salaryAfterMedical = mainSalary - mainSalary * 0.1;
+  const { monthlyTax, annualTaxableIncome, annualTax } =
+    calculateMonthlyTaxFYAwareWithOneTimeArrears(salaryAfterMedical, arrearsAmt);
   const totalIncome = mainSalary + arrearsAmt;
 
   return {
     mainSalary,
     arrears: arrearsAmt,
-    mainTaxableIncome,
+    mainTaxableIncome: salaryAfterMedical,
     arrearsTaxableIncome: arrearsAmt,
-    mainTax: totalTax,
+    annualTaxableIncome,
+    annualTax,
+    mainTax: monthlyTax,
     arrearsTax: 0,
-    totalTax,
-    mainNetSalary: mainSalary - totalTax,
+    totalTax: monthlyTax,
+    mainNetSalary: mainSalary - monthlyTax,
     arrearsNetAmount: arrearsAmt,
-    totalNetSalary: totalIncome - totalTax
+    totalNetSalary: totalIncome - monthlyTax
   };
 }
 
 /**
- * Get tax slab information for a given annual income
+ * Get tax slab information for a given annual income (sync, FBR 2026-27 slabs)
  * @param {number} annualIncome - Annual income
- * @returns {Promise<Object>} Tax slab information
+ * @returns {Object} Tax slab information
  */
-async function getTaxSlabInfo(annualIncome) {
-  try {
-    return await FBRTaxSlab.getTaxSlabInfo(annualIncome);
-  } catch (error) {
-    console.error('Error getting tax slab info:', error);
-    return {
-      slab: 'Error',
-      rate: '0%',
-      description: 'Unable to get tax slab information'
-    };
+function getTaxSlabInfo(annualIncome) {
+  const income = Number(annualIncome) || 0;
+  if (income <= 600000) {
+    return { slab: '1', rate: '0%', description: 'Taxable income up to Rs 600,000' };
   }
-}
-
-/**
- * FY-aware version of calculateMonthlyTax for mid-year joiners in the current FY.
- * Projects annual income as monthly × (months from DOJ through June),
- * then monthly tax = annual ÷ those months.
- * Employees hired before the current FY keep the normal ×12 / ÷12 path.
- *
- * @param {number}       monthlySalary  - Monthly taxable income (after medical exempt deduction)
- * @param {Date|string}  hireDate       - Employee's hire/joining date
- * @param {number}       payrollMonth   - The payroll month being processed (1-12)
- * @param {number}       payrollYear    - The payroll year being processed
- * @returns {number} Monthly tax amount
- */
-function calculateMonthlyTaxFYAware(monthlySalary, hireDate, payrollMonth, payrollYear) {
-  if (!monthlySalary || monthlySalary <= 0) return 0;
-
-  const fyMonths = getRemainingFYMonths(hireDate, payrollMonth, payrollYear);
-  // Full-year employees (or missing hire/payroll context) keep existing ×12 / ÷12 behaviour
-  if (fyMonths >= 12) {
-    return calculateMonthlyTax(monthlySalary);
+  if (income <= 1200000) {
+    return { slab: '2', rate: '1%', description: 'Rs 600,001 to Rs 1,200,000 @ 1%' };
   }
-
-  const annualTaxableIncome = monthlySalary * fyMonths;
-  const annualTax = calculateAnnualTaxFromSlabs(annualTaxableIncome);
-  // Recover projected annual tax over the remaining months in the FY
-  return Math.round(annualTax / fyMonths);
+  if (income <= 2200000) {
+    return { slab: '3', rate: '11%', description: 'Rs 1,200,001 to Rs 2,200,000 — Rs 6,000 + 11% of amount exceeding Rs 1,200,000' };
+  }
+  if (income <= 3200000) {
+    return { slab: '4', rate: '20%', description: 'Rs 2,200,001 to Rs 3,200,000 — Rs 116,000 + 20% of amount exceeding Rs 2,200,000' };
+  }
+  if (income <= 4100000) {
+    return { slab: '5', rate: '25%', description: 'Rs 3,200,001 to Rs 4,100,000 — Rs 316,000 + 25% of amount exceeding Rs 3,200,000' };
+  }
+  if (income <= 5600000) {
+    return { slab: '6', rate: '29%', description: 'Rs 4,100,001 to Rs 5,600,000 — Rs 541,000 + 29% of amount exceeding Rs 4,100,000' };
+  }
+  if (income <= 7000000) {
+    return { slab: '7', rate: '32%', description: 'Rs 5,600,001 to Rs 7,000,000 — Rs 976,000 + 32% of amount exceeding Rs 5,600,000' };
+  }
+  return { slab: '8', rate: '35%', description: 'Above Rs 7,000,000 — Rs 1,424,000 + 35% of amount exceeding Rs 7,000,000' };
 }
 
 module.exports = {
   calculateMonthlyTax,
   calculateMonthlyTaxFYAware,
+  calculateMonthlyTaxFYAwareWithOneTimeArrears,
+  calculateAnnualTaxFromSlabs,
   getRemainingFYMonths,
   calculateMonthlyTaxImage,
   calculateTaxableIncome,
