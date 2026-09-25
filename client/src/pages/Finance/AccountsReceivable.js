@@ -529,6 +529,42 @@ const AccountsReceivable = () => {
   const getInvoiceOutstanding = (invoice) =>
     Math.round(((invoice.totalAmount || 0) - (invoice.paidAmount ?? invoice.amountPaid ?? 0)) * 100) / 100;
 
+  /**
+   * Per-invoice overdue balance — mirrors server summary `_overdueAmount`:
+   * - with installments: sum of unpaid installment balances past due
+   * - without: full outstanding if invoice due date has passed (or status is overdue)
+   */
+  const getInvoiceOverdue = (invoice) => {
+    if (!invoice || invoice.status === 'cancelled' || invoice.status === 'paid') return 0;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const installments = Array.isArray(invoice.installments) ? invoice.installments : [];
+    if (installments.length > 0) {
+      const overdue = installments.reduce((sum, inst) => {
+        if (!inst || inst.status === 'paid' || inst.status === 'cancelled') return sum;
+        const bal = Math.max(
+          0,
+          Math.round(((Number(inst.amount) || 0) - (Number(inst.paidAmount) || 0)) * 100) / 100
+        );
+        if (bal <= 0) return sum;
+        const due = inst.dueDate ? new Date(inst.dueDate) : null;
+        if (due) due.setHours(0, 0, 0, 0);
+        const isPastDue = inst.status === 'overdue' || (due && due < today);
+        return isPastDue ? sum + bal : sum;
+      }, 0);
+      return Math.round(overdue * 100) / 100;
+    }
+
+    const outstanding = getInvoiceOutstanding(invoice);
+    if (outstanding <= 0) return 0;
+    const due = invoice.dueDate ? new Date(invoice.dueDate) : null;
+    if (due) due.setHours(0, 0, 0, 0);
+    const isPastDue = invoice.status === 'overdue' || (due && due < today);
+    return isPastDue ? outstanding : 0;
+  };
+
   const isValidVoucherId = (id) => /^[a-fA-F0-9]{24}$/.test(String(id || '').trim());
 
   /** Only real receipt vouchers — never show chip without a linked journal entry id */
@@ -800,6 +836,7 @@ const AccountsReceivable = () => {
                   <TableCell align="right">Amount</TableCell>
                   <TableCell align="right">Paid</TableCell>
                   <TableCell align="right">Outstanding</TableCell>
+                  <TableCell align="right">Overdue</TableCell>
                   <TableCell>Status</TableCell>
                   <TableCell>Aging</TableCell>
                   <TableCell>Actions</TableCell>
@@ -809,6 +846,7 @@ const AccountsReceivable = () => {
                 {invoices.map((invoice) => {
                   const days = calculateAge(invoice.invoiceDate);
                   const outstanding = getInvoiceOutstanding(invoice);
+                  const overdue = getInvoiceOverdue(invoice);
                   const voucherId = getLatestReceiptVoucherId(invoice);
                   const canMakePayment = outstanding > 0.01 && invoice.status !== 'paid' && invoice.status !== 'cancelled';
                   return (
@@ -857,6 +895,17 @@ const AccountsReceivable = () => {
                           }}
                         >
                           {formatPKR(outstanding)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontWeight: 'bold',
+                            color: overdue > 0 ? 'error.main' : 'text.secondary'
+                          }}
+                        >
+                          {formatPKR(overdue)}
                         </Typography>
                       </TableCell>
                       <TableCell>
