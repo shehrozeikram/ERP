@@ -991,52 +991,62 @@ router.get('/journal-entries/by-bill/:billIdOrNumber',
     const raw = String(req.params.billIdOrNumber || '').trim();
     if (!raw) return res.json({ success: true, data: null });
 
-    const isOid = mongoose.Types.ObjectId.isValid(raw);
-    const orQueries = [
+    const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const isOid = mongoose.Types.ObjectId.isValid(raw) && String(new mongoose.Types.ObjectId(raw)) === raw;
+    const billMatch = [
       { reference: raw },
-      { reference: { $regex: `^${raw}$`, $options: 'i' } }
+      { reference: { $regex: `^${escapeRegex(raw)}$`, $options: 'i' } }
     ];
     if (isOid) {
-      orQueries.push({ referenceId: raw });
+      billMatch.push({ referenceId: new mongoose.Types.ObjectId(raw) });
+      billMatch.push({ referenceId: raw });
     }
 
-    let entry = await JournalEntry.findOne({
-      $or: orQueries,
+    const billTypeMatch = {
       $or: [
         { referenceType: 'bill' },
         { voucherSeries: 'BILL' }
       ]
-    })
-      .populate('companyId', 'name companyCode')
-      .populate('lines.account', 'accountNumber name type category')
-      .populate('createdBy', 'firstName lastName')
-      .populate('approvedBy', 'firstName lastName')
-      .populate('project', 'name code')
-      .populate('costCenter', 'name code')
-      .lean();
+    };
+
+    const populateBillJe = (q) =>
+      q
+        .populate('companyId', 'name companyCode')
+        .populate('lines.account', 'accountNumber name type category')
+        .populate('createdBy', 'firstName lastName')
+        .populate('approvedBy', 'firstName lastName')
+        .populate('project', 'name code')
+        .populate('costCenter', 'name code')
+        .lean();
+
+    // IMPORTANT: use $and — a second top-level `$or` overwrites the first in a JS object
+    // and previously returned an arbitrary BILL voucher (wrong bill in View Docs).
+    let entry = await populateBillJe(
+      JournalEntry.findOne({
+        $and: [{ $or: billMatch }, billTypeMatch]
+      }).sort({ createdAt: -1 })
+    );
 
     if (!entry && isOid) {
       const AccountsPayable = require('../models/finance/AccountsPayable');
-      const apDoc = await AccountsPayable.findById(raw).lean();
+      const apDoc = await AccountsPayable.findById(raw).select('billNumber').lean();
       if (apDoc?.billNumber) {
-        entry = await JournalEntry.findOne({
-          $or: [
-            { reference: apDoc.billNumber },
-            { reference: { $regex: `^${apDoc.billNumber}$`, $options: 'i' } },
-            { referenceId: apDoc._id }
-          ],
-          $or: [
-            { referenceType: 'bill' },
-            { voucherSeries: 'BILL' }
-          ]
-        })
-          .populate('companyId', 'name companyCode')
-          .populate('lines.account', 'accountNumber name type category')
-          .populate('createdBy', 'firstName lastName')
-          .populate('approvedBy', 'firstName lastName')
-          .populate('project', 'name code')
-          .populate('costCenter', 'name code')
-          .lean();
+        const bn = String(apDoc.billNumber).trim();
+        entry = await populateBillJe(
+          JournalEntry.findOne({
+            $and: [
+              {
+                $or: [
+                  { reference: bn },
+                  { reference: { $regex: `^${escapeRegex(bn)}$`, $options: 'i' } },
+                  { referenceId: apDoc._id },
+                  { referenceId: String(apDoc._id) }
+                ]
+              },
+              billTypeMatch
+            ]
+          }).sort({ createdAt: -1 })
+        );
       }
     }
 

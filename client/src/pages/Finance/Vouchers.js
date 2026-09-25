@@ -300,8 +300,9 @@ const Vouchers = () => {
 
       const financeAuthDoc = apData || payrollData || vaData || caData;
 
-      // Fetch Vendor Bills linked to PO or AP payment application or Voucher
+      // Fetch Vendor Bills linked to THIS payment voucher (prefer AP settlement bills only)
       let poBills = [];
+      let billsFromPaymentApp = false;
       try {
         if (apData?.bills?.length > 0) {
           for (const item of apData.bills) {
@@ -312,15 +313,43 @@ const Vouchers = () => {
               poBills.push(bRes.data.data);
             }
           }
+          billsFromPaymentApp = poBills.length > 0;
         } else if (apData?.accountsPayableId?._id || apData?.accountsPayableId) {
           const bId = apData.accountsPayableId._id || apData.accountsPayableId;
           const bRes = await api.get(`/finance/accounts-payable/${bId}`).catch(() => null);
           if (bRes?.data?.data) {
             poBills.push(bRes.data.data);
+            billsFromPaymentApp = true;
           }
         }
-        if (poId) {
-          const bRes = await api.get('/finance/accounts-payable', { params: { limit: 100 } }).catch(() => null);
+
+        // BPV journal entry often stores referenceId = AccountsPayable _id
+        if (
+          !billsFromPaymentApp
+          && fullVoucher.referenceId
+          && (fullVoucher.referenceModel === 'AccountsPayable'
+            || fullVoucher.referenceType === 'payment'
+            || fullVoucher.voucherSeries === 'BPV')
+        ) {
+          const bRes = await api.get(`/finance/accounts-payable/${fullVoucher.referenceId}`).catch(() => null);
+          if (bRes?.data?.data) {
+            poBills.push(bRes.data.data);
+            billsFromPaymentApp = true;
+          }
+        }
+
+        if (fullVoucher.referenceModel === 'AccountsPayable' && fullVoucher.referenceId) {
+          const bRes = await api.get(`/finance/accounts-payable/${fullVoucher.referenceId}`).catch(() => null);
+          if (bRes?.data?.data && !poBills.some((existing) => String(existing._id) === String(bRes.data.data._id))) {
+            poBills.push(bRes.data.data);
+            billsFromPaymentApp = true;
+          }
+        }
+
+        // Only fall back to PO-linked bills when this voucher has no explicit settlement/bill link.
+        // Otherwise a multi-bill PO would show unrelated bills for this BPV.
+        if (!billsFromPaymentApp && poId) {
+          const bRes = await api.get('/finance/accounts-payable', { params: { limit: 100, purchaseOrderId: poId } }).catch(() => null);
           const allBills = bRes?.data?.data?.bills || bRes?.data?.data || [];
           const matchedBills = allBills.filter((b) => {
             if (String(b.referenceId || '') === String(poId)) return true;
@@ -333,12 +362,6 @@ const Vouchers = () => {
               poBills.push(b);
             }
           });
-        }
-        if (fullVoucher.referenceModel === 'AccountsPayable' && fullVoucher.referenceId) {
-          const bRes = await api.get(`/finance/accounts-payable/${fullVoucher.referenceId}`).catch(() => null);
-          if (bRes?.data?.data && !poBills.some((existing) => String(existing._id) === String(bRes.data.data._id))) {
-            poBills.push(bRes.data.data);
-          }
         }
       } catch (_) {}
 
@@ -357,10 +380,14 @@ const Vouchers = () => {
             } catch (_) {}
           }
         }
-        if (billVouchers.length === 0 && (fullVoucher.reference || fullVoucher.referenceId)) {
+        // Only look up BILL voucher by ObjectId referenceId (never by cheque/reference text)
+        if (
+          billVouchers.length === 0
+          && fullVoucher.referenceId
+          && /^[a-fA-F0-9]{24}$/.test(String(fullVoucher.referenceId))
+        ) {
           try {
-            const target = fullVoucher.reference || fullVoucher.referenceId;
-            const jRes = await api.get(`/finance/journal-entries/by-bill/${target}`).catch(() => null);
+            const jRes = await api.get(`/finance/journal-entries/by-bill/${fullVoucher.referenceId}`).catch(() => null);
             if (jRes?.data?.data && !billVouchers.some(jv => String(jv._id) === String(jRes.data.data._id))) {
               billVouchers.push(jRes.data.data);
             }
