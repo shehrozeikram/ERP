@@ -141,29 +141,42 @@ export default function LandTransferViewer() {
   };
 
   const handleExport = async () => {
-    const toastId = toast.loading('Fetching all records for export...');
+    const toastId = toast.loading('Fetching all filtered records for export...');
     try {
+      // Use same filters as the table (search, moza, purchaser, missing) and fetch ALL pages
       const res = await landAcquisitionTransferService.getTransfers({
         page: 1,
         limit: 'all',
         ...(searchDebounced && { search: searchDebounced }),
-        ...(mozaFilter && { moza: mozaFilter })
+        ...(mozaFilter && { moza: mozaFilter }),
+        ...(purchaserParam && { purchaser: purchaserParam }),
+        ...(missingParam && { missing: missingParam })
       });
       const allTransfers = res.data?.transfers || [];
 
+      if (allTransfers.length === 0) {
+        toast.error('No records to export for the current filter', { id: toastId });
+        return;
+      }
+
       const xlsx = await import('xlsx');
       const wb = xlsx.utils.book_new();
-      
-      const exportData = allTransfers.map((r) => ({
-        'Reference No': r.referenceNo,
-        'Deal No': r.dealNo,
+
+      const docStatus = (path) => (path && String(path).trim() ? 'Available' : 'Missing');
+
+      const exportData = allTransfers.map((r, idx) => ({
+        '#': idx + 1,
         'Date': formatDate(r.transferDate),
-        'Moza': r.moza?.name || '—',
-        'Intiqal No': r.intiqalNo || '—',
-        'Registry No': r.registryNo || '—',
-        'Seller': r.seller?.name || r.sellerName || '—',
-        'Purchaser': r.purchaser?.name || r.purchaserName || '—',
-        'Dealer': r.landPurchase?.dealer?.name || '—',
+        'Reference No': r.referenceNo || '',
+        'Seller': r.seller?.name || r.sellerName || '',
+        'Purchaser': r.purchaser?.name || r.purchaserName || '',
+        'Dealer': r.landPurchase?.dealer?.name || '',
+        'Deal No': r.dealNo ?? '',
+        'Moza': r.moza?.name || '',
+        'Intiqal No': r.intiqalNo || '',
+        'Registry No': r.registryNo || '',
+        'DOC (INTIQAL)': docStatus(r.inteqalAttachment),
+        'DOC (REGISTRY)': docStatus(r.registryAttachment),
         'Area': formatAreaReadable(r.transferArea),
         'Size (Kanals)': r.transferSizeInKanal || 0,
         'Rate/Kanal': r.ratePerKanal || 0,
@@ -173,11 +186,20 @@ export default function LandTransferViewer() {
 
       const ws = xlsx.utils.json_to_sheet(exportData);
       xlsx.utils.book_append_sheet(wb, ws, 'Land Transfers');
-      xlsx.writeFile(wb, `land-transfers-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      toast.success('Exported successfully', { id: toastId });
+
+      const filterSuffix =
+        missingParam === 'registry'
+          ? 'unavailable-registries'
+          : missingParam === 'intiqal'
+            ? 'unavailable-intiqal'
+            : purchaserParam
+              ? `purchaser-${String(purchaserParam).replace(/\s+/g, '-').toLowerCase()}`
+              : 'all';
+      xlsx.writeFile(wb, `land-transfers-${filterSuffix}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success(`Exported ${allTransfers.length} record${allTransfers.length === 1 ? '' : 's'}`, { id: toastId });
     } catch (err) {
       console.error(err);
-      toast.error('Export failed', { id: toastId });
+      toast.error(err.response?.data?.message || 'Export failed', { id: toastId });
     }
   };
 
