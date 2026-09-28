@@ -4,8 +4,7 @@ const {
   loadPayrollTaxSettings
 } = require('../utils/allowanceTaxCalculator');
 const { resolveEmployeeIncomeTax } = require('../utils/allowanceHelpers');
-
-const LOCKED_PAYROLL_STATUSES = new Set(['Paid', 'Cancelled', 'Rejected']);
+const { isPayrollRecordLocked } = require('../utils/payrollLock');
 
 /**
  * Monthly Tax Update Service
@@ -129,12 +128,12 @@ class MonthlyTaxUpdateService {
         };
       }
 
-      if (payroll.status && LOCKED_PAYROLL_STATUSES.has(payroll.status)) {
+      if (isPayrollRecordLocked(payroll)) {
         return {
           payrollId: payroll._id,
           employeeId: employee.employeeId || 'Unknown',
           success: true,
-          message: `Skipped locked status: ${payroll.status}`,
+          message: `Skipped locked payroll (status: ${payroll.status})`,
           oldTax,
           newTax: oldTax,
           updated: false

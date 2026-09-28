@@ -795,6 +795,45 @@ payrollSchema.pre('save', function(next) {
 // 🚫 MIDDLEWARE DISABLED - Route calculations will be preserved exactly as calculated
 console.log('🚫 Pre-save middleware DISABLED - preserving route calculations');
 
+// Capture status on load so we can lock financial edits after leaving Draft
+payrollSchema.post('init', function () {
+  this.$locals = this.$locals || {};
+  this.$locals.originalStatus = this.status;
+});
+
+// Non-Draft monthly payrolls are immutable except approval/payment workflow fields
+payrollSchema.pre('save', function (next) {
+  if (this.isNew) return next();
+
+  const { isPayrollRecordLocked, payrollLockMessage } = require('../../utils/payrollLock');
+  const originalStatus = this.$locals?.originalStatus ?? this.status;
+  if (!isPayrollRecordLocked(originalStatus)) return next();
+
+  const workflowPaths = new Set([
+    'status',
+    'approvedBy',
+    'approvedAt',
+    'paymentDate',
+    'paymentMethod',
+    'paymentReference',
+    'paidBy',
+    'updatedBy',
+    'updatedAt',
+    '__v'
+  ]);
+
+  const forbidden = this.modifiedPaths().filter((path) => {
+    const root = path.split('.')[0];
+    return !workflowPaths.has(root);
+  });
+
+  if (forbidden.length > 0) {
+    return next(new Error(payrollLockMessage(this)));
+  }
+
+  return next();
+});
+
 // Tax calculation according to user's formula
 payrollSchema.methods.calculateTax = function() {
   if (!this.totalEarnings) return 0;

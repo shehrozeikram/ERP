@@ -72,6 +72,9 @@ class PayrollService {
         throw new Error('Payroll not found');
       }
 
+      const { assertPayrollEditable } = require('../utils/payrollLock');
+      assertPayrollEditable(payroll);
+
       // Update only the specified allowances (monthly override)
       if (allowanceUpdates.conveyance !== undefined) {
         payroll.allowances.conveyance = allowanceUpdates.conveyance;
@@ -238,6 +241,9 @@ class PayrollService {
         throw new Error('Payroll not found');
       }
 
+      const { assertPayrollEditable } = require('../utils/payrollLock');
+      assertPayrollEditable(payroll);
+
       const employee = payroll.employee;
       const employeeAllowances = employee.allowances || {};
 
@@ -374,6 +380,9 @@ class PayrollService {
       if (!payroll) {
         throw new Error('Payroll not found');
       }
+
+      const { assertPayrollEditable } = require('../utils/payrollLock');
+      assertPayrollEditable(payroll);
 
       // Calculate leave deductions
       const leaveDeductions = await this.calculateLeaveDeductions(

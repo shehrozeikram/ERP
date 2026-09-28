@@ -3035,7 +3035,7 @@ router.post('/employees/import-fuel-allowance', authorize('hr_manager', 'hr_admi
           employee: emp._id,
           month: String(month).padStart(2, '0'),
           year: Number(year),
-          status: { $in: ['Draft', 'Generated', 'Pending'] }
+          status: 'Draft'
         });
 
         if (draftPayroll) {

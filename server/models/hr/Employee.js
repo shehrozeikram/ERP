@@ -1520,13 +1520,13 @@ employeeSchema.pre('save', async function (next) {
         const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../../utils/taxCalculator');
         const FBRTaxSlab = require('./FBRTaxSlab');
 
-        // Find all payrolls for this employee
+        // Find Draft payrolls only — non-Draft monthly payrolls are locked forever
         const relatedPayrolls = await Payroll.find({
           employee: this._id,
-          status: { $in: ['Draft', 'Approved'] } // Only update draft and approved payrolls
+          status: 'Draft'
         });
 
-        // Update each payroll with new salary structure
+        // Update each draft payroll with new salary structure
         for (const payroll of relatedPayrolls) {
           // Update basic salary and allowances
           payroll.basicSalary = this.salary.basic;
@@ -1692,15 +1692,15 @@ employeeSchema.statics.updateEmployeePayrolls = async function (employeeId) {
   const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected } = require('../../utils/taxCalculator');
   const FBRTaxSlab = require('./FBRTaxSlab');
 
-  // Find all payrolls for this employee
+  // Only Draft payrolls may be resynced from master salary — non-Draft months stay locked
   const relatedPayrolls = await Payroll.find({
     employee: employeeId,
-    status: { $in: ['Draft', 'Approved'] } // Only update draft and approved payrolls
+    status: 'Draft'
   });
 
   let updatedCount = 0;
 
-  // Update each payroll with new salary structure
+  // Update each draft payroll with new salary structure
   for (const payroll of relatedPayrolls) {
     // Update basic salary and allowances
     payroll.basicSalary = employee.salary.basic;

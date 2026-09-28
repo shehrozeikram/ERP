@@ -128,6 +128,12 @@ class PayrollUpdateService {
         console.log(`⚠️ No payroll found for ${month + 1}/${year}`);
         return null;
       }
+
+      const { isPayrollRecordLocked } = require('../utils/payrollLock');
+      if (isPayrollRecordLocked(payroll)) {
+        console.log(`🔒 Skipping leave deduction update — payroll locked for ${month + 1}/${year} (status: ${payroll.status})`);
+        return payroll;
+      }
       
       console.log(`📊 Current Leave Deductions for ${month + 1}/${year}:`);
       console.log(`   Unpaid Leave: ${leaveDeductions.unpaidLeave || 0}`);

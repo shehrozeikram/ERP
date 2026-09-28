@@ -20,6 +20,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Chip,
   CircularProgress,
   Tooltip,
@@ -102,8 +103,14 @@ const VendorAdvance = () => {
   const [selectedPo, setSelectedPo] = useState(null);
   const [loadingAdvances, setLoadingAdvances] = useState(false);
   const [advances, setAdvances] = useState([]);
+  const [advancesPage, setAdvancesPage] = useState(0);
+  const [advancesRowsPerPage, setAdvancesRowsPerPage] = useState(250);
+  const [advancesTotalCount, setAdvancesTotalCount] = useState(0);
   const [poQueue, setPoQueue] = useState([]);
   const [loadingQueue, setLoadingQueue] = useState(false);
+  const [queuePage, setQueuePage] = useState(0);
+  const [queueRowsPerPage, setQueueRowsPerPage] = useState(250);
+  const [queueTotalCount, setQueueTotalCount] = useState(0);
   const [queuePrefillPoId, setQueuePrefillPoId] = useState(null);
   const [queuePrefillSnapshot, setQueuePrefillSnapshot] = useState(null);
 
@@ -489,25 +496,36 @@ const VendorAdvance = () => {
     return () => { cancelled = true; };
   }, []);
 
-  const loadPoQueue = useCallback(async () => {
+  const loadPoQueue = useCallback(async (page = queuePage, rowsPerPage = queueRowsPerPage) => {
     setLoadingQueue(true);
     try {
       const res = await api.get('/finance/accounts-payable/vendor-advance-po-queue', {
-        params: { companyId: selectedCompanyId }
+        params: {
+          companyId: selectedCompanyId,
+          page: page + 1,
+          limit: rowsPerPage
+        }
       });
       const items = res.data?.data?.items || [];
+      const pagination = res.data?.data?.pagination || {};
       setPoQueue(Array.isArray(items) ? items : []);
+      setQueueTotalCount(Number(pagination.totalCount) || 0);
     } catch (e) {
       toast.error(e.response?.data?.message || 'Could not load PO advance queue');
       setPoQueue([]);
+      setQueueTotalCount(0);
     } finally {
       setLoadingQueue(false);
     }
+  }, [selectedCompanyId, queuePage, queueRowsPerPage]);
+
+  useEffect(() => {
+    setQueuePage(0);
   }, [selectedCompanyId]);
 
   useEffect(() => {
-    loadPoQueue();
-  }, [loadPoQueue]);
+    loadPoQueue(queuePage, queueRowsPerPage);
+  }, [queuePage, queueRowsPerPage, loadPoQueue]);
 
   const vendorOptions = useMemo(() => {
     if (!selectedVendor?._id) return vendors;
@@ -546,25 +564,36 @@ const VendorAdvance = () => {
     }
   }, [selectedVendor, loadPosForVendor]);
 
-  const loadAdvancesForVendor = useCallback(async (vendorId) => {
+  const loadAdvancesForVendor = useCallback(async (vendorId, page = advancesPage, rowsPerPage = advancesRowsPerPage) => {
     setLoadingAdvances(true);
     try {
-      const params = { limit: 100, page: 1, companyId: selectedCompanyId };
+      const params = {
+        limit: rowsPerPage,
+        page: page + 1,
+        companyId: selectedCompanyId
+      };
       if (vendorId) params.vendorId = vendorId;
       const res = await api.get('/finance/accounts-payable/vendor-advances', { params });
       const list = res.data?.data?.advances || [];
+      const pagination = res.data?.data?.pagination || {};
       setAdvances(Array.isArray(list) ? list : []);
+      setAdvancesTotalCount(Number(pagination.totalCount) || 0);
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to load vendor advances');
       setAdvances([]);
+      setAdvancesTotalCount(0);
     } finally {
       setLoadingAdvances(false);
     }
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, advancesPage, advancesRowsPerPage]);
 
   useEffect(() => {
-    loadAdvancesForVendor(selectedVendor?._id || null);
-  }, [selectedVendor, loadAdvancesForVendor]);
+    setAdvancesPage(0);
+  }, [selectedVendor?._id, selectedCompanyId]);
+
+  useEffect(() => {
+    loadAdvancesForVendor(selectedVendor?._id || null, advancesPage, advancesRowsPerPage);
+  }, [selectedVendor?._id, advancesPage, advancesRowsPerPage, loadAdvancesForVendor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -855,6 +884,19 @@ const VendorAdvance = () => {
                 ))}
               </TableBody>
             </Table>
+            <TablePagination
+              component="div"
+              count={queueTotalCount}
+              page={queuePage}
+              onPageChange={(_, newPage) => setQueuePage(newPage)}
+              rowsPerPage={queueRowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setQueueRowsPerPage(parseInt(e.target.value, 10));
+                setQueuePage(0);
+              }}
+              rowsPerPageOptions={[50, 100, 250, 500]}
+              labelRowsPerPage="Rows per page:"
+            />
           </TableContainer>
         )}
       </Paper>
@@ -1384,6 +1426,19 @@ const VendorAdvance = () => {
                 ))}
               </TableBody>
             </Table>
+            <TablePagination
+              component="div"
+              count={advancesTotalCount}
+              page={advancesPage}
+              onPageChange={(_, newPage) => setAdvancesPage(newPage)}
+              rowsPerPage={advancesRowsPerPage}
+              onRowsPerPageChange={(e) => {
+                setAdvancesRowsPerPage(parseInt(e.target.value, 10));
+                setAdvancesPage(0);
+              }}
+              rowsPerPageOptions={[50, 100, 250, 500]}
+              labelRowsPerPage="Rows per page:"
+            />
           </TableContainer>
         )}
       </Box>

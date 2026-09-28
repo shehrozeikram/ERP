@@ -2036,8 +2036,17 @@ router.post('/', [
           });
 
           if (existingPayroll) {
+            const { isPayrollRecordLocked } = require('../utils/payrollLock');
+            if (isPayrollRecordLocked(existingPayroll)) {
+              skippedEmployees.push({
+                employeeId: employee.employeeId,
+                name: `${employee.firstName} ${employee.lastName}`,
+                reason: `Payroll for ${month}/${year} is locked (status: ${existingPayroll.status})`
+              });
+              continue;
+            }
             if (forceRegenerate) {
-              // Delete existing payroll if forceRegenerate is true
+              // Delete existing Draft payroll if forceRegenerate is true
               await Payroll.findByIdAndDelete(existingPayroll._id);
               console.log(`🔄 Regenerated payroll for ${employee.firstName} ${employee.lastName} (${employee.employeeId})`);
             } else {
@@ -2297,11 +2306,12 @@ router.put('/:id', [
     });
   }
 
-  // Don't allow updates if payroll is already paid
-  if (payroll.status === 'paid') {
+  // Don't allow updates once payroll leaves Draft (fully locked)
+  const { isPayrollRecordLocked, payrollLockMessage } = require('../utils/payrollLock');
+  if (isPayrollRecordLocked(payroll)) {
     return res.status(400).json({
       success: false,
-      message: 'Cannot update a paid payroll'
+      message: payrollLockMessage(payroll)
     });
   }
 
@@ -2975,10 +2985,11 @@ router.delete('/:id',
       });
     }
 
-    if (payroll.status === 'Paid') {
+    const { isPayrollRecordLocked, payrollLockMessage } = require('../utils/payrollLock');
+    if (isPayrollRecordLocked(payroll)) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete a paid payroll'
+        message: payrollLockMessage(payroll)
       });
     }
 
@@ -3287,17 +3298,21 @@ router.delete('/month/:year/:month',
   asyncHandler(async (req, res) => {
     const { year, month } = req.params;
 
-    // Check if any payroll in this month is already paid
-    const paidCount = await Payroll.countDocuments({ month, year, status: 'Paid' });
-    if (paidCount > 0) {
+    // Non-Draft payrolls are locked — month cannot be deleted once any leave Draft
+    const lockedCount = await Payroll.countDocuments({
+      month,
+      year,
+      status: { $ne: 'Draft' }
+    });
+    if (lockedCount > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete month because it contains paid payrolls'
+        message: `Cannot delete month because it contains ${lockedCount} locked (non-Draft) payroll(s)`
       });
     }
 
-    // Delete all payrolls for this month
-    await Payroll.deleteMany({ month, year });
+    // Delete all Draft payrolls for this month
+    await Payroll.deleteMany({ month, year, status: 'Draft' });
 
     // Delete the approval document
     await PayrollMonthlyApproval.deleteMany({ month, year });
@@ -3317,22 +3332,28 @@ router.delete('/delete-all',
   asyncHandler(async (req, res) => {
     // Get count before deletion
     const totalPayrolls = await Payroll.countDocuments({});
+    const lockedCount = await Payroll.countDocuments({ status: { $ne: 'Draft' } });
+    const draftCount = totalPayrolls - lockedCount;
 
-    if (totalPayrolls === 0) {
+    if (draftCount === 0) {
       return res.status(404).json({
         success: false,
-        message: 'No payroll records found to delete'
+        message: lockedCount > 0
+          ? `No Draft payrolls to delete (${lockedCount} locked non-Draft record(s) preserved)`
+          : 'No payroll records found to delete'
       });
     }
 
-    // Delete all payrolls
-    const result = await Payroll.deleteMany({});
+    // Only delete Draft payrolls — locked months stay forever
+    const result = await Payroll.deleteMany({ status: 'Draft' });
 
     res.json({
       success: true,
-      message: `Successfully deleted ${result.deletedCount} payroll records`,
+      message: `Successfully deleted ${result.deletedCount} Draft payroll record(s)` +
+        (lockedCount > 0 ? `; ${lockedCount} locked non-Draft record(s) preserved` : ''),
       data: {
         deletedCount: result.deletedCount,
+        lockedPreserved: lockedCount,
         totalPayrolls: totalPayrolls
       }
     });

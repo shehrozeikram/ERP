@@ -2821,15 +2821,19 @@ router.get('/accounts-payable/vendor-advances',
 router.get('/accounts-payable/vendor-advance-po-queue',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 500);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 250, 1), 500);
 
     const { q } = await financeScope(req);
 
-    const pos = await PurchaseOrder.find(q({ status: 'Pending Finance' }))
+    // Prefetch Pending Finance POs that mention advance; exact full-advance gate applied below
+    const pos = await PurchaseOrder.find(q({
+      status: 'Pending Finance',
+      paymentTerms: { $regex: /advance/i }
+    }))
       .populate('vendor', 'name email phone')
       .populate('companyId', 'name companyCode')
       .sort({ updatedAt: -1 })
-      .limit(limit)
       .lean();
 
     const advancePos = pos.filter((po) => isFullAdvancePaymentTerm(po.paymentTerms));
@@ -2895,9 +2899,22 @@ router.get('/accounts-payable/vendor-advance-po-queue',
       })
       .filter((row) => row.needsPayment);
 
+    const totalCount = items.length;
+    const skip = (page - 1) * limit;
+    const pagedItems = items.slice(skip, skip + limit);
+
     res.json({
       success: true,
-      data: { items, count: items.length }
+      data: {
+        items: pagedItems,
+        count: pagedItems.length,
+        pagination: {
+          currentPage: page,
+          limit,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit) || 0
+        }
+      }
     });
   })
 );

@@ -277,6 +277,14 @@ router.delete('/:id',
       });
     }
 
+    const { isPayrollRecordLocked, payrollLockMessage } = require('../utils/payrollLock');
+    if (isPayrollRecordLocked(payroll)) {
+      return res.status(400).json({
+        success: false,
+        message: payrollLockMessage(payroll)
+      });
+    }
+
     // Remove arrears from payroll
     const employeeId = payroll.employee;
     payroll.arrears = 0;
