@@ -155,13 +155,23 @@ const VendorAdvance = () => {
   const [bankAccounts, setBankAccounts] = useState([]);
   const advanceHistorySectionRef = useRef(null);
   const [highlightPoId, setHighlightPoId] = useState(null);
-  const { selectedCompanyId, setSelectedCompanyId, companies } = useFinanceCompany();
+  const [ensuringVoucherId, setEnsuringVoucherId] = useState(null);
+  const { selectedCompanyId, companies } = useFinanceCompany();
   const [payingCompanyId, setPayingCompanyId] = useState('');
 
-  useEffect(() => {
-    // Always default finance company selection to "all" when visiting Vendor Advance
-    setSelectedCompanyId('all');
-  }, [setSelectedCompanyId]);
+  const isRealCompanyId = useCallback((id) => {
+    if (!id || String(id).toLowerCase() === 'all') return false;
+    return companies.some((c) => String(c._id) === String(id));
+  }, [companies]);
+
+  /** Company used for posting vouchers — must be a real PlacementCompany, never "all". */
+  const postingCompanyId = useMemo(() => {
+    if (isRealCompanyId(payingCompanyId)) return payingCompanyId;
+    if (isRealCompanyId(selectedCompanyId)) return selectedCompanyId;
+    return null;
+  }, [payingCompanyId, selectedCompanyId, isRealCompanyId]);
+
+  const companyBlockedForPayment = !postingCompanyId;
 
   const [viewDialog, setViewDialog] = useState({
     open: false,
@@ -650,6 +660,10 @@ const VendorAdvance = () => {
       toast.error('Select the account the payment is made from (pay from account).');
       return;
     }
+    if (!postingCompanyId || !isRealCompanyId(postingCompanyId)) {
+      toast.error('Select a company from the list (top right or Paying company). All Companies is not allowed for payments or vouchers.');
+      return;
+    }
     if (selectedPo?._id && poPendingVoucher.hasPending) {
       toast.error('This PO already has an advance pending voucher approval. You cannot record another until that is finished.');
       return;
@@ -687,8 +701,8 @@ const VendorAdvance = () => {
           accountsManagerUser: finAuth.accountsManagerUser._id,
           financeControllerUser: finAuth.financeControllerUser._id
         },
-        companyId: selectedCompanyId,
-        payingCompanyId: payingCompanyId || selectedCompanyId || null,
+        companyId: postingCompanyId,
+        payingCompanyId: isRealCompanyId(payingCompanyId) ? payingCompanyId : postingCompanyId,
         categoryLines: validCategoryLines
       };
       const res = await api.post('/finance/accounts-payable/advance-payment', body);
@@ -765,6 +779,25 @@ const VendorAdvance = () => {
     setHighlightPoId(String(row._id));
   };
 
+  const handleEnsureVoucher = async (advanceRow) => {
+    if (!postingCompanyId || !isRealCompanyId(postingCompanyId)) {
+      toast.error('Select a company from the list (not All Companies), then click Create voucher again.');
+      return;
+    }
+    setEnsuringVoucherId(advanceRow._id);
+    try {
+      const res = await api.post(`/finance/vendor-advances/${advanceRow._id}/ensure-voucher`, {
+        companyId: postingCompanyId
+      });
+      toast.success(res.data?.message || 'Voucher created');
+      await loadAdvancesForVendor(selectedVendor?._id || null);
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to create voucher');
+    } finally {
+      setEnsuringVoucherId(null);
+    }
+  };
+
   return (
     <Box sx={{ p: 2 }}>
       <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'stretch', md: 'center' }, gap: 2, mb: 1 }}>
@@ -777,6 +810,13 @@ const VendorAdvance = () => {
         Record prepayment to a supplier (DR Advance to suppliers / CR pay-from account). Link an optional PO for traceability.
         Apply this advance later on Accounts Payable when the vendor bill is created.
       </Typography>
+
+      {companyBlockedForPayment ? (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Select a <strong>specific company</strong> from the company list (top right) or <strong>Paying company</strong> before recording a payment or creating a voucher.
+          <strong> All Companies</strong> is only for viewing — it cannot create payments or vouchers.
+        </Alert>
+      ) : null}
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'action.hover' }}>
         <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1256,13 +1296,18 @@ const VendorAdvance = () => {
               </Grid>
               <Grid item xs={12}>
                 {(!finAuth.accountsManagerUser || !finAuth.financeControllerUser) ? (
-                  <Tooltip title="Select Sr Manager Accounts and GM Finance before recording the advance.">
+                  <Tooltip title={
+                    companyBlockedForPayment
+                      ? 'Select a specific company first (All Companies cannot create payments).'
+                      : 'Select Sr Manager Accounts and GM Finance before recording the advance.'
+                  }>
                     <span>
                       <Button
                         type="submit"
                         variant="contained"
                         disabled={
                           submitting
+                          || companyBlockedForPayment
                           || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)
                           || !finAuth.accountsManagerUser
                           || !finAuth.financeControllerUser
@@ -1277,14 +1322,25 @@ const VendorAdvance = () => {
                     </span>
                   </Tooltip>
                 ) : (
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    disabled={submitting || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending) || bankAccounts.length === 0 || !form.bankAccountId || categoryTotal <= 0}
-                    size="large"
-                  >
-                    {submitting ? 'Posting…' : 'Record vendor advance'}
-                  </Button>
+                  <Tooltip title={companyBlockedForPayment ? 'Select a specific company first (All Companies cannot create payments).' : ''}>
+                    <span>
+                      <Button
+                        type="submit"
+                        variant="contained"
+                        disabled={
+                          submitting
+                          || companyBlockedForPayment
+                          || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)
+                          || bankAccounts.length === 0
+                          || !form.bankAccountId
+                          || categoryTotal <= 0
+                        }
+                        size="large"
+                      >
+                        {submitting ? 'Posting…' : 'Record vendor advance'}
+                      </Button>
+                    </span>
+                  </Tooltip>
                 )}
               </Grid>
             </Grid>
@@ -1408,19 +1464,32 @@ const VendorAdvance = () => {
                       />
                     </TableCell>
                     <TableCell>
-                      {a.referenceType === 'purchase_order' && a.referenceId ? (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="info"
-                          startIcon={<VisibilityIcon />}
-                          onClick={() => handleViewPoDetails({ _id: a.referenceId, orderNumber: a.linkedPoNumber })}
-                        >
-                          View Docs
-                        </Button>
-                      ) : (
-                        '—'
-                      )}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                        {!a.journalEntryId ? (
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="warning"
+                            disabled={ensuringVoucherId === a._id || companyBlockedForPayment}
+                            onClick={() => handleEnsureVoucher(a)}
+                          >
+                            {ensuringVoucherId === a._id ? 'Creating…' : 'Create voucher'}
+                          </Button>
+                        ) : null}
+                        {a.referenceType === 'purchase_order' && a.referenceId ? (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="info"
+                            startIcon={<VisibilityIcon />}
+                            onClick={() => handleViewPoDetails({ _id: a.referenceId, orderNumber: a.linkedPoNumber })}
+                          >
+                            View Docs
+                          </Button>
+                        ) : !a.journalEntryId ? null : (
+                          '—'
+                        )}
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))}

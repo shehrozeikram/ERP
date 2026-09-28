@@ -1429,8 +1429,18 @@ const FinanceHelper = {
       }
     }
 
-    const companyId = co({ companyId: optsCompanyId });
-    const payingCompanyId = co({ companyId: optsPayingCompanyId }) || companyId;
+    const { normalizeCompanyId } = require('./financeCompanyContext');
+    // "all" is a UI filter only — never a real posting company
+    const rawCompany = optsCompanyId && String(optsCompanyId).toLowerCase() !== 'all' ? optsCompanyId : null;
+    const rawPaying = optsPayingCompanyId && String(optsPayingCompanyId).toLowerCase() !== 'all' ? optsPayingCompanyId : null;
+    let companyId = normalizeCompanyId(rawCompany) || normalizeCompanyId(rawPaying);
+    let payingCompanyId = normalizeCompanyId(rawPaying) || companyId;
+    if (!companyId) {
+      throw new Error(
+        'Select a specific finance company (not All Companies) before recording a vendor advance, or choose a Paying company.'
+      );
+    }
+
     const isIntercompany = payingCompanyId && companyId && String(payingCompanyId) !== String(companyId);
 
     const A_target = acct(companyId);
@@ -1469,6 +1479,20 @@ const FinanceHelper = {
     }
     if (!advAccount || !bankAccount) throw new Error('Advance or Bank/Cash account not found');
 
+    const validCategoryLines = Array.isArray(categoryLines)
+      ? categoryLines.filter((l) => Number(l.amount) > 0)
+      : [];
+    if (validCategoryLines.length > 0) {
+      const catSum = Math.round(
+        validCategoryLines.reduce((s, l) => s + (Number(l.amount) || 0), 0) * 100
+      ) / 100;
+      if (Math.abs(catSum - amount_) > 0.01) {
+        throw new Error(
+          `Category line amounts (PKR ${catSum.toLocaleString('en-PK')}) must equal the advance total (PKR ${amount_.toLocaleString('en-PK')}).`
+        );
+      }
+    }
+
     const advance = await VendorAdvance.create({
       vendor: { name: vendorName || 'Vendor', email: vendorEmail || '', vendorId: vendorId || null },
       amount: amount_,
@@ -1483,6 +1507,7 @@ const FinanceHelper = {
       referenceType,
       referenceId,
       categoryLines: Array.isArray(categoryLines) ? categoryLines : [],
+      companyId,
       voucherWorkflowStatus: 'pending_authority',
       financeApprovalAuthorities: {
         accountsOfficerUser: createdBy,
@@ -1498,10 +1523,6 @@ const FinanceHelper = {
         comments: 'Preparer — recorded vendor advance'
       }]
     });
-
-    const validCategoryLines = Array.isArray(categoryLines)
-      ? categoryLines.filter((l) => Number(l.amount) > 0)
-      : [];
 
     let debitLines = [];
     if (validCategoryLines.length > 0) {
@@ -1557,26 +1578,140 @@ const FinanceHelper = {
       ];
     }
 
+    try {
+      const journalEntry = await FinanceHelper.createDraftJournalEntry(
+        withVoucherNarration(
+          withCompany({
+            date: date || new Date(),
+            reference: cleanChequeNo || advance.reference,
+            description: `Vendor Advance: ${vendorName || 'Vendor'}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
+            department,
+            module,
+            referenceId: advance._id,
+            referenceType: 'payment',
+            journalCode: 'BANK',
+            voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+            createdBy,
+            lines: linePayload,
+            payingCompanyId: payingCompanyId || null
+          }, companyId),
+          getVendorAdvanceNarration(advance) || reference
+        )
+      );
+      advance.journalEntryId = journalEntry._id;
+      await advance.save();
+    } catch (jeErr) {
+      // Do not leave an advance row without a voucher — remove the orphan and surface the real error
+      try {
+        await VendorAdvance.findByIdAndDelete(advance._id);
+      } catch (_) { /* ignore cleanup failure */ }
+      throw jeErr;
+    }
+    return advance;
+  },
+
+  /**
+   * Attach a draft BPV/CPV when an advance was saved without journalEntryId
+   * (legacy bug when companyId was "all").
+   */
+  ensureVendorAdvanceVoucher: async (advanceId, { companyId: optsCompanyId = null, createdBy = null } = {}) => {
+    const { normalizeCompanyId } = require('./financeCompanyContext');
+    const advance = await VendorAdvance.findById(advanceId);
+    if (!advance) throw new Error('Vendor advance not found');
+    if (advance.journalEntryId) return advance;
+    if (advance.voucherWorkflowStatus === 'rejected') {
+      throw new Error('Cannot create voucher for a rejected vendor advance');
+    }
+
+    const amount_ = Math.round((Number(advance.amount) || 0) * 100) / 100;
+    if (amount_ <= 0) throw new Error('Advance amount must be greater than zero');
+
+    let companyId =
+      normalizeCompanyId(optsCompanyId)
+      || normalizeCompanyId(advance.companyId);
+    if (!companyId && advance.bankAccountId) {
+      const bank = await Account.findById(advance.bankAccountId).select('companyId').lean();
+      companyId = normalizeCompanyId(bank?.companyId);
+    }
+    if (!companyId) {
+      throw new Error('Select a finance company to create the missing voucher for this advance.');
+    }
+
+    const A = acct(companyId);
+    let advAccount = await A.resolve(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    if (!advAccount) throw new Error('Advance to Suppliers account (1110) not found for this company');
+    let bankAccount = advance.bankAccountId ? await A.map(advance.bankAccountId) : null;
+    if (!bankAccount) {
+      bankAccount = await A.resolve(
+        (advance.paymentMethod || 'bank_transfer') === 'cash'
+          ? FinanceHelper.ACCOUNTS.CASH
+          : FinanceHelper.ACCOUNTS.BANK
+      );
+    }
+    if (!bankAccount) throw new Error('Pay-from bank/cash account not found');
+
+    const department = advance.department || 'procurement';
+    const vendorName = advance.vendor?.name || 'Vendor';
+    const categoryLines = Array.isArray(advance.categoryLines)
+      ? advance.categoryLines.filter((l) => Number(l.amount) > 0)
+      : [];
+
+    let debitLines = [];
+    if (categoryLines.length > 0) {
+      for (const cl of categoryLines) {
+        let lineAcc = cl.account ? await A.map(cl.account) : null;
+        if (!lineAcc && cl.accountNumber) lineAcc = await A.resolve(cl.accountNumber);
+        if (!lineAcc) lineAcc = advAccount;
+        debitLines.push({
+          account: lineAcc._id,
+          description: cl.description || `Advance / ${lineAcc.name || 'Expense'} - ${vendorName}`,
+          debit: Math.round((Number(cl.amount) || 0) * 100) / 100,
+          department
+        });
+      }
+    } else {
+      debitLines.push({
+        account: advAccount._id,
+        description: `Advance to ${vendorName}`,
+        debit: amount_,
+        department
+      });
+    }
+
+    const linePayload = [
+      ...debitLines,
+      {
+        account: bankAccount._id,
+        description: `Advance payment to ${vendorName} (${advance.chequeNumber || advance.reference || ''})`,
+        credit: amount_,
+        department
+      }
+    ];
+
     const journalEntry = await FinanceHelper.createDraftJournalEntry(
       withVoucherNarration(
         withCompany({
-          date: date || new Date(),
-          reference: cleanChequeNo || advance.reference,
-          description: `Vendor Advance: ${vendorName || 'Vendor'}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
+          date: advance.paymentDate || new Date(),
+          reference: advance.chequeNumber || advance.reference,
+          description: `Vendor Advance: ${vendorName} (pending finance signatures)`,
           department,
-          module,
+          module: advance.module || 'procurement',
           referenceId: advance._id,
           referenceType: 'payment',
           journalCode: 'BANK',
-          voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
-          createdBy,
-          lines: linePayload,
-          payingCompanyId: payingCompanyId || null
+          voucherSeries: (advance.paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+          createdBy: createdBy || advance.createdBy,
+          lines: linePayload
         }, companyId),
-        getVendorAdvanceNarration(advance) || reference
+        getVendorAdvanceNarration(advance) || advance.reference
       )
     );
+
     advance.journalEntryId = journalEntry._id;
+    advance.companyId = advance.companyId || companyId;
+    advance.voucherWorkflowStatus = advance.voucherWorkflowStatus === 'immediate'
+      ? 'pending_authority'
+      : (advance.voucherWorkflowStatus || 'pending_authority');
     await advance.save();
     return advance;
   },

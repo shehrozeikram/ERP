@@ -3642,6 +3642,61 @@ router.post('/accounts-payable/advance-payment',
       });
     }
 
+    const PlacementCompany = require('../models/hr/Company');
+    const { normalizeCompanyId } = require('../utils/financeCompanyContext');
+    const rawCompanyId = req.body.companyId;
+    const rawPayingId = req.body.payingCompanyId;
+    if (!rawCompanyId || String(rawCompanyId).toLowerCase() === 'all') {
+      return res.status(400).json({
+        success: false,
+        message: 'Select a specific company to create this payment. All Companies is not allowed for vendor advance vouchers.'
+      });
+    }
+    const resolvedCompanyId = normalizeCompanyId(rawCompanyId);
+    if (!resolvedCompanyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid company. Choose a company from your company list.'
+      });
+    }
+    const companyDoc = await PlacementCompany.findById(resolvedCompanyId).select('_id name isActive').lean();
+    if (!companyDoc) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company not found. Choose a company from your company list.'
+      });
+    }
+    if (companyDoc.isActive === false) {
+      return res.status(400).json({
+        success: false,
+        message: `Company "${companyDoc.name}" is inactive. Choose an active company.`
+      });
+    }
+
+    let resolvedPayingId = null;
+    if (rawPayingId && String(rawPayingId).toLowerCase() !== 'all') {
+      resolvedPayingId = normalizeCompanyId(rawPayingId);
+      if (!resolvedPayingId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid paying company. Choose a company from your company list.'
+        });
+      }
+      const payingDoc = await PlacementCompany.findById(resolvedPayingId).select('_id name isActive').lean();
+      if (!payingDoc) {
+        return res.status(400).json({
+          success: false,
+          message: 'Paying company not found. Choose a company from your company list.'
+        });
+      }
+      if (payingDoc.isActive === false) {
+        return res.status(400).json({
+          success: false,
+          message: `Paying company "${payingDoc.name}" is inactive. Choose an active company.`
+        });
+      }
+    }
+
     const advance = await FinanceHelper.recordVendorAdvance({
       vendorName: req.body.vendorName,
       vendorEmail: req.body.vendorEmail || '',
@@ -3658,7 +3713,8 @@ router.post('/accounts-payable/advance-payment',
       referenceId,
       createdBy: req.user._id,
       financeApprovalAuthorities,
-      companyId: req.body.companyId || req.user?.companyId || null,
+      companyId: resolvedCompanyId,
+      payingCompanyId: resolvedPayingId || resolvedCompanyId,
       categoryLines: req.body.categoryLines || []
     });
 
@@ -3668,6 +3724,58 @@ router.post('/accounts-payable/advance-payment',
         : 'Vendor advance recorded successfully';
 
     res.json({ success: true, message, data: advance });
+  })
+);
+
+// @route   POST /api/finance/vendor-advances/:id/ensure-voucher
+// @desc    Create missing draft voucher for an advance that has no journalEntryId
+// @access  Private (Finance and Admin)
+router.post('/vendor-advances/:id/ensure-voucher',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid vendor advance id' });
+    }
+    const PlacementCompany = require('../models/hr/Company');
+    const { normalizeCompanyId } = require('../utils/financeCompanyContext');
+    const rawCompanyId = req.body.companyId;
+    if (!rawCompanyId || String(rawCompanyId).toLowerCase() === 'all') {
+      return res.status(400).json({
+        success: false,
+        message: 'Select a specific company to create this voucher. All Companies is not allowed.'
+      });
+    }
+    const companyId = normalizeCompanyId(rawCompanyId);
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid company. Choose a company from your company list.'
+      });
+    }
+    const companyDoc = await PlacementCompany.findById(companyId).select('_id isActive name').lean();
+    if (!companyDoc) {
+      return res.status(400).json({
+        success: false,
+        message: 'Company not found. Choose a company from your company list.'
+      });
+    }
+    if (companyDoc.isActive === false) {
+      return res.status(400).json({
+        success: false,
+        message: `Company "${companyDoc.name}" is inactive. Choose an active company.`
+      });
+    }
+    const advance = await FinanceHelper.ensureVendorAdvanceVoucher(req.params.id, {
+      companyId,
+      createdBy: req.user._id
+    });
+    res.json({
+      success: true,
+      message: advance.journalEntryId
+        ? 'Voucher is ready — open it from Advance history'
+        : 'No voucher created',
+      data: advance
+    });
   })
 );
 
