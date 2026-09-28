@@ -2857,7 +2857,7 @@ router.get('/accounts-payable/vendor-advance-po-queue',
 
     const pendingVoucherByPo = new Set(
       advances
-        .filter((a) => a.voucherWorkflowStatus === 'pending_authority')
+        .filter((a) => a.voucherWorkflowStatus === 'pending_authority' && a.journalEntryId)
         .map((a) => String(a.referenceId))
     );
 
@@ -2939,15 +2939,27 @@ router.get('/vendor-advances/by-journal-entry/:journalEntryId',
 router.get('/vendor-advances/po/:purchaseOrderId/pending-voucher',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
+    // Broken rows (pending but no journal) must not block new payments — clear them
+    await VendorAdvance.deleteMany({
+      ...vendorAdvancesLinkedToPurchaseOrderFilter(req.params.purchaseOrderId),
+      voucherWorkflowStatus: 'pending_authority',
+      $or: [{ journalEntryId: null }, { journalEntryId: { $exists: false } }]
+    });
+
     const pending = await VendorAdvance.findOne({
       ...vendorAdvancesLinkedToPurchaseOrderFilter(req.params.purchaseOrderId),
-      voucherWorkflowStatus: 'pending_authority'
+      voucherWorkflowStatus: 'pending_authority',
+      journalEntryId: { $ne: null }
     })
-      .select('_id reference')
+      .select('_id reference journalEntryId')
       .lean();
     res.json({
       success: true,
-      data: { hasPending: Boolean(pending), advanceId: pending?._id || null }
+      data: {
+        hasPending: Boolean(pending),
+        advanceId: pending?._id || null,
+        journalEntryId: pending?.journalEntryId || null
+      }
     });
   })
 );
@@ -3608,9 +3620,17 @@ router.post('/accounts-payable/advance-payment',
     if (referenceId) {
       const poExists = await PurchaseOrder.exists({ _id: referenceId });
       if (poExists) {
+        // Clear broken orphans (pending without voucher) so user can recreate cleanly
+        await VendorAdvance.deleteMany({
+          ...vendorAdvancesLinkedToPurchaseOrderFilter(referenceId),
+          voucherWorkflowStatus: 'pending_authority',
+          $or: [{ journalEntryId: null }, { journalEntryId: { $exists: false } }]
+        });
+
         const blocked = await VendorAdvance.findOne({
           ...vendorAdvancesLinkedToPurchaseOrderFilter(referenceId),
-          voucherWorkflowStatus: 'pending_authority'
+          voucherWorkflowStatus: 'pending_authority',
+          journalEntryId: { $ne: null }
         })
           .select('_id')
           .lean();
@@ -3775,6 +3795,64 @@ router.post('/vendor-advances/:id/ensure-voucher',
         ? 'Voucher is ready — open it from Advance history'
         : 'No voucher created',
       data: advance
+    });
+  })
+);
+
+// @route   DELETE /api/finance/vendor-advances/:id
+// @desc    Remove a broken advance (no voucher / not applied) so payment can be re-recorded
+// @access  Private (Finance and Admin)
+router.delete('/vendor-advances/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid vendor advance id' });
+    }
+    const advance = await VendorAdvance.findById(req.params.id);
+    if (!advance) {
+      return res.status(404).json({ success: false, message: 'Vendor advance not found' });
+    }
+
+    const hasJe = Boolean(advance.journalEntryId);
+    const applied = Number(advance.appliedAmount || 0);
+    const isBrokenOrphan =
+      !hasJe
+      && applied <= 0
+      && ['pending_authority', 'rejected', 'immediate'].includes(String(advance.voucherWorkflowStatus || ''));
+
+    if (!isBrokenOrphan) {
+      return res.status(400).json({
+        success: false,
+        message: hasJe
+          ? 'This advance already has a voucher. Open/reject that voucher instead of deleting the advance.'
+          : 'This advance cannot be deleted (already applied or not eligible).'
+      });
+    }
+
+    await VendorAdvance.findByIdAndDelete(advance._id);
+    res.json({
+      success: true,
+      message: 'Broken advance removed. You can record the payment again for this vendor/PO.'
+    });
+  })
+);
+
+// @route   POST /api/finance/vendor-advances/cleanup-orphans
+// @desc    Delete all pending advances that never got a journal voucher
+// @access  Private (Finance and Admin)
+router.post('/vendor-advances/cleanup-orphans',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const filter = {
+      voucherWorkflowStatus: 'pending_authority',
+      $or: [{ journalEntryId: null }, { journalEntryId: { $exists: false } }],
+      appliedAmount: { $lte: 0 }
+    };
+    const result = await VendorAdvance.deleteMany(filter);
+    res.json({
+      success: true,
+      message: `Removed ${result.deletedCount || 0} broken advance(s) with no voucher. You can record those payments again.`,
+      data: { deletedCount: result.deletedCount || 0 }
     });
   })
 );

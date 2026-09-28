@@ -156,6 +156,8 @@ const VendorAdvance = () => {
   const advanceHistorySectionRef = useRef(null);
   const [highlightPoId, setHighlightPoId] = useState(null);
   const [ensuringVoucherId, setEnsuringVoucherId] = useState(null);
+  const [removingAdvanceId, setRemovingAdvanceId] = useState(null);
+  const [cleaningOrphans, setCleaningOrphans] = useState(false);
   const { selectedCompanyId, companies } = useFinanceCompany();
   const [payingCompanyId, setPayingCompanyId] = useState('');
 
@@ -791,10 +793,48 @@ const VendorAdvance = () => {
       });
       toast.success(res.data?.message || 'Voucher created');
       await loadAdvancesForVendor(selectedVendor?._id || null);
+      loadPoQueue();
     } catch (e) {
       toast.error(e.response?.data?.message || 'Failed to create voucher');
     } finally {
       setEnsuringVoucherId(null);
+    }
+  };
+
+  const handleRemoveBrokenAdvance = async (advanceRow) => {
+    if (!window.confirm('Remove this broken advance (no voucher)? You can record the payment again after this.')) {
+      return;
+    }
+    setRemovingAdvanceId(advanceRow._id);
+    try {
+      const res = await api.delete(`/finance/vendor-advances/${advanceRow._id}`);
+      toast.success(res.data?.message || 'Broken advance removed');
+      await loadAdvancesForVendor(selectedVendor?._id || null);
+      loadPoQueue();
+      if (selectedPo?._id) {
+        setPoPendingVoucher({ loading: false, hasPending: false });
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to remove broken advance');
+    } finally {
+      setRemovingAdvanceId(null);
+    }
+  };
+
+  const handleCleanupOrphans = async () => {
+    if (!window.confirm('Remove ALL broken advances that have no voucher? You can re-record those payments afterwards.')) {
+      return;
+    }
+    setCleaningOrphans(true);
+    try {
+      const res = await api.post('/finance/vendor-advances/cleanup-orphans');
+      toast.success(res.data?.message || 'Broken advances cleared');
+      await loadAdvancesForVendor(selectedVendor?._id || null);
+      loadPoQueue();
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to clear broken advances');
+    } finally {
+      setCleaningOrphans(false);
     }
   };
 
@@ -1360,9 +1400,20 @@ const VendorAdvance = () => {
       </Paper>
 
       <Box ref={advanceHistorySectionRef} sx={{ mt: 3 }}>
-        <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-          Advance history (partial payments)
-        </Typography>
+        <Box sx={{ mb: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            Advance history (partial payments)
+          </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            color="warning"
+            disabled={cleaningOrphans}
+            onClick={handleCleanupOrphans}
+          >
+            {cleaningOrphans ? 'Clearing…' : 'Clear broken advances (no voucher)'}
+          </Button>
+        </Box>
 
         {loadingAdvances ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1466,15 +1517,26 @@ const VendorAdvance = () => {
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                         {!a.journalEntryId ? (
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="warning"
-                            disabled={ensuringVoucherId === a._id || companyBlockedForPayment}
-                            onClick={() => handleEnsureVoucher(a)}
-                          >
-                            {ensuringVoucherId === a._id ? 'Creating…' : 'Create voucher'}
-                          </Button>
+                          <>
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="error"
+                              disabled={removingAdvanceId === a._id}
+                              onClick={() => handleRemoveBrokenAdvance(a)}
+                            >
+                              {removingAdvanceId === a._id ? 'Removing…' : 'Remove broken'}
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="warning"
+                              disabled={ensuringVoucherId === a._id || companyBlockedForPayment}
+                              onClick={() => handleEnsureVoucher(a)}
+                            >
+                              {ensuringVoucherId === a._id ? 'Creating…' : 'Create voucher'}
+                            </Button>
+                          </>
                         ) : null}
                         {a.referenceType === 'purchase_order' && a.referenceId ? (
                           <Button
