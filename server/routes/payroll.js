@@ -149,10 +149,11 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
   // Tax is calculated on already-prorated gross/allowances — no second multiply needed.
   // Mid-year joiners in the current FY use remaining months for annualization; others stay ×12.
   let { tax: resolvedTax } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);
-  // EOBI is a flat monthly amount — prorate it for the partial first month.
+  // EOBI / employee security: prorate only for joining-month proration.
+  // Partial salary (custom days) affects salary only — keep these at full monthly amounts.
   let eobiDeduction = getEmployeeEobiDeduction(employee);
   let employeeSecurityDeduction = getEmployeeSecurityDeduction(employee);
-  if (proration.factor < 1) {
+  if (proration.factor < 1 && proration.type !== 'partial_salary') {
     eobiDeduction = Math.round(eobiDeduction * proration.factor);
     employeeSecurityDeduction = Math.round(employeeSecurityDeduction * proration.factor);
   }
@@ -1843,10 +1844,11 @@ router.post('/', [
           // 🔧 AUTO-CALCULATE OTHER DEDUCTIONS
           const providentFundEnabled = isProvidentFundEnabledForEmployee(employee);
           const providentFund = calculateProvidentFundForEmployee(employee, basicSalary);
-          // EOBI is a flat monthly fee — prorate it for the partial first month.
+          // EOBI / employee security: prorate only for joining-month proration.
+          // Partial salary (custom days) affects salary only — keep full monthly amounts.
           let eobi = getEmployeeEobiDeduction(employee);
           let employeeSecurity = getEmployeeSecurityDeduction(employee);
-          if (proration.factor < 1) {
+          if (proration.factor < 1 && proration.type !== 'partial_salary') {
             eobi = Math.round(eobi * proration.factor);
             employeeSecurity = Math.round(employeeSecurity * proration.factor);
           }

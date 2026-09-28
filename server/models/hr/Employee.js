@@ -636,7 +636,7 @@ const employeeSchema = new mongoose.Schema({
       min: [0, 'Basic salary cannot be negative']
     }
   },
-  /** Fixed payable days per month for selected payroll periods (salary + allowances scaled). */
+  /** Fixed payable days per month for selected payroll periods (salary/gross only; allowances stay full). */
   partialSalaryPay: {
     isActive: { type: Boolean, default: false },
     payableDaysPerMonth: {

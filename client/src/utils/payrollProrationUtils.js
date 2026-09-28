@@ -18,7 +18,7 @@ export const getPayrollProrationLabel = (payroll = {}) => {
   const proration = payroll?.proration;
   if (proration?.isProrated && proration.payableDays && proration.daysInMonth) {
     if (proration.type === 'partial_salary') {
-      return `Partial pay ${proration.payableDays}/${proration.daysInMonth}`;
+      return `Partial pay ${proration.payableDays}/${proration.daysInMonth} (salary only)`;
     }
     return `Prorated ${proration.payableDays}/${proration.daysInMonth}`;
   }

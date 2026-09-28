@@ -870,9 +870,13 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   const proration = prorationResult.proration;
   const grossSalary = prorationResult.grossSalary;
   const factor = proration.factor;
+  const isPartialSalary = proration.type === 'partial_salary';
 
-  // Get employee salary structure (prorated in join month)
-  const basicSalary = Math.round((employee.salary.basic || grossSalary * 0.6666) * (factor < 1 ? factor : 1));
+  // Basic: scale from master when needed. Gross is already prorated by applyPayrollProration —
+  // do not multiply factor again when falling back to gross * 0.6666.
+  const basicSalary = employee.salary?.basic
+    ? Math.round((Number(employee.salary.basic) || 0) * (factor < 1 ? factor : 1))
+    : Math.round(grossSalary * 0.6666);
   
   // Calculate attendance (26 working days per month - excluding Sundays)
   let totalWorkingDays = attendanceData.totalWorkingDays || 26;
@@ -880,7 +884,7 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
   let absentDays = attendanceData.absentDays || 0;
   let leaveDays = attendanceData.leaveDays || 0;
   
-  // Get employee allowances (only active ones, prorated in join month)
+  // Allowances: already full for partial_salary; joining month may be prorated
   const payrollAllowances = payrollAllowancesFromEmployee(prorationResult.allowances);
   
   // Calculate automatic allowances based on gross salary
@@ -991,12 +995,13 @@ payrollSchema.statics.generatePayroll = async function(employeeId, month, year, 
     totalEarnings: totalEarnings,
     eobi: (() => {
       let eobi = getEmployeeEobiDeduction(employee);
-      if (factor < 1) eobi = Math.round(eobi * factor);
+      // Partial salary: salary only — do not scale EOBI. Joining month still prorates.
+      if (factor < 1 && !isPartialSalary) eobi = Math.round(eobi * factor);
       return eobi;
     })(),
     employeeSecurity: (() => {
       let sec = getEmployeeSecurityDeduction(employee);
-      if (factor < 1) sec = Math.round(sec * factor);
+      if (factor < 1 && !isPartialSalary) sec = Math.round(sec * factor);
       return sec;
     })(),
     currency: employee.currency || 'PKR',

@@ -3759,7 +3759,7 @@ const EmployeeForm = () => {
                 Partial monthly pay
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Pay a fixed number of calendar days each month for selected periods. Salary and all allowances are scaled the same way as join-month payroll.
+                Pay a fixed number of calendar days each month for selected periods. Only salary (gross) is scaled by those days — allowances and other components stay full.
               </Typography>
             </Grid>
             <Grid item xs={12} md={6}>
@@ -3785,7 +3785,7 @@ const EmployeeForm = () => {
                     value={formik.values.partialSalaryPay?.payableDaysPerMonth || ''}
                     onChange={(e) => formik.setFieldValue('partialSalaryPay.payableDaysPerMonth', e.target.value)}
                     inputProps={{ min: 1, max: 31 }}
-                    helperText="e.g. 8 days salary for each selected month"
+                    helperText="e.g. 8 days salary only; allowances remain full"
                     required
                   />
                 </Grid>

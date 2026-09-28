@@ -1,4 +1,3 @@
-const { prorateEmployeeAllowances } = require('./allowanceHelpers');
 const {
   applyJoiningProration,
   buildProrationRemarksSuffix: buildJoiningProrationRemarksSuffix,
@@ -45,14 +44,15 @@ const getPartialSalaryProration = (employee, month, year) => {
     payableDays,
     daysInMonth,
     type: 'partial_salary',
+    salaryOnly: true,
     workingDaysFromJoining: payableDays,
-    reason: `Partial pay: ${payableDays}/${daysInMonth} days salary for ${monthLabel} ${year}`
+    reason: `Partial pay: ${payableDays}/${daysInMonth} days on salary only (allowances & other components full) for ${monthLabel} ${year}`
   };
 };
 
 const buildPartialSalaryRemarksSuffix = (proration) => {
   if (!proration?.isProrated || proration.type !== 'partial_salary') return '';
-  return ` (Partial pay ${proration.payableDays}/${proration.daysInMonth} days)`;
+  return ` (Partial pay ${proration.payableDays}/${proration.daysInMonth} days on salary only)`;
 };
 
 const buildPayrollProrationRemarksSuffix = (proration) => {
@@ -65,6 +65,7 @@ const buildPayrollProrationRemarksSuffix = (proration) => {
 
 /**
  * Joining-date proration, overridden by employee partial-salary schedule for matching months.
+ * Partial salary scales GROSS/SALARY only — allowances stay at full monthly amounts.
  */
 const applyPayrollProration = (employee, month, year, monthlyGross) => {
   const joiningResult = applyJoiningProration(employee, month, year, monthlyGross);
@@ -79,7 +80,8 @@ const applyPayrollProration = (employee, month, year, monthlyGross) => {
     proration: partialProration,
     joiningDate: joiningResult.joiningDate,
     grossSalary: Math.round((Number(monthlyGross) || 0) * factor),
-    allowances: prorateEmployeeAllowances(employee?.allowances, factor)
+    // Partial pay must NOT scale allowances / other pay heads — only salary (gross).
+    allowances: employee?.allowances || {}
   };
 };
 
