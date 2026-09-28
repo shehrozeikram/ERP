@@ -301,131 +301,6 @@ function calculateMonthlyTaxFYAwareWithOneTimeArrears(
 }
 
 /**
- * Ordered FY month keys from first countable join month through June.
- * Same start rule as getRemainingFYMonths.
- * @returns {{ month: number, year: number }[]}
- */
-function getFYMonthSequence(hireDate, payrollMonth, payrollYear) {
-  const pm = Number(payrollMonth);
-  const py = Number(payrollYear);
-  if (!pm || !py) return [];
-
-  const fyStartYear = pm >= 7 ? py : py - 1;
-  let startYear = fyStartYear;
-  let startMonth = 6; // July (0-index)
-
-  if (hireDate) {
-    const hire = new Date(hireDate);
-    if (!isNaN(hire.getTime())) {
-      const fyStart = new Date(fyStartYear, 6, 1);
-      const fyEnd = new Date(fyStartYear + 1, 5, 30);
-      if (hire >= fyStart && hire <= fyEnd) {
-        startYear = hire.getUTCFullYear();
-        startMonth = hire.getUTCMonth();
-        const day = hire.getUTCDate();
-        const daysInHireMonth = new Date(Date.UTC(startYear, startMonth + 1, 0)).getUTCDate();
-        const daysWorkedInHireMonth = daysInHireMonth - day + 1;
-        if (daysWorkedInHireMonth < daysInHireMonth / 2) {
-          startMonth += 1;
-          if (startMonth > 11) {
-            startMonth = 0;
-            startYear += 1;
-          }
-        }
-      }
-    }
-  }
-
-  const endYear = fyStartYear + 1;
-  const endMonth = 5; // June
-  const keys = [];
-  let y = startYear;
-  let m = startMonth;
-  while (y < endYear || (y === endYear && m <= endMonth)) {
-    keys.push({ month: m + 1, year: y });
-    m += 1;
-    if (m > 11) {
-      m = 0;
-      y += 1;
-    }
-    if (keys.length > 12) break;
-  }
-  return keys;
-}
-
-/**
- * Partial monthly pay tax (HR sheet):
- *   actual taxable (prior FY months + current) + (remaining months × standard taxable)
- *   + arrears once → FBR ÷ FY months
- *
- * Prior locked months are READ-ONLY inputs; they are never written here.
- *
- * @param {object} opts
- * @param {number}   opts.currentMonthTaxable - Recurring taxable for the month being paid
- * @param {number[]} opts.priorMonthTaxables  - Taxable amounts for earlier FY months (actual pays)
- * @param {number}   opts.standardMonthlyTaxable - Full-rate monthly taxable for projection
- * @param {number}   [opts.arrears=0]
- * @param {Date|string} [opts.hireDate]
- * @param {number}   opts.payrollMonth
- * @param {number}   opts.payrollYear
- */
-function calculateMonthlyTaxPartialPayAware({
-  currentMonthTaxable,
-  priorMonthTaxables = [],
-  standardMonthlyTaxable,
-  arrears = 0,
-  hireDate = null,
-  payrollMonth,
-  payrollYear
-}) {
-  const current = Math.max(0, Number(currentMonthTaxable) || 0);
-  const prior = (Array.isArray(priorMonthTaxables) ? priorMonthTaxables : [])
-    .map((v) => Math.max(0, Number(v) || 0));
-  const standard = Math.max(0, Number(standardMonthlyTaxable) || 0);
-  const arrearsAmt = Math.max(0, Number(arrears) || 0);
-
-  const fyMonths = (hireDate && payrollMonth && payrollYear)
-    ? getRemainingFYMonths(hireDate, payrollMonth, payrollYear)
-    : 12;
-
-  const elapsedMonths = prior.length + 1;
-  const remaining = Math.max(0, fyMonths - elapsedMonths);
-
-  const actualTaxableSum = prior.reduce((s, v) => s + v, 0) + current;
-  const projectedTaxable = remaining * standard;
-  const annualTaxableIncome = actualTaxableSum + projectedTaxable + arrearsAmt;
-
-  if (annualTaxableIncome <= 0) {
-    return {
-      monthlyTax: 0,
-      fyMonths,
-      annualTaxableIncome: 0,
-      annualTax: 0,
-      remainingMonths: remaining,
-      elapsedMonths,
-      actualTaxableSum: 0,
-      projectedTaxable: 0,
-      usedPartialPayMethod: true
-    };
-  }
-
-  const annualTax = calculateAnnualTaxFromSlabs(annualTaxableIncome);
-  const monthlyTax = Math.round(annualTax / fyMonths);
-
-  return {
-    monthlyTax,
-    fyMonths,
-    annualTaxableIncome: Math.round(annualTaxableIncome),
-    annualTax: Math.round(annualTax),
-    remainingMonths: remaining,
-    elapsedMonths,
-    actualTaxableSum: Math.round(actualTaxableSum),
-    projectedTaxable: Math.round(projectedTaxable),
-    usedPartialPayMethod: true
-  };
-}
-
-/**
  * FY-aware version of calculateMonthlyTax for mid-year joiners in the current FY.
  * Projects annual income as monthly × (months from DOJ through June),
  * then monthly tax = annual ÷ those months.
@@ -527,10 +402,8 @@ module.exports = {
   calculateMonthlyTax,
   calculateMonthlyTaxFYAware,
   calculateMonthlyTaxFYAwareWithOneTimeArrears,
-  calculateMonthlyTaxPartialPayAware,
   calculateAnnualTaxFromSlabs,
   getRemainingFYMonths,
-  getFYMonthSequence,
   calculateMonthlyTaxImage,
   calculateTaxableIncome,
   calculateTax,

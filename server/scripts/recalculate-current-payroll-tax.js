@@ -95,45 +95,28 @@ const statuses = includeApproved ? ['Draft', 'Approved by AVP'] : ['Draft'];
 
   if (!apply) {
     const {
-      calculatePayrollTaxWithSettings,
-      loadPriorMonthTaxablesForEmployee,
-      computeStandardMonthlyTaxable
+      calculatePayrollTaxWithSettings
     } = require('../utils/allowanceTaxCalculator');
     const { resolveEmployeeIncomeTax } = require('../utils/allowanceHelpers');
 
     const payrolls = await Payroll.find({ month, year, status: { $in: statuses } }).populate(
       'employee',
-      'firstName lastName employeeId hireDate appointmentDate taxExemption salary allowances'
+      'firstName lastName employeeId hireDate appointmentDate taxExemption'
     );
 
     const changes = [];
     for (const p of payrolls) {
       const emp = p.employee;
       if (!emp) continue;
-      const hireDate = emp.hireDate || emp.appointmentDate;
-      const priorMonthTaxables = await loadPriorMonthTaxablesForEmployee({
-        employeeId: emp._id,
-        hireDate,
-        payrollMonth: month,
-        payrollYear: year,
-        settings
-      });
-      const standardMonthlyTaxable = computeStandardMonthlyTaxable({
-        employee: emp,
-        settings,
-        fallbackGross: p.grossSalary || 0
-      });
       const calc = calculatePayrollTaxWithSettings({
         grossSalary: p.grossSalary || 0,
         allowances: p.allowances || {},
         arrears: p.arrears || 0,
         employeeId: emp._id,
         settings,
-        hireDate,
+        hireDate: emp.hireDate || emp.appointmentDate,
         payrollMonth: month,
-        payrollYear: year,
-        priorMonthTaxables,
-        standardMonthlyTaxable
+        payrollYear: year
       });
       const { tax: newTax, isManual } = resolveEmployeeIncomeTax(emp, calc.totalTax);
       const oldTax = Number(p.incomeTax) || 0;
@@ -147,8 +130,7 @@ const statuses = includeApproved ? ['Draft', 'Approved by AVP'] : ['Draft'];
         delta: newTax - oldTax,
         fyMonths: getRemainingFYMonths(emp.hireDate || emp.appointmentDate, month, year),
         mainTaxable: calc.mainTaxableIncome,
-        allowanceTaxable: calc.allowanceTaxable,
-        usedPartialPayMethod: calc.usedPartialPayMethod
+        allowanceTaxable: calc.allowanceTaxable
       });
     }
     changes.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
