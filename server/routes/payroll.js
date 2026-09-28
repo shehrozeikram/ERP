@@ -26,7 +26,9 @@ const Payslip = require('../models/hr/Payslip');
 const { calculateMonthlyTax, calculateTaxableIncome, calculateTaxableIncomeCorrected, calculateTaxWithSeparateArrears } = require('../utils/taxCalculator');
 const {
   calculatePayrollTaxWithSettings,
-  loadPayrollTaxSettings
+  loadPayrollTaxSettings,
+  loadPriorMonthTaxablesForEmployee,
+  computeStandardMonthlyTaxable
 } = require('../utils/allowanceTaxCalculator');
 const { queryApproverCandidateUsers } = require('../utils/utilityBillApproverEligibility');
 const { markEmployeeArrearsPaidForPeriod } = require('../utils/employeeArrearsUpdate');
@@ -116,7 +118,7 @@ const getCurrentMonthEmployeeArrears = (employee) => {
 };
 
 /** Shared current-payroll math for General Payroll overview and employee detail preview. */
-const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = null, month = null, year = null) => {
+const computeEmployeeCurrentPayrollFigures = async (employee, gross, taxSettings = null, month = null, year = null) => {
   const payrollMonth = month || new Date().getMonth() + 1;
   const payrollYear = year || new Date().getFullYear();
   const prorationResult = applyPayrollProration(employee, payrollMonth, payrollYear, gross);
@@ -136,15 +138,30 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
 
   const { employeeArrears, arrearsDetails } = getCurrentMonthEmployeeArrears(employee);
   const mainSalary = grossSalary + additionalAllowances;
+  const hireDate = employee.hireDate || employee.appointmentDate;
+  const priorMonthTaxables = await loadPriorMonthTaxablesForEmployee({
+    employeeId: employee._id,
+    hireDate,
+    payrollMonth,
+    payrollYear,
+    settings: taxSettings
+  });
+  const standardMonthlyTaxable = computeStandardMonthlyTaxable({
+    employee,
+    settings: taxSettings,
+    fallbackGross: gross
+  });
   const taxCalculation = calculatePayrollTaxWithSettings({
     grossSalary,
     allowances: effectiveAllowances,
     arrears: employeeArrears,
     employeeId: employee._id,
     settings: taxSettings,
-    hireDate: employee.hireDate || employee.appointmentDate,
-    payrollMonth: payrollMonth,
-    payrollYear: payrollYear
+    hireDate,
+    payrollMonth,
+    payrollYear,
+    priorMonthTaxables,
+    standardMonthlyTaxable
   });
   // Tax is calculated on already-prorated gross/allowances — no second multiply needed.
   // Mid-year joiners in the current FY use remaining months for annualization; others stay ×12.
@@ -178,7 +195,6 @@ const computeEmployeeCurrentPayrollFigures = (employee, gross, taxSettings = nul
     employeeSecurityDeduction,
     netSalary,
     proration,
-    effectiveAllowances,
     skipPayroll: false
   };
 };
@@ -1302,7 +1318,7 @@ router.get('/current-overview',
 
       for (const employee of activeEmployees) {
         const gross = incrementMap.get(employee._id.toString()) || employee.salary.gross;
-        const figures = computeEmployeeCurrentPayrollFigures(
+        const figures = await computeEmployeeCurrentPayrollFigures(
           employee,
           gross,
           taxSettings,
@@ -1408,7 +1424,7 @@ const fetchEmployeePayrollDetailPayload = async (employeeId, req) => {
 
   const gross = await resolveEmployeeGrossSalary(employee);
   const taxSettings = await loadPayrollTaxSettings();
-  const figures = computeEmployeeCurrentPayrollFigures(
+  const figures = await computeEmployeeCurrentPayrollFigures(
     employee,
     gross,
     taxSettings,
@@ -1826,16 +1842,31 @@ router.post('/', [
           const totalEarnings = grossSalary + additionalAllowances + employeeArrears;
 
           // Taxable = (gross − medical%) + taxable allowances + arrears
-          // Then FBR on DOJ-based FY annualization (not separate arrears tax)
+          // Partial-pay method: use locked prior FY months (read-only) + project remaining at full rate
+          const hireDate = employee.hireDate || employee.appointmentDate;
+          const priorMonthTaxables = await loadPriorMonthTaxablesForEmployee({
+            employeeId: employee._id,
+            hireDate,
+            payrollMonth: month,
+            payrollYear: year,
+            settings: taxSettings
+          });
+          const standardMonthlyTaxable = computeStandardMonthlyTaxable({
+            employee,
+            settings: taxSettings,
+            fallbackGross: monthlyGross
+          });
           const taxCalculation = calculatePayrollTaxWithSettings({
             grossSalary,
             allowances: effectiveAllowances,
             arrears: employeeArrears,
             employeeId: employee._id,
             settings: taxSettings,
-            hireDate: employee.hireDate || employee.appointmentDate,
+            hireDate,
             payrollMonth: month,
-            payrollYear: year
+            payrollYear: year,
+            priorMonthTaxables,
+            standardMonthlyTaxable
           });
           // Tax is calculated on already-prorated gross/allowances — do NOT multiply by factor again.
           // Mid-year joiners in the current FY use remaining months; others stay ×12 / ÷12.
@@ -2483,17 +2514,32 @@ router.put('/:id', [
     (payroll.medicalAllowance || 0);
   const taxSettings = await loadPayrollTaxSettings();
   const employeeForTax = await Employee.findById(payroll.employee)
-    .select('manualTax eobi hireDate appointmentDate')
+    .select('manualTax eobi hireDate appointmentDate salary allowances')
     .lean();
+  const hireDate = employeeForTax?.hireDate || employeeForTax?.appointmentDate;
+  const priorMonthTaxables = await loadPriorMonthTaxablesForEmployee({
+    employeeId: payroll.employee,
+    hireDate,
+    payrollMonth: payroll.month,
+    payrollYear: payroll.year,
+    settings: taxSettings
+  });
+  const standardMonthlyTaxable = computeStandardMonthlyTaxable({
+    employee: employeeForTax,
+    settings: taxSettings,
+    fallbackGross: grossForTax
+  });
   const taxCalculation = calculatePayrollTaxWithSettings({
     grossSalary: grossForTax,
     allowances: payroll.allowances,
     arrears: currentArrears,
     employeeId: payroll.employee,
     settings: taxSettings,
-    hireDate: employeeForTax?.hireDate || employeeForTax?.appointmentDate,
+    hireDate,
     payrollMonth: payroll.month,
-    payrollYear: payroll.year
+    payrollYear: payroll.year,
+    priorMonthTaxables,
+    standardMonthlyTaxable
   });
 
   const { tax: resolvedPayrollTax } = resolveEmployeeIncomeTax(employeeForTax, taxCalculation.totalTax);

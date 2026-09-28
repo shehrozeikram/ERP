@@ -695,11 +695,11 @@ const Vouchers = () => {
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <VoucherIcon color="primary" />
+          <VoucherIcon color="primary" />
             <Typography variant="h5" fontWeight={700}>Voucher Center</Typography>
           </Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <FinanceCompanySelector minWidth={280} showHelper={false} />
+          <FinanceCompanySelector minWidth={280} showHelper={false} />
             <Button
               variant="contained"
               startIcon={<AddIcon />}
@@ -790,17 +790,17 @@ const Vouchers = () => {
                 <TableRow><TableCell colSpan={12} align="center">No vouchers found</TableCell></TableRow>
               ) : voucherRows.map((row) => {
                 return (
-                  <TableRow key={row._id} hover>
-                    <TableCell>{formatDate(row.date)}</TableCell>
-                    <TableCell>{row.entryNumber}</TableCell>
-                    <TableCell>{row.voucherType}</TableCell>
+                <TableRow key={row._id} hover>
+                  <TableCell>{formatDate(row.date)}</TableCell>
+                  <TableCell>{row.entryNumber}</TableCell>
+                  <TableCell>{row.voucherType}</TableCell>
                     <TableCell>{row.companyId?.name || row.customCompany || '—'}</TableCell>
                     <TableCell>{row.vendorOrEmployeeName || '—'}</TableCell>
                     <TableCell>{row.costCenter?.name || row.costCenter || '—'}</TableCell>
                     <TableCell>{row.department?.name || (typeof row.department === 'string' ? row.department : '—')}</TableCell>
                     <TableCell>{row.reference || '—'}</TableCell>
-                    <TableCell>{row.description}</TableCell>
-                    <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
+                  <TableCell>{row.description}</TableCell>
+                  <TableCell align="right">{formatPKR(row.totalDebits || 0)}</TableCell>
                     <TableCell>
                       {(() => {
                         const display = getVoucherStatusDisplay(row);
@@ -819,7 +819,7 @@ const Vouchers = () => {
                         ) : chip;
                       })()}
                     </TableCell>
-                    <TableCell align="center">
+                  <TableCell align="center">
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
                         <Tooltip title="View Voucher">
                           <IconButton size="small" onClick={() => navigate(`/finance/vouchers/${row._id}`)}>
@@ -981,8 +981,8 @@ const Vouchers = () => {
                   </Box>
                 </MenuItem>
               </Menu>
-              <IconButton
-                size="small"
+                      <IconButton
+                        size="small"
                 onClick={() => {
                   setViewDialog((prev) => ({ ...prev, open: false }));
                   setMultiPrintMode(false);
@@ -990,7 +990,7 @@ const Vouchers = () => {
                 sx={{ color: '#666', '@media print': { display: 'none' } }}
               >
                 <CloseIcon />
-              </IconButton>
+                      </IconButton>
             </Box>
           </Box>
         </DialogTitle>
@@ -1060,7 +1060,7 @@ const Vouchers = () => {
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, '@media print': { display: 'none !important' } }}>
                           <Box sx={{ display: 'flex', gap: 1 }}>
                             <Button
-                              size="small"
+                          size="small"
                               variant={viewDialog.activeVoucherSubTab === 'bill' ? 'contained' : 'outlined'}
                               onClick={() => setViewDialog((prev) => ({ ...prev, activeVoucherSubTab: 'bill' }))}
                               startIcon={<VoucherIcon />}
@@ -1069,7 +1069,7 @@ const Vouchers = () => {
                               Bill Voucher ({viewDialog.billVoucher.entryNumber || 'Voucher Type: BILL'})
                             </Button>
                             <Button
-                              size="small"
+                          size="small"
                               variant={viewDialog.activeVoucherSubTab === 'payment' ? 'contained' : 'outlined'}
                               onClick={() => setViewDialog((prev) => ({ ...prev, activeVoucherSubTab: 'payment' }))}
                               sx={{ textTransform: 'none', fontWeight: 600 }}
@@ -1084,7 +1084,7 @@ const Vouchers = () => {
                       )}
 
                       <Paper
-                        sx={{
+                          sx={{
                           p: { xs: 3, sm: 3.5, md: 4 },
                           maxWidth: '210mm',
                           mx: 'auto',
@@ -1114,7 +1114,7 @@ const Vouchers = () => {
                                 ? `${activeVoucher.voucherSeries} Voucher`
                                 : `${String(activeVoucher?.voucherType || activeVoucher?.referenceType || 'Bill').toUpperCase()} VOUCHER`}
                             </Typography>
-                          </Box>
+                      </Box>
                           <Box sx={{ textAlign: 'right' }}>
                             <Typography variant="body2" sx={{ '@media print': { fontSize: '1.1rem', mb: 0.5 } }}><strong>Date:</strong> {formatDateForPrint(activeVoucher.date)}</Typography>
                             <Typography variant="body2" sx={{ '@media print': { fontSize: '1.05rem', mb: 0.5 } }}>
@@ -1171,7 +1171,7 @@ const Vouchers = () => {
                                   {line?.account?.accountNumber ? (
                                     <Typography variant="caption" display="block" color="text.secondary" sx={{ '@media print': { fontSize: '0.85rem' } }}>({line.account.accountNumber})</Typography>
                                   ) : null}
-                                </TableCell>
+                  </TableCell>
                                 <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{line.description || activeVoucher.description || '—'}</TableCell>
                                 <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>
                                   {(() => {
@@ -1202,7 +1202,7 @@ const Vouchers = () => {
                                     }
                                     return '—';
                                   })()}
-                                </TableCell>
+                  </TableCell>
                                 <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.debit ? formatPKR(line.debit) : '0'}</TableCell>
                                 <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1.1, px: 1.5, fontSize: '1.05rem', fontWeight: 600, border: '1px solid #000' } }} align="right">{line.credit ? formatPKR(line.credit) : '0'}</TableCell>
                               </TableRow>
@@ -1232,7 +1232,7 @@ const Vouchers = () => {
                             </TableRow>
                           </TableHead>
                           <TableBody>
-                            {(() => {
+                    {(() => {
                               const authorityDoc = viewDialog.financeAuthorityDoc;
                               const approvals = Array.isArray(authorityDoc?.financeAuthorityApprovals) ? authorityDoc.financeAuthorityApprovals : [];
                               const byKey = new Map(approvals.map((a) => [String(a?.authorityKey || '').trim(), a]).filter(([k]) => Boolean(k)));
@@ -1257,13 +1257,13 @@ const Vouchers = () => {
                                     ? ([approver?.firstName, approver?.lastName].filter(Boolean).join(' ').trim() || approver?.email || '—')
                                     : '—';
 
-                                return (
+                      return (
                                   <TableRow key={slot.key}>
                                     <TableCell sx={{ border: '1px solid', borderColor: 'divider', fontWeight: 600, '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{slot.label}</TableCell>
                                     <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 1, px: 1.5, fontSize: '1.05rem', border: '1px solid #000' } }}>{approverName}</TableCell>
                                     <TableCell sx={{ border: '1px solid', borderColor: 'divider', '@media print': { py: 0.8, px: 1.2, border: '1px solid #000' } }}>
-                                      <Chip
-                                        size="small"
+                        <Chip
+                          size="small"
                                         label={decision === 'rejected' ? 'Rejected' : (decision === 'approved' ? 'Approved' : 'Pending')}
                                         color={decision === 'rejected' ? 'error' : (decision === 'approved' ? 'success' : 'warning')}
                                         variant={decision === 'approved' ? 'filled' : 'outlined'}
@@ -1283,7 +1283,7 @@ const Vouchers = () => {
                                   </TableRow>
                                 );
                               });
-                            })()}
+                    })()}
                           </TableBody>
                         </Table>
                       </Box>
@@ -1428,7 +1428,7 @@ const Vouchers = () => {
                                     <TableCell sx={{ '@media print': { py: 0.4, px: 0.6, fontSize: '0.72rem' } }}>{name}</TableCell>
                                     <TableCell sx={{ '@media print': { py: 0.3, px: 0.5 } }}>
                                       <Chip size="small" label={chipLabel} color={chipColor} variant={status === 'pending' ? 'outlined' : 'filled'} sx={{ '@media print': { height: 20, fontSize: '0.65rem' } }} />
-                                    </TableCell>
+                  </TableCell>
                                     <TableCell sx={{ whiteSpace: 'nowrap', '@media print': { py: 0.4, px: 0.6, fontSize: '0.7rem' } }}>{step?.actedAt ? formatDateForPrint(step.actedAt) : '—'}</TableCell>
                                     <TableCell align="center" sx={{ '@media print': { py: 0.2, px: 0.4 } }}>
                                       {status === 'approved' && approver?.digitalSignature ? (
@@ -1438,10 +1438,10 @@ const Vouchers = () => {
                                       ) : (
                                         <Typography variant="caption" color="text.secondary">—</Typography>
                                       )}
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
+                  </TableCell>
+                </TableRow>
+                );
+              })}
                             </TableBody>
                           </Table>
                         </Box>
@@ -1816,10 +1816,10 @@ const Vouchers = () => {
                                 );
                               });
                             })()}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </Paper>
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
                   )}
                 </Box>
               )}
@@ -1879,12 +1879,12 @@ const Vouchers = () => {
                             formatNumber={(n) => Number(n || 0).toLocaleString()}
                             formatDateForPrint={formatDateForPrint}
                           />
-                        </Box>
+          </Box>
                       ))}
                     </Stack>
                   )}
-                </Box>
-              )}
+            </Box>
+          )}
 
               {/* ----------------- SECTION 5: GRNS ----------------- */}
               {(multiPrintMode ? (printSelection.grns && viewDialog.poGrns?.length > 0) : viewDialog.poAuditTab === 5) && (
@@ -2177,7 +2177,7 @@ const Vouchers = () => {
                                   Finance Document Approval Authority
                                 </Typography>
                                 <Table
-                                  size="small"
+                      size="small"
                                   sx={{
                                     border: '1.5px solid #334155',
                                     '& th': {
@@ -2312,14 +2312,14 @@ const Vouchers = () => {
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                                   Source: {doc.source || 'Attachment'}
                                 </Typography>
-                                <Button
-                                  variant="outlined"
+          <Button
+            variant="outlined"
                                   size="small"
                                   className="no-print"
                                   onClick={() => window.open(doc.url, '_blank', 'noopener,noreferrer')}
                                 >
                                   Open / Download Attachment
-                                </Button>
+          </Button>
                               </Paper>
                             )}
                           </Box>

@@ -1,7 +1,9 @@
 const Payroll = require('../models/hr/Payroll');
 const {
   calculatePayrollTaxWithSettings,
-  loadPayrollTaxSettings
+  loadPayrollTaxSettings,
+  loadPriorMonthTaxablesForEmployee,
+  computeStandardMonthlyTaxable
 } = require('../utils/allowanceTaxCalculator');
 const { resolveEmployeeIncomeTax } = require('../utils/allowanceHelpers');
 const { isPayrollRecordLocked } = require('../utils/payrollLock');
@@ -144,6 +146,19 @@ class MonthlyTaxUpdateService {
       const grossSalary = Number(payroll.grossSalary) || 0;
       const arrears = Number(payroll.arrears) || 0;
       const allowances = payroll.allowances || {};
+      const hireDate = employee.hireDate || employee.appointmentDate;
+      const priorMonthTaxables = await loadPriorMonthTaxablesForEmployee({
+        employeeId: employee._id,
+        hireDate,
+        payrollMonth: payroll.month,
+        payrollYear: payroll.year,
+        settings
+      });
+      const standardMonthlyTaxable = computeStandardMonthlyTaxable({
+        employee,
+        settings,
+        fallbackGross: grossSalary
+      });
 
       const taxCalculation = calculatePayrollTaxWithSettings({
         grossSalary,
@@ -151,9 +166,11 @@ class MonthlyTaxUpdateService {
         arrears,
         employeeId: employee._id,
         settings,
-        hireDate: employee.hireDate || employee.appointmentDate,
+        hireDate,
         payrollMonth: payroll.month,
-        payrollYear: payroll.year
+        payrollYear: payroll.year,
+        priorMonthTaxables,
+        standardMonthlyTaxable
       });
 
       const { tax: newTax, isManual } = resolveEmployeeIncomeTax(employee, taxCalculation.totalTax);

@@ -1662,50 +1662,50 @@ const ExecutiveCeoPaymentsSection = () => {
                           {/* Approve / reject / return — in-place for all inbox types */}
                           <>
                               <Tooltip title="Approve">
-                                <IconButton
-                                  size="small"
-                                  color="success"
-                                  onClick={() => openApprove(item)}
-                                  sx={{
-                                    border: '1px solid rgba(46, 125, 50, 0.3)',
-                                    bgcolor: alpha('#2e7d32', 0.08),
-                                    '&:hover': { bgcolor: alpha('#2e7d32', 0.2) }
-                                  }}
-                                >
-                                  <CheckCircleIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
+                            <IconButton
+                              size="small"
+                              color="success"
+                              onClick={() => openApprove(item)}
+                              sx={{
+                                border: '1px solid rgba(46, 125, 50, 0.3)',
+                                bgcolor: alpha('#2e7d32', 0.08),
+                                '&:hover': { bgcolor: alpha('#2e7d32', 0.2) }
+                              }}
+                            >
+                              <CheckCircleIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
 
                               <Tooltip title="Reject">
-                                <IconButton
-                                  size="small"
-                                  color="error"
-                                  onClick={() => openReject(item)}
-                                  sx={{
-                                    border: '1px solid rgba(211, 47, 47, 0.3)',
-                                    bgcolor: alpha('#d32f2f', 0.05),
-                                    '&:hover': { bgcolor: alpha('#d32f2f', 0.15) }
-                                  }}
-                                >
-                                  <CancelIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => openReject(item)}
+                              sx={{
+                                border: '1px solid rgba(211, 47, 47, 0.3)',
+                                bgcolor: alpha('#d32f2f', 0.05),
+                                '&:hover': { bgcolor: alpha('#d32f2f', 0.15) }
+                              }}
+                            >
+                              <CancelIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
 
                               {!(item.isIndent || item.isUtilityBill || item.isVendorBill) && (
                               <Tooltip title="Return with observations">
-                                <IconButton
-                                  size="small"
-                                  color="warning"
-                                  onClick={() => openReturn(item)}
-                                  sx={{
-                                    border: '1px solid rgba(237, 108, 2, 0.3)',
-                                    bgcolor: alpha('#ed6c02', 0.05),
-                                    '&:hover': { bgcolor: alpha('#ed6c02', 0.15) }
-                                  }}
-                                >
-                                  <WarningIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
+                            <IconButton
+                              size="small"
+                              color="warning"
+                              onClick={() => openReturn(item)}
+                              sx={{
+                                border: '1px solid rgba(237, 108, 2, 0.3)',
+                                bgcolor: alpha('#ed6c02', 0.05),
+                                '&:hover': { bgcolor: alpha('#ed6c02', 0.15) }
+                              }}
+                            >
+                              <WarningIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
                               )}
                             </>
                         </Stack>
@@ -1757,16 +1757,16 @@ const ExecutiveCeoPaymentsSection = () => {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            '@media print': {
-              boxShadow: 'none',
-              maxWidth: '100%',
-              margin: 0,
-              height: '100%',
-              width: '100%',
+              '@media print': {
+                boxShadow: 'none',
+                maxWidth: '100%',
+                margin: 0,
+                height: '100%',
+                width: '100%',
               maxHeight: '100%',
               borderRadius: 0,
               background: '#ffffff'
-            }
+              }
           }
         }}
       >
@@ -2638,8 +2638,8 @@ const ExecutiveCeoPaymentsSection = () => {
               History
             </Button>
             {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && !viewDialog.isIndent && !viewDialog.isUtilityBill && !viewDialog.isVendorBill && (
-              <Button
-                variant="outlined"
+            <Button
+              variant="outlined"
                 size="small"
                 startIcon={<PrintIcon />}
                 onClick={handlePrint}

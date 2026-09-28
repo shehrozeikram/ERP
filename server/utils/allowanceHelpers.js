@@ -173,7 +173,12 @@ const syncDraftPayrollsAllowancesFromEmployee = async (employee) => {
 const syncDraftPayrollsTaxFromSettings = async (settings) => {
   const Payroll = require('../models/hr/Payroll');
   const Employee = require('../models/hr/Employee');
-  const { calculatePayrollTaxWithSettings, normalizeSettings } = require('./allowanceTaxCalculator');
+  const {
+    calculatePayrollTaxWithSettings,
+    normalizeSettings,
+    loadPriorMonthTaxablesForEmployee,
+    computeStandardMonthlyTaxable
+  } = require('./allowanceTaxCalculator');
   const config = normalizeSettings(settings);
 
   const payrolls = await Payroll.find({ status: 'Draft' });
@@ -189,10 +194,24 @@ const syncDraftPayrollsTaxFromSettings = async (settings) => {
     const employeeId = payroll.employee;
 
     let hireDate = null;
+    let empDoc = null;
     if (employeeId) {
-      const emp = await Employee.findById(employeeId).select('hireDate appointmentDate').lean();
-      hireDate = emp?.hireDate || emp?.appointmentDate || null;
+      empDoc = await Employee.findById(employeeId).select('hireDate appointmentDate salary allowances').lean();
+      hireDate = empDoc?.hireDate || empDoc?.appointmentDate || null;
     }
+
+    const priorMonthTaxables = await loadPriorMonthTaxablesForEmployee({
+      employeeId,
+      hireDate,
+      payrollMonth: payroll.month,
+      payrollYear: payroll.year,
+      settings: config
+    });
+    const standardMonthlyTaxable = computeStandardMonthlyTaxable({
+      employee: empDoc || { _id: employeeId, salary: {}, allowances: {} },
+      settings: config,
+      fallbackGross: grossSalary
+    });
 
     const taxCalculation = calculatePayrollTaxWithSettings({
       grossSalary,
@@ -202,7 +221,9 @@ const syncDraftPayrollsTaxFromSettings = async (settings) => {
       settings: config,
       hireDate,
       payrollMonth: payroll.month,
-      payrollYear: payroll.year
+      payrollYear: payroll.year,
+      priorMonthTaxables,
+      standardMonthlyTaxable
     });
 
     payroll.incomeTax = Math.round(taxCalculation.totalTax);
