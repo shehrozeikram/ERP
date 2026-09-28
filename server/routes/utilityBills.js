@@ -1170,7 +1170,8 @@ router.post('/:id/submit', requireBillPermission('update'), async (req, res) => 
       notifyChatApprovers(approverIds, { 
         docType: 'Centralized Store Bill', 
         docNumber: bill.billId || '',
-        url: `/general/centralized-store/bills/${bill._id}`
+        url: `/general/centralized-store/bills/${bill._id}`,
+        fromUser: req.user
       }).catch(() => {});
     }
 

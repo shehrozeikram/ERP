@@ -1,12 +1,17 @@
 /**
  * approvalChatNotifier.js
  * Utility to send internal chat notifications when a document is assigned.
+ * Recipients must be: (1) the assigned approver, AND (2) on the dynamic allow-list.
  */
 const User = require('../models/User');
 const ChatConversation = require('../models/chat/ChatConversation');
 const ChatMessage = require('../models/chat/ChatMessage');
 const realtimeNotificationGateway = require('../services/realtimeNotificationGateway');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+const {
+  filterUserIdsByApprovalNotifyAllowList,
+  resolveInitiatorName
+} = require('./approvalMobileNotifyRecipients');
 
 // Simple serialize function for emitting new message
 function serializeSystemMessage(doc, viewerId) {
@@ -33,10 +38,32 @@ function serializeSystemMessage(doc, viewerId) {
   };
 }
 
+async function buildApprovalChatMessage(context = {}) {
+  if (context.message) return context.message;
+
+  const docType = context.docType || 'Document';
+  const docNumber = context.docNumber || '';
+  const docUrl = context.url
+    ? `\n🔗 *Link:* ${process.env.CLIENT_URL || 'https://tovus.net'}${context.url}`
+    : '';
+  const fromName = await resolveInitiatorName(
+    context.fromUser || context.fromName || context.initiator,
+    User
+  );
+  const fromLine = fromName ? `\n👤 *From:* ${fromName}` : '';
+
+  return (
+    `🔔 *Approval Request*\n\n` +
+    `📄 *Document:* ${docType}${docNumber ? ` (${docNumber})` : ''}` +
+    `${fromLine}${docUrl}\n\n` +
+    `You have been assigned to review this document. Please check your approval queue.`
+  );
+}
+
 /**
- * Notify one or many approvers via Internal Chat.
- * @param {string|string[]|object[]} userIds - User ID, array of IDs, or User objects
- * @param {{ docType?: string, docNumber?: string, message?: string }} context
+ * Notify assigned approvers via Internal Chat (filtered by allow-list).
+ * @param {string|string[]|object[]} userIds - Assigned approver user ID(s)
+ * @param {{ docType?: string, docNumber?: string, message?: string, url?: string, fromUser?: object|string, fromName?: string }} context
  */
 async function notifyChatApprovers(userIds, context = {}) {
   try {
@@ -44,13 +71,17 @@ async function notifyChatApprovers(userIds, context = {}) {
     const extractedIds = rawIds
       .map((item) => (item && typeof item === 'object' ? String(item._id || item.id) : String(item)))
       .filter(Boolean);
-    const ids = [...new Set(extractedIds)];
 
-    if (!ids.length) return;
+    // Only assigned approvers who are on the dynamic mobile-notify allow-list
+    const ids = await filterUserIdsByApprovalNotifyAllowList(extractedIds, User);
+    if (!ids.length) {
+      console.log('[ApprovalChat] No allow-listed assignees to notify.');
+      return;
+    }
 
     // Find the dedicated bot user (System Sender)
     let systemUser = await User.findOne({ email: 'bot@tovus.net' }).select('_id firstName lastName').lean();
-    
+
     // Auto-create bot user if it doesn't exist (useful for clean production deployment)
     if (!systemUser) {
       const newBot = new User({
@@ -70,17 +101,11 @@ async function notifyChatApprovers(userIds, context = {}) {
     }
 
     const systemUserId = String(systemUser._id);
-    const docType = context.docType || 'Document';
-    const docNumber = context.docNumber || '';
-    const docUrl = context.url ? `\n🔗 *Link:* ${process.env.CLIENT_URL || 'https://tovus.net'}${context.url}` : '';
-    
-    const defaultMsg = `🔔 *System Notification: New Assignment*\n\n📄 *Document:* ${docType} ${docNumber ? `(${docNumber})` : ''}${docUrl}\n\nYou have been assigned to review this document. Please check your approval queue!`;
-    const messageBody = context.message || defaultMsg;
+    const messageBody = await buildApprovalChatMessage(context);
     const snippet = messageBody.slice(0, 240);
 
     for (const userId of ids) {
       const targetId = String(userId);
-      // if (targetId === systemUserId) continue; // Don't notify self
 
       const participants = [systemUserId, targetId].sort();
       const pairKey = `${participants[0]}::${participants[1]}`;
@@ -112,7 +137,7 @@ async function notifyChatApprovers(userIds, context = {}) {
       conv.lastMessageSender = systemUserId;
       await conv.save();
 
-      // 4. Emit socket events to the target user (and the sender, if online)
+      // 4. Emit socket events to the target user
       const serializedForTarget = serializeSystemMessage(msgDoc.toObject(), targetId);
       realtimeNotificationGateway.emitToUser(targetId, 'chat:message', {
         conversationId: String(conv._id),
@@ -121,7 +146,7 @@ async function notifyChatApprovers(userIds, context = {}) {
       realtimeNotificationGateway.emitToUser(targetId, 'chat:conversation:updated', {
         conversationId: String(conv._id)
       });
-      
+
       // TRIGGER PUSH NOTIFICATION FOR MOBILE APP
       try {
         const { sendPushNotification } = require('../services/pushNotificationService');
@@ -162,7 +187,7 @@ async function notifyChatApprovers(userIds, context = {}) {
           console.warn('[ApprovalChat] Standard notification error:', e.message || e);
         }
       }
-      
+
       if (targetId !== systemUserId) {
         const serializedForSystem = serializeSystemMessage(msgDoc.toObject(), systemUserId);
         realtimeNotificationGateway.emitToUser(systemUserId, 'chat:message', {
@@ -179,4 +204,4 @@ async function notifyChatApprovers(userIds, context = {}) {
   }
 }
 
-module.exports = { notifyChatApprovers };
+module.exports = { notifyChatApprovers, buildApprovalChatMessage };

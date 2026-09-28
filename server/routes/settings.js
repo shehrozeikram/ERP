@@ -3,6 +3,11 @@ const router = express.Router();
 const { asyncHandler } = require('../middleware/errorHandler');
 const { authorize, authMiddleware } = require('../middleware/auth');
 const SystemSettings = require('../models/general/SystemSettings');
+const {
+  getApprovalMobileNotifyEmails,
+  setApprovalMobileNotifyEmails,
+  DEFAULT_APPROVAL_MOBILE_NOTIFY_EMAILS
+} = require('../utils/approvalMobileNotifyRecipients');
 
 // GET /api/settings
 // Any authenticated user can read announcement
@@ -52,5 +57,48 @@ router.put(
   })
 );
 
-module.exports = router;
+// GET /api/settings/approval-mobile-notify-emails
+// Who may receive mobile chat / WhatsApp approval notifications (assignee ∩ this list)
+router.get(
+  '/approval-mobile-notify-emails',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'developer'),
+  asyncHandler(async (req, res) => {
+    const emails = await getApprovalMobileNotifyEmails();
+    res.json({
+      success: true,
+      data: {
+        emails,
+        defaults: DEFAULT_APPROVAL_MOBILE_NOTIFY_EMAILS
+      }
+    });
+  })
+);
 
+// PUT /api/settings/approval-mobile-notify-emails
+// Body: { emails: ['a@x.com', ...] } — replaces the dynamic allow-list
+router.put(
+  '/approval-mobile-notify-emails',
+  authMiddleware,
+  authorize('super_admin', 'admin', 'developer'),
+  asyncHandler(async (req, res) => {
+    const incoming = Array.isArray(req.body?.emails) ? req.body.emails : req.body?.emailList;
+    if (!Array.isArray(incoming)) {
+      return res.status(400).json({
+        success: false,
+        message: 'emails must be an array of email addresses'
+      });
+    }
+    const emails = await setApprovalMobileNotifyEmails(
+      incoming,
+      req.user?.id || req.user?._id
+    );
+    res.json({
+      success: true,
+      message: 'Approval mobile notify recipients updated',
+      data: { emails }
+    });
+  })
+);
+
+module.exports = router;

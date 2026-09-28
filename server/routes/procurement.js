@@ -29,6 +29,7 @@ const User = require('../models/User');
 const { canMutateComparativeAuthorityUsers } = require('../utils/comparativeStatementAuthorityLock');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
+const { notifyChatApprovers } = require('../utils/approvalChatNotifier');
 
 console.log('✅ Procurement routes loaded successfully');
 
@@ -2102,7 +2103,8 @@ router.put('/purchase-orders/:id/send-to-audit',
         targetTab: 'pre_audit'
       }
     });
-    notifyApprovers(auditRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
+    notifyApprovers(auditRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', fromUser: req.user }).catch(() => {});
+    notifyChatApprovers(auditRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', url: '/audit', fromUser: req.user }).catch(() => {});
 
     res.json({
       success: true,
@@ -2244,7 +2246,8 @@ router.put('/purchase-orders/:id/audit-approve',
         targetTab: 'ceo_secretariat'
       }
     });
-    notifyApprovers(ceoSecretariatRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
+    notifyApprovers(ceoSecretariatRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', fromUser: req.user }).catch(() => {});
+    notifyChatApprovers(ceoSecretariatRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', url: '/general/ceo-secretariat', fromUser: req.user }).catch(() => {});
 
     res.json({
       success: true,
@@ -2408,7 +2411,8 @@ router.put('/purchase-orders/:id/forward-to-ceo',
         targetTab: 'ceo_approval'
       }
     });
-    notifyApprovers(ceoRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
+    notifyApprovers(ceoRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', fromUser: req.user }).catch(() => {});
+    notifyChatApprovers(ceoRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', url: '/dashboard', fromUser: req.user }).catch(() => {});
 
     res.json({
       success: true,
@@ -2510,7 +2514,8 @@ router.put('/purchase-orders/:id/ceo-approve',
           targetTab: isVendorAdvanceFlow ? 'vendor-advance' : 'accounts-payable'
         }
       });
-      notifyApprovers(financeRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '' }).catch(() => {});
+      notifyApprovers(financeRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', fromUser: req.user }).catch(() => {});
+      notifyChatApprovers(financeRecipients, { docType: 'Purchase Order', docNumber: purchaseOrder.orderNumber || purchaseOrder.poNumber || '', url: '/finance', fromUser: req.user }).catch(() => {});
     } else {
       const procurementRecipients = await getProcurementWorkflowRecipients();
       await notifyDocumentRecipients({
@@ -6254,7 +6259,8 @@ router.post('/requisitions/:id/comparative-submit',
         entityType: 'Indent',
         module: 'procurement'
       });
-      notifyApprovers(pendingApproverIds, { docType: 'Requisition', docNumber: indent.indentNumber || '' }).catch(() => {});
+      notifyApprovers(pendingApproverIds, { docType: 'Requisition', docNumber: indent.indentNumber || '', fromUser: req.user }).catch(() => {});
+      notifyChatApprovers(pendingApproverIds, { docType: 'Requisition', docNumber: indent.indentNumber || '', url: '/general/indents', fromUser: req.user }).catch(() => {});
     }
 
     const updated = await Indent.findById(indent._id)

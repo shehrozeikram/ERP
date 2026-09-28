@@ -140,6 +140,7 @@ const Sidebar = () => {
       '/admin/dashboard': 'payment_settlement', // Dashboard uses payment_settlement permission
       '/admin/users': 'user_management',
       '/admin/users/online': 'user_management',
+      '/admin/users/mobile-approvals': 'user_management',
       '/admin/sub-roles': 'sub_roles',
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
       '/admin/vehicle-management': 'vehicle_management',

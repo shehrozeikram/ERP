@@ -919,7 +919,8 @@ export const MODULES = {
         subItems: [
           { name: 'Users', path: '/admin/users' },
           { name: 'Roles', path: '/admin/roles' },
-          { name: 'Online Users', path: '/admin/users/online' }
+          { name: 'Online Users', path: '/admin/users/online' },
+          { name: 'Mobile Approvals', path: '/admin/users/mobile-approvals' }
         ]
       },
       { 
@@ -1441,6 +1442,7 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/admin/dashboard': 'admin_dashboard',
       '/admin/users': 'user_management',
       '/admin/users/online': 'user_management',
+      '/admin/users/mobile-approvals': 'user_management',
       '/admin/sub-roles': 'sub_roles',
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
       '/settings': 'admin_settings',

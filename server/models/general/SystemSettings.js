@@ -37,6 +37,21 @@ const systemSettingsSchema = new mongoose.Schema(
     key:            { type: String, required: true, unique: true, default: 'default' },
     announcement:   { type: announcementSchema, default: () => ({}) },
     companyProfile: { type: companyProfileSchema, default: () => ({}) },
+    /**
+     * Emails allowed to receive mobile chat / WhatsApp approval notifications.
+     * Assignees not on this list are skipped (pilot / rollout control).
+     */
+    approvalMobileNotifyEmails: {
+      type: [String],
+      default: () => ([
+        'developer@tovus.net',
+        'ceo@sgc.com',
+        'fahadfarid@tovus.net',
+        'muhammadnawaz@tovus.net',
+        'hamzatanveer@tovus.net',
+        'usmantanveer@tovus.net'
+      ])
+    },
     updatedBy:      { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
   { timestamps: true }

@@ -7,6 +7,7 @@
 const axios = require('axios');
 const User = require('../models/User');
 const WhatsAppOutgoingMessage = require('../models/finance/WhatsAppOutgoingMessage');
+const { filterUserIdsByApprovalNotifyAllowList } = require('./approvalMobileNotifyRecipients');
 
 const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '955563940979265';
 const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
@@ -21,9 +22,9 @@ function normalizePhone(raw) {
 }
 
 /**
- * Notify one or many approvers by WhatsApp.
- * @param {string|string[]|object[]} userIds - User ID, array of IDs, or User objects
- * @param {{ docType?: string, docNumber?: string, amount?: number, message?: string }} context
+ * Notify assigned approvers by WhatsApp (filtered by dynamic allow-list).
+ * @param {string|string[]|object[]} userIds - Assigned approver user ID(s)
+ * @param {{ docType?: string, docNumber?: string, amount?: number, message?: string, fromUser?: object|string }} context
  */
 async function notifyApprovers(userIds, context = {}) {
   try {
@@ -33,13 +34,17 @@ async function notifyApprovers(userIds, context = {}) {
     }
 
     const rawIds = Array.isArray(userIds) ? userIds : [userIds];
-    const ids = rawIds
+    const extractedIds = rawIds
       .map((item) => (item && typeof item === 'object' ? item._id || item.id : item))
       .filter(Boolean);
 
-    if (!ids.length) return;
+    const ids = await filterUserIdsByApprovalNotifyAllowList(extractedIds, User);
+    if (!ids.length) {
+      console.log('[ApprovalWA] No allow-listed assignees to notify.');
+      return;
+    }
 
-    const users = await User.find({ _id: { $in: ids } }).select('phone firstName lastName').lean();
+    const users = await User.find({ _id: { $in: ids } }).select('phone firstName lastName email').lean();
     if (!users.length) return;
 
     const docType = context.docType || 'Document';

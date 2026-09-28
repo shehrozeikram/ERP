@@ -3555,11 +3555,12 @@ router.post('/accounts-payable/:id/payment',
           const apApp = await ApPaymentApplication.findById(pending.applicationId).select('financeApprovalAuthorities').lean();
           const fa = apApp?.financeApprovalAuthorities || {};
           const authIds = [fa.accountsManagerUser, fa.financeControllerUser].filter(Boolean);
-          notifyApprovers(authIds, { docType: 'Bill Payment', docNumber: updatedBill.billNumber || '' }).catch(() => { });
+          notifyApprovers(authIds, { docType: 'Bill Payment', docNumber: updatedBill.billNumber || '', fromUser: req.user }).catch(() => { });
           notifyChatApprovers(authIds, {
             docType: 'Bill Payment',
             docNumber: updatedBill.billNumber || '',
-            url: `/finance/accounts-payable`
+            url: `/finance/accounts-payable`,
+            fromUser: req.user
           }).catch(() => { });
         } catch (_) { }
       }

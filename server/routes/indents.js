@@ -13,6 +13,7 @@ const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const Quotation = require('../models/procurement/Quotation');
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
+const { notifyChatApprovers } = require('../utils/approvalChatNotifier');
 const {
   canMutateComparativeAuthorityUsers,
   authorityUserRefsChanged
@@ -1428,7 +1429,17 @@ router.post('/:id/submit',
         entityType: 'Indent'
       }
     });
-    notifyApprovers([approver._id], { docType: 'Indent', docNumber: indent.indentNumber || '' }).catch(() => { });
+    notifyApprovers([approver._id], {
+      docType: 'Indent',
+      docNumber: indent.indentNumber || '',
+      fromUser: req.user
+    }).catch(() => { });
+    notifyChatApprovers([approver._id], {
+      docType: 'Indent',
+      docNumber: indent.indentNumber || '',
+      url: '/general/indents',
+      fromUser: req.user
+    }).catch(() => { });
 
     res.json({
       success: true,

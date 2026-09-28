@@ -62,6 +62,7 @@ const UserManagement = () => {
   const [success, setSuccess] = useState(null);
   const [departments, setDepartments] = useState(['HR', 'Finance', 'Procurement', 'Sales', 'CRM', 'IT', 'Operations']);
 
+
   // Fetch departments from API
   const fetchDepartments = async () => {
     try {
@@ -103,6 +104,7 @@ const UserManagement = () => {
   useEffect(() => {
     fetchDepartments();
   }, []);
+
 
   const handleEditUser = async (userData) => {
     try {
@@ -250,23 +252,23 @@ const UserManagement = () => {
         </Alert>
       )}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-              <Box>
-        <Typography variant="h4">
-          User Management
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Total Users: {totalUsers} | 
-          Active: {users.filter(u => u.isActive).length} | 
-          Inactive: {users.filter(u => !u.isActive).length}
-        </Typography>
-      </Box>
-      <Button
-        variant="contained"
-        startIcon={<AddIcon />}
-        onClick={() => setCreateDialogOpen(true)}
-      >
-        Create New User
-      </Button>
+        <Box>
+          <Typography variant="h4">
+            User Management
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Total Users: {totalUsers} | 
+            Active: {users.filter(u => u.isActive).length} | 
+            Inactive: {users.filter(u => !u.isActive).length}
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setCreateDialogOpen(true)}
+        >
+          Create New User
+        </Button>
       </Box>
 
       {/* Filters */}
@@ -309,148 +311,149 @@ const UserManagement = () => {
         </Box>
       </Paper>
 
+
       {/* Users Table */}
       <Paper>
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Name</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Employee ID</TableCell>
-                <TableCell>Department</TableCell>
-                  <TableCell>Assigned Role</TableCell>
-                  <TableCell>Status</TableCell>
-                <TableCell>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {users.map((user, index) => (
-                <TableRow 
-                  key={user._id || `user-${index}`}
-                  sx={{
-                    opacity: user.isActive ? 1 : 0.6,
-                    backgroundColor: user.isActive ? 'inherit' : 'rgba(0, 0, 0, 0.02)'
-                  }}
-                >
-                  <TableCell>
-                    <Typography variant="body2">
-                      {user.firstName} {user.lastName}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>{user.email}</TableCell>
-                  <TableCell>{user.employeeId}</TableCell>
-                  <TableCell>{user.department}</TableCell>
-                  <TableCell>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {user.roleRef && (
-                        <Chip
-                          label={user.roleRef.displayName || user.roleRef.name}
-                          color="primary"
-                          size="small"
-                          variant="outlined"
-                        />
-                      )}
-                      {user.roles && user.roles.length > 0 && (
-                        <>
-                          {user.roles.map((role) => (
-                            <Chip
-                              key={role._id}
-                              label={role.displayName || role.name}
-                              color="secondary"
-                              size="small"
-                              variant="outlined"
-                            />
-                          ))}
-                        </>
-                      )}
-                      {(!user.roleRef && (!user.roles || user.roles.length === 0)) && (
-                        <Typography variant="caption" color="text.secondary">
-                          No role assigned
-                        </Typography>
-                      )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={user.isActive ? 'Active' : 'Inactive'}
-                      color={user.isActive ? 'success' : 'error'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setSelectedUser(user);
-                        setViewDialogOpen(true);
-                      }}
-                    >
-                      <ViewIcon />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        setSelectedUser(user);
-                        setEditDialogOpen(true);
-                      }}
-                    >
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      color="primary"
-                      onClick={() => {
-                        setSelectedUser(user);
-                        setRoleDialogOpen(true);
-                      }}
-                      title="Assign Role"
-                    >
-                      <SecurityIcon />
-                    </IconButton>
-                                         {user.isActive ? (
-                       <IconButton
-                         size="small"
-                         color="error"
-                         onClick={() => handleUpdateStatus(user._id, false)}
-                       >
-                         <BlockIcon />
-                       </IconButton>
-                     ) : (
-                       <IconButton
-                         size="small"
-                         color="success"
-                         onClick={() => handleUpdateStatus(user._id, true)}
-                       >
-                         <ActivateIcon />
-                       </IconButton>
-                     )}
-                     <IconButton
-                       size="small"
-                       color="error"
-                       onClick={() => {
-                         setSelectedUser(user);
-                         setDeleteDialogOpen(true);
-                       }}
-                     >
-                       <DeleteIcon />
-                     </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25]}
-          component="div"
-          count={totalUsers}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-        />
-      </Paper>
+                      <TableContainer>
+                        <Table>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Name</TableCell>
+                              <TableCell>Email</TableCell>
+                              <TableCell>Employee ID</TableCell>
+                              <TableCell>Department</TableCell>
+                              <TableCell>Assigned Role</TableCell>
+                              <TableCell>Status</TableCell>
+                              <TableCell>Actions</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {users.map((user, index) => (
+                              <TableRow 
+                                key={user._id || `user-${index}`}
+                                sx={{
+                                  opacity: user.isActive ? 1 : 0.6,
+                                  backgroundColor: user.isActive ? 'inherit' : 'rgba(0, 0, 0, 0.02)'
+                                }}
+                              >
+                                <TableCell>
+                                  <Typography variant="body2">
+                                    {user.firstName} {user.lastName}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell>{user.email}</TableCell>
+                                <TableCell>{user.employeeId}</TableCell>
+                                <TableCell>{user.department}</TableCell>
+                                <TableCell>
+                                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                    {user.roleRef && (
+                                      <Chip
+                                        label={user.roleRef.displayName || user.roleRef.name}
+                                        color="primary"
+                                        size="small"
+                                        variant="outlined"
+                                      />
+                                    )}
+                                    {user.roles && user.roles.length > 0 && (
+                                      <>
+                                        {user.roles.map((role) => (
+                                          <Chip
+                                            key={role._id}
+                                            label={role.displayName || role.name}
+                                            color="secondary"
+                                            size="small"
+                                            variant="outlined"
+                                          />
+                                        ))}
+                                      </>
+                                    )}
+                                    {(!user.roleRef && (!user.roles || user.roles.length === 0)) && (
+                                      <Typography variant="caption" color="text.secondary">
+                                        No role assigned
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                </TableCell>
+                                <TableCell>
+                                  <Chip
+                                    label={user.isActive ? 'Active' : 'Inactive'}
+                                    color={user.isActive ? 'success' : 'error'}
+                                    size="small"
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => {
+                                      setSelectedUser(user);
+                                      setViewDialogOpen(true);
+                                    }}
+                                  >
+                                    <ViewIcon />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => {
+                                      setSelectedUser(user);
+                                      setEditDialogOpen(true);
+                                    }}
+                                  >
+                                    <EditIcon />
+                                  </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => {
+                                      setSelectedUser(user);
+                                      setRoleDialogOpen(true);
+                                    }}
+                                    title="Assign Role"
+                                  >
+                                    <SecurityIcon />
+                                  </IconButton>
+                                  {user.isActive ? (
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => handleUpdateStatus(user._id, false)}
+                                    >
+                                      <BlockIcon />
+                                    </IconButton>
+                                  ) : (
+                                    <IconButton
+                                      size="small"
+                                      color="success"
+                                      onClick={() => handleUpdateStatus(user._id, true)}
+                                    >
+                                      <ActivateIcon />
+                                    </IconButton>
+                                  )}
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => {
+                                      setSelectedUser(user);
+                                      setDeleteDialogOpen(true);
+                                    }}
+                                  >
+                                    <DeleteIcon />
+                                  </IconButton>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                      <TablePagination
+                        rowsPerPageOptions={[5, 10, 25]}
+                        component="div"
+                        count={totalUsers}
+                        rowsPerPage={rowsPerPage}
+                        page={page}
+                        onPageChange={handleChangePage}
+                        onRowsPerPageChange={handleChangeRowsPerPage}
+                      />
+                    </Paper>
 
       {/* Edit User Dialog */}
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
