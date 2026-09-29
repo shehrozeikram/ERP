@@ -1107,7 +1107,7 @@ const Vouchers = () => {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, '@media print': { mb: 2 } }}>
                           <Box>
                             <Typography fontWeight={700} sx={{ fontSize: '1.4rem', '@media print': { fontSize: '1.65rem', lineHeight: 1.2 } }}>
-                              {activeVoucher?.companyId?.name || activeVoucher?.customCompany || 'Sardar Group of Companies'}
+                              {activeVoucher?.companyId?.name || activeVoucher?.customCompany || '—'}
                             </Typography>
                             <Typography fontWeight={700} color="primary" sx={{ fontSize: '1.2rem', textTransform: 'uppercase', '@media print': { fontSize: '1.45rem', mt: 0.5, letterSpacing: 0.5 } }}>
                               {activeVoucher?.voucherSeries

@@ -284,6 +284,7 @@ class EmployeeOnboardingService {
         nationality: formData.nationality || candidate.nationality,
         religion: formData.religion || 'Islam',
         maritalStatus: formData.maritalStatus || 'Single',
+        guardianName: formData.guardianName || formData.fatherName || '',
         
         // Address Information
         address: {

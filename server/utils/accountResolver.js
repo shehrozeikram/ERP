@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 const Account = require('../models/finance/Account');
-const { findHistoricalCompany } = require('./financeCompanyContext');
 
 const ACCOUNT_NUMBER_TO_CODE = {
   '1001': 'CASH',
@@ -31,8 +30,8 @@ const ACCOUNT_NUMBER_TO_CODE = {
 
 const normalizeCompanyObjectId = async (companyId) => {
   if (!companyId) {
-    const historical = await findHistoricalCompany();
-    return historical?._id || null;
+    // Do NOT silently fall back to Sardar — callers must pass a real company when scoped.
+    return null;
   }
   if (mongoose.Types.ObjectId.isValid(String(companyId))) {
     return new mongoose.Types.ObjectId(String(companyId));

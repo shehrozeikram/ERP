@@ -436,7 +436,7 @@ export default function QuickbooksReceivePaymentModal({
     return round2(Math.max(0, totalSelectedPayAmount - whtAmount));
   }, [totalSelectedPayAmount, whtAmount]);
 
-  // Submit Multi-Bill Payment
+  // Submit Multi-Bill / Multi-Installment Payment → ONE receipt voucher (RV)
   const handlePostPayments = async () => {
     if (selectedBills.length === 0) {
       toast.error('Please select at least one invoice to receive payment against');
@@ -451,23 +451,29 @@ export default function QuickbooksReceivePaymentModal({
     try {
       setProcessing(true);
 
-      const promises = selectedBills.map(b => {
-        const payload = {
-          amount: b.payAmount,
-          paymentMethod: paymentForm.paymentMethod,
-          bankAccountId: paymentForm.bankAccountId || null,
-          paymentDate: paymentForm.paymentDate,
-          reference: paymentForm.reference,
-          narration: (paymentForm.narration || '').trim() || undefined,
-          description: (paymentForm.narration || '').trim() || undefined,
-          ...(b.installmentId ? { installmentId: b.installmentId } : {})
-        };
-        return api.post(`/finance/accounts-receivable/${b.billId}/payment`, payload);
+      const lines = selectedBills.map((b) => ({
+        invoiceId: b.billId,
+        amount: Number(b.payAmount) || 0,
+        ...(b.installmentId ? { installmentId: b.installmentId } : {})
+      }));
+
+      const res = await api.post('/finance/accounts-receivable/batch-payment', {
+        lines,
+        paymentMethod: paymentForm.paymentMethod,
+        bankAccountId: paymentForm.bankAccountId || null,
+        paymentDate: paymentForm.paymentDate,
+        reference: paymentForm.reference,
+        narration: (paymentForm.narration || '').trim() || undefined,
+        description: (paymentForm.narration || '').trim() || undefined,
+        costCenter: paymentForm.costCenter || null
       });
 
-      await Promise.all(promises);
-
-      toast.success(`✓ Successfully posted consolidated payment for ${selectedBills.length} invoice(s)! Total: ${formatPKR(totalSelectedPayAmount)}`);
+      const entryNo = res.data?.data?.entryNumber;
+      toast.success(
+        entryNo
+          ? `✓ One receipt voucher ${entryNo} posted for ${selectedBills.length} part(s). Total: ${formatPKR(totalSelectedPayAmount)}`
+          : `✓ Payment posted for ${selectedBills.length} part(s). Total: ${formatPKR(totalSelectedPayAmount)}`
+      );
       if (onSuccess) onSuccess();
       onClose();
     } catch (err) {

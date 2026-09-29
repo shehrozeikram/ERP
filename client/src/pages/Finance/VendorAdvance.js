@@ -163,17 +163,46 @@ const VendorAdvance = () => {
 
   const isRealCompanyId = useCallback((id) => {
     if (!id || String(id).toLowerCase() === 'all') return false;
-    return companies.some((c) => String(c._id) === String(id));
-  }, [companies]);
+    return /^[a-f\d]{24}$/i.test(String(id));
+  }, []);
 
-  /** Company used for posting vouchers — must be a real PlacementCompany, never "all". */
-  const postingCompanyId = useMemo(() => {
-    if (isRealCompanyId(payingCompanyId)) return payingCompanyId;
-    if (isRealCompanyId(selectedCompanyId)) return selectedCompanyId;
+  const poCompanyId = useMemo(() => {
+    const raw = selectedPo?.companyId?._id || selectedPo?.companyId || selectedPo?.company?._id || null;
+    return isRealCompanyId(raw) ? String(raw) : null;
+  }, [selectedPo, isRealCompanyId]);
+
+  /** PO / advance owning company (must be a real PlacementCompany, never "all"). */
+  const originalCompanyId = useMemo(() => {
+    if (isRealCompanyId(selectedCompanyId)) return String(selectedCompanyId);
+    if (poCompanyId) return poCompanyId;
     return null;
-  }, [payingCompanyId, selectedCompanyId, isRealCompanyId]);
+  }, [selectedCompanyId, poCompanyId, isRealCompanyId]);
 
-  const companyBlockedForPayment = !postingCompanyId;
+  /** Company that pays the bank — defaults to original when not overridden. */
+  const effectivePayingCompanyId = useMemo(() => {
+    if (isRealCompanyId(payingCompanyId)) return String(payingCompanyId);
+    return originalCompanyId;
+  }, [payingCompanyId, originalCompanyId, isRealCompanyId]);
+
+  const isIntercompanyAdvance = Boolean(
+    originalCompanyId
+    && effectivePayingCompanyId
+    && String(originalCompanyId) !== String(effectivePayingCompanyId)
+  );
+
+  const originalCompanyName = useMemo(
+    () => companies.find((c) => String(c._id) === String(originalCompanyId))?.name || 'Original company',
+    [companies, originalCompanyId]
+  );
+  const payingCompanyName = useMemo(
+    () => companies.find((c) => String(c._id) === String(effectivePayingCompanyId))?.name || 'Paying company',
+    [companies, effectivePayingCompanyId]
+  );
+
+  /** @deprecated alias — kept for ensure-voucher / block checks on original company */
+  const postingCompanyId = originalCompanyId;
+
+  const companyBlockedForPayment = !originalCompanyId;
 
   const [viewDialog, setViewDialog] = useState({
     open: false,
@@ -356,7 +385,7 @@ const VendorAdvance = () => {
   }, [loadVendors]);
 
   useEffect(() => {
-    const targetComp = payingCompanyId || selectedCompanyId;
+    const targetComp = effectivePayingCompanyId || originalCompanyId;
     fetchPayFromAccounts(api, { companyId: targetComp })
       .then((accs) => {
         setBankAccounts(accs);
@@ -365,7 +394,7 @@ const VendorAdvance = () => {
         }
       })
       .catch(() => setBankAccounts([]));
-  }, [payingCompanyId, selectedCompanyId]);
+  }, [effectivePayingCompanyId, originalCompanyId]);
 
   // Load COA Accounts & Projects
   useEffect(() => {
@@ -441,6 +470,42 @@ const VendorAdvance = () => {
   const categoryTotal = useMemo(() => {
     return categoryLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
   }, [categoryLines]);
+
+  const recordAdvanceDisabledReason = useMemo(() => {
+    if (submitting) return 'Submitting…';
+    if (companyBlockedForPayment) {
+      return 'Select the PO company in the company filter (top right), or link a PO that has a company. All Companies cannot create vouchers.';
+    }
+    if (selectedPo?._id && poPendingVoucher.hasPending) {
+      return 'This PO already has a vendor advance pending voucher approval.';
+    }
+    if (!finAuth.accountsManagerUser || !finAuth.financeControllerUser) {
+      return 'Select Sr Manager Accounts and GM Finance.';
+    }
+    if (bankAccounts.length === 0) {
+      return `No pay-from accounts found for ${payingCompanyName}. Pick Paying company / company with bank accounts.`;
+    }
+    if (!form.bankAccountId) {
+      return 'Select Pay from account.';
+    }
+    if (categoryTotal <= 0) {
+      return 'Enter at least one Category details line with amount > 0.';
+    }
+    return '';
+  }, [
+    submitting,
+    companyBlockedForPayment,
+    selectedPo?._id,
+    poPendingVoucher.hasPending,
+    finAuth.accountsManagerUser,
+    finAuth.financeControllerUser,
+    bankAccounts.length,
+    payingCompanyName,
+    form.bankAccountId,
+    categoryTotal
+  ]);
+
+  const recordAdvanceDisabled = Boolean(recordAdvanceDisabledReason);
 
   const handleOpenAddAccount = (idx) => {
     setNewAccountRowIndex(idx);
@@ -662,8 +727,8 @@ const VendorAdvance = () => {
       toast.error('Select the account the payment is made from (pay from account).');
       return;
     }
-    if (!postingCompanyId || !isRealCompanyId(postingCompanyId)) {
-      toast.error('Select a company from the list (top right or Paying company). All Companies is not allowed for payments or vouchers.');
+    if (!originalCompanyId || !isRealCompanyId(originalCompanyId)) {
+      toast.error('Select the PO company in the finance company filter (not All Companies). Paying company can differ for intercompany.');
       return;
     }
     if (selectedPo?._id && poPendingVoucher.hasPending) {
@@ -703,8 +768,8 @@ const VendorAdvance = () => {
           accountsManagerUser: finAuth.accountsManagerUser._id,
           financeControllerUser: finAuth.financeControllerUser._id
         },
-        companyId: postingCompanyId,
-        payingCompanyId: isRealCompanyId(payingCompanyId) ? payingCompanyId : postingCompanyId,
+        companyId: originalCompanyId,
+        payingCompanyId: effectivePayingCompanyId,
         categoryLines: validCategoryLines
       };
       const res = await api.post('/finance/accounts-payable/advance-payment', body);
@@ -782,14 +847,15 @@ const VendorAdvance = () => {
   };
 
   const handleEnsureVoucher = async (advanceRow) => {
-    if (!postingCompanyId || !isRealCompanyId(postingCompanyId)) {
-      toast.error('Select a company from the list (not All Companies), then click Create voucher again.');
+    if (!originalCompanyId || !isRealCompanyId(originalCompanyId)) {
+      toast.error('Select the original company from the list (not All Companies), then click Create voucher again.');
       return;
     }
     setEnsuringVoucherId(advanceRow._id);
     try {
       const res = await api.post(`/finance/vendor-advances/${advanceRow._id}/ensure-voucher`, {
-        companyId: postingCompanyId
+        companyId: originalCompanyId,
+        payingCompanyId: effectivePayingCompanyId || originalCompanyId
       });
       toast.success(res.data?.message || 'Voucher created');
       await loadAdvancesForVendor(selectedVendor?._id || null);
@@ -847,14 +913,15 @@ const VendorAdvance = () => {
         <FinanceCompanySelector minWidth={280} showHelper={false} allowAll={true} />
       </Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Record prepayment to a supplier (DR Advance to suppliers / CR pay-from account). Link an optional PO for traceability.
-        Apply this advance later on Accounts Payable when the vendor bill is created.
+        Record prepayment to a supplier. Company filter = PO / advance company (e.g. Taj). Optional Paying company = where cash leaves (e.g. Sardar).
+        Category COA posts on the original company; bank posts on the paying company. Apply the advance later on Accounts Payable when the bill is created.
       </Typography>
 
       {companyBlockedForPayment ? (
         <Alert severity="error" sx={{ mb: 2 }}>
-          Select a <strong>specific company</strong> from the company list (top right) or <strong>Paying company</strong> before recording a payment or creating a voucher.
+          Select the <strong>PO company</strong> in the company filter (top right) before recording a payment.
           <strong> All Companies</strong> is only for viewing — it cannot create payments or vouchers.
+          Use <strong>Paying company</strong> only when another company will pay the bank.
         </Alert>
       ) : null}
 
@@ -1056,17 +1123,32 @@ const VendorAdvance = () => {
                   <Select
                     value={payingCompanyId}
                     label="Paying company"
-                    onChange={(e) => setPayingCompanyId(e.target.value)}
+                    onChange={(e) => {
+                      setPayingCompanyId(e.target.value);
+                      setForm((f) => ({ ...f, bankAccountId: '' }));
+                    }}
                   >
-                    <MenuItem value=""><em>-- Target Company / Default --</em></MenuItem>
+                    <MenuItem value=""><em>Same as company filter ({originalCompanyName})</em></MenuItem>
                     {companies.map((c) => (
-                      <MenuItem key={c._id} value={c._id}>
+                      <MenuItem key={String(c._id)} value={String(c._id)}>
                         {c.name}
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
               </Grid>
+
+              {isIntercompanyAdvance ? (
+                <Grid item xs={12}>
+                  <Alert severity="info">
+                    Intercompany advance: advance stays on <strong>{originalCompanyName}</strong>
+                    {' '}(DR selected COA / Vendor Advance, CR Intercompany — {payingCompanyName}).
+                    Payment posts on <strong>{payingCompanyName}</strong>
+                    {' '}(DR Intercompany — {originalCompanyName}, CR selected bank).
+                    Bill settlement later applies against the <strong>{originalCompanyName}</strong> advance.
+                  </Alert>
+                </Grid>
+              ) : null}
 
               <Grid item xs={12} md={3}>
                 <FormControl fullWidth size="small">
@@ -1085,11 +1167,13 @@ const VendorAdvance = () => {
               </Grid>
               <Grid item xs={12} md={3}>
                 <FormControl fullWidth size="small" required disabled={bankAccounts.length === 0}>
-                  <InputLabel id="vendor-advance-pay-from-label">Pay from account</InputLabel>
+                  <InputLabel id="vendor-advance-pay-from-label">
+                    Pay from account{isIntercompanyAdvance ? ` (${payingCompanyName})` : ''}
+                  </InputLabel>
                   <Select
                     labelId="vendor-advance-pay-from-label"
                     value={form.bankAccountId}
-                    label="Pay from account"
+                    label={`Pay from account${isIntercompanyAdvance ? ` (${payingCompanyName})` : ''}`}
                     onChange={(e) => setForm((f) => ({ ...f, bankAccountId: e.target.value }))}
                   >
                     {bankAccounts.map((item) => {
@@ -1105,7 +1189,7 @@ const VendorAdvance = () => {
                 </FormControl>
                 {bankAccounts.length === 0 ? (
                   <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-                    No suitable pay-from accounts found. Add Cash and cash equivalents accounts in Chart of Accounts (or subaccounts under them).
+                    No suitable pay-from accounts found for {payingCompanyName}. Add Cash/Bank accounts in that company&apos;s Chart of Accounts.
                   </Typography>
                 ) : null}
               </Grid>
@@ -1148,11 +1232,11 @@ const VendorAdvance = () => {
                   sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '8px !important', mb: 1 }}
                 >
                   <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                       <span>Category details</span>
                       <Chip label={`${categoryLines.filter((l) => Number(l.amount) > 0).length} lines`} size="small" variant="outlined" />
                       <Typography variant="body2" color="text.secondary" sx={{ ml: 1 }}>
-                        (Expense &amp; Chart of Accounts categories)
+                        (COA of {originalCompanyName} — e.g. Advance to Suppliers)
                       </Typography>
                     </Typography>
                   </AccordionSummary>
@@ -1335,53 +1419,23 @@ const VendorAdvance = () => {
                 />
               </Grid>
               <Grid item xs={12}>
-                {(!finAuth.accountsManagerUser || !finAuth.financeControllerUser) ? (
-                  <Tooltip title={
-                    companyBlockedForPayment
-                      ? 'Select a specific company first (All Companies cannot create payments).'
-                      : 'Select Sr Manager Accounts and GM Finance before recording the advance.'
-                  }>
-                    <span>
-                      <Button
-                        type="submit"
-                        variant="contained"
-                        disabled={
-                          submitting
-                          || companyBlockedForPayment
-                          || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)
-                          || !finAuth.accountsManagerUser
-                          || !finAuth.financeControllerUser
-                          || bankAccounts.length === 0
-                          || !form.bankAccountId
-                          || categoryTotal <= 0
-                        }
-                        size="large"
-                      >
-                        {submitting ? 'Posting…' : 'Record vendor advance'}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                ) : (
-                  <Tooltip title={companyBlockedForPayment ? 'Select a specific company first (All Companies cannot create payments).' : ''}>
-                    <span>
-                      <Button
-                        type="submit"
-                        variant="contained"
-                        disabled={
-                          submitting
-                          || companyBlockedForPayment
-                          || (Boolean(selectedPo?._id) && poPendingVoucher.hasPending)
-                          || bankAccounts.length === 0
-                          || !form.bankAccountId
-                          || categoryTotal <= 0
-                        }
-                        size="large"
-                      >
-                        {submitting ? 'Posting…' : 'Record vendor advance'}
-                      </Button>
-                    </span>
-                  </Tooltip>
-                )}
+                <Tooltip title={recordAdvanceDisabledReason || ''}>
+                  <span>
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      disabled={recordAdvanceDisabled}
+                      size="large"
+                    >
+                      {submitting ? 'Posting…' : 'Record vendor advance'}
+                    </Button>
+                  </span>
+                </Tooltip>
+                {recordAdvanceDisabledReason ? (
+                  <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1 }}>
+                    {recordAdvanceDisabledReason}
+                  </Typography>
+                ) : null}
               </Grid>
             </Grid>
           </Box>
@@ -1433,6 +1487,8 @@ const VendorAdvance = () => {
                   <TableCell><b>Cheque #</b></TableCell>
                   <TableCell><b>Vendor</b></TableCell>
                   <TableCell><b>Payment date</b></TableCell>
+                  <TableCell><b>Company</b></TableCell>
+                  <TableCell><b>Paying company</b></TableCell>
                   <TableCell><b>Pay from account</b></TableCell>
                   <TableCell><b>Linked PO</b></TableCell>
                   <TableCell><b>Voucher</b></TableCell>
@@ -1468,6 +1524,8 @@ const VendorAdvance = () => {
                     <TableCell>
                       {a.paymentDate ? new Date(a.paymentDate).toLocaleDateString() : '—'}
                     </TableCell>
+                    <TableCell>{a.company?.name || '—'}</TableCell>
+                    <TableCell>{a.payingCompany?.name || a.company?.name || '—'}</TableCell>
                     <TableCell>
                       {a.bankAccount?.name
                         ? `${a.bankAccount.name}${a.bankAccount.accountNumber ? ` (${a.bankAccount.accountNumber})` : ''}`
@@ -1475,13 +1533,23 @@ const VendorAdvance = () => {
                     </TableCell>
                     <TableCell>{a.linkedPoNumber || '—'}</TableCell>
                     <TableCell>
-                      {a.journalEntryId ? (
-                        <RouterLink to={`/finance/vouchers/${a.journalEntryId}`} style={{ fontSize: 13 }}>
-                          Open voucher
-                        </RouterLink>
-                      ) : (
-                        '—'
-                      )}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                        {(a.payingJournalEntryId || a.journalEntryId) ? (
+                          <RouterLink
+                            to={`/finance/vouchers/${a.payingJournalEntryId || a.journalEntryId}`}
+                            style={{ fontSize: 13 }}
+                          >
+                            {a.payingJournalEntryId ? 'Open payment voucher' : 'Open voucher'}
+                          </RouterLink>
+                        ) : (
+                          '—'
+                        )}
+                        {a.payingJournalEntryId && a.journalEntryId ? (
+                          <RouterLink to={`/finance/vouchers/${a.journalEntryId}`} style={{ fontSize: 12 }}>
+                            Open advance voucher
+                          </RouterLink>
+                        ) : null}
+                      </Box>
                     </TableCell>
                     <TableCell>
                       <Chip size="small" variant="outlined" {...getVoucherIssuanceChip(a)} />

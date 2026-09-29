@@ -29,6 +29,43 @@ const months = [
   { value: 12, label: 'December' }
 ];
 
+/**
+ * Attendance deduction is excluded from monthly payroll downloads / Net Pay
+ * (column hidden; amount added back into Net Payable).
+ */
+const shouldExcludeAttendanceDeduction = () => true;
+
+const roundMoney = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** Adjust stored payroll totals so attendance deduction has no impact on export. */
+const applyAttendanceExclusion = (row, exclude) => {
+  const attendanceDeduction = roundMoney(row.attendanceDeduction);
+  if (!exclude || attendanceDeduction <= 0) {
+    return {
+      ...row,
+      attendanceDeduction: exclude ? 0 : attendanceDeduction,
+      deductions: roundMoney(row.deductions),
+      totalDeductions: roundMoney(row.deductions ?? row.totalDeductions),
+      netPay: roundMoney(row.netPay ?? row.netPayable),
+      netPayable: roundMoney(row.netPayable ?? row.netPay)
+    };
+  }
+  const deductions = Math.max(0, roundMoney((row.deductions ?? row.totalDeductions) - attendanceDeduction));
+  const netPay = roundMoney((row.netPay ?? row.netPayable) + attendanceDeduction);
+  const grossSalary = Math.max(0, roundMoney((row.grossSalary || 0) - attendanceDeduction));
+  const totalEarnings = Math.max(0, roundMoney((row.totalEarnings || 0) - attendanceDeduction));
+  return {
+    ...row,
+    attendanceDeduction: 0,
+    deductions,
+    totalDeductions: deductions,
+    grossSalary,
+    totalEarnings,
+    netPay,
+    netPayable: netPay
+  };
+};
+
 // ==================== PAYROLL REPORTS ROUTES ====================
 
 // @route   GET /api/hr/reports/payroll/monthly
@@ -52,8 +89,11 @@ router.get('/monthly',
       // Build base filter
       const baseFilter = {};
       if (department) {
-        // Filter by employee's department
-        const employeesInDepartment = await Employee.find({ department: new mongoose.Types.ObjectId(department) }).select('_id');
+        // Filter by employee's department (legacy) or placementDepartment (current)
+        const deptOid = new mongoose.Types.ObjectId(department);
+        const employeesInDepartment = await Employee.find({
+          $or: [{ department: deptOid }, { placementDepartment: deptOid }]
+        }).select('_id');
         const employeeIds = employeesInDepartment.map(emp => emp._id);
         baseFilter.employee = { $in: employeeIds };
       }
@@ -84,7 +124,11 @@ router.get('/monthly',
       if (department || project) {
         let employeeFilter = { isDeleted: false };
         if (department) {
-          employeeFilter.department = new mongoose.Types.ObjectId(department);
+          const deptOid = new mongoose.Types.ObjectId(department);
+          employeeFilter.$or = [
+            { placementDepartment: deptOid },
+            { department: deptOid }
+          ];
         }
         if (project) {
           employeeFilter.placementProject = new mongoose.Types.ObjectId(project);
@@ -94,6 +138,8 @@ router.get('/monthly',
         const employeeIds = employeesInFilter.map(emp => emp._id);
         payrollFilter.employee = { $in: employeeIds };
       }
+
+      const excludeAttendance = shouldExcludeAttendanceDeduction();
 
       const payrollData = await Payroll.aggregate([
         {
@@ -113,10 +159,18 @@ router.get('/monthly',
             preserveNullAndEmptyArrays: true
           }
         },
+        // Prefer placementDepartment (current org structure); fall back to legacy department
+        {
+          $addFields: {
+            _departmentId: {
+              $ifNull: ['$employeeData.placementDepartment', '$employeeData.department']
+            }
+          }
+        },
         {
           $lookup: {
             from: 'departments',
-            localField: 'employeeData.department',
+            localField: '_departmentId',
             foreignField: '_id',
             as: 'departmentData'
           }
@@ -169,6 +223,36 @@ router.get('/monthly',
             as: 'companyData'
           }
         },
+        // Guardian often lives on joining document for hires after Excel-era employees
+        {
+          $lookup: {
+            from: 'joiningdocuments',
+            localField: 'employeeData.approvalId',
+            foreignField: 'approvalId',
+            as: 'joiningByApproval'
+          }
+        },
+        {
+          $lookup: {
+            from: 'joiningdocuments',
+            let: { cnic: '$employeeData.idCard' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $ne: [{ $ifNull: ['$$cnic', ''] }, ''] },
+                      { $eq: ['$cnic', '$$cnic'] }
+                    ]
+                  }
+                }
+              },
+              { $project: { guardianName: 1 } },
+              { $limit: 1 }
+            ],
+            as: 'joiningByCnic'
+          }
+        },
         {
           $unwind: {
             path: '$departmentData',
@@ -214,13 +298,62 @@ router.get('/monthly',
         {
           $addFields: {
             'employeeIdNumeric': {
-              $toInt: { $ifNull: ['$employeeData.employeeId', '0'] }
+              $convert: {
+                input: {
+                  $trim: {
+                    input: {
+                      $replaceAll: {
+                        input: { $ifNull: ['$employeeData.employeeId', '0'] },
+                        find: ' ',
+                        replacement: ''
+                      }
+                    }
+                  }
+                },
+                to: 'int',
+                onError: 0,
+                onNull: 0
+              }
             },
             'project': '$projectData.name',
             'company': '$companyData.name',
             'section': '$sectionData.name',
             'designation': '$designationData.title',
-            'location': '$locationData.name'
+            'location': '$locationData.name',
+            'resolvedGuardianName': {
+              $let: {
+                vars: {
+                  fromEmp: { $trim: { input: { $ifNull: ['$employeeData.guardianName', ''] } } },
+                  fromApproval: {
+                    $trim: {
+                      input: {
+                        $ifNull: [{ $arrayElemAt: ['$joiningByApproval.guardianName', 0] }, '']
+                      }
+                    }
+                  },
+                  fromCnic: {
+                    $trim: {
+                      input: {
+                        $ifNull: [{ $arrayElemAt: ['$joiningByCnic.guardianName', 0] }, '']
+                      }
+                    }
+                  }
+                },
+                in: {
+                  $cond: [
+                    { $gt: [{ $strLenCP: '$$fromEmp' }, 0] },
+                    '$$fromEmp',
+                    {
+                      $cond: [
+                        { $gt: [{ $strLenCP: '$$fromApproval' }, 0] },
+                        '$$fromApproval',
+                        '$$fromCnic'
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         {
@@ -245,6 +378,7 @@ router.get('/monthly',
             'employeeData.joiningDate': 1,
             'employeeData.appointmentDate': 1,
             'employeeData.confirmationDate': 1,
+            resolvedGuardianName: 1,
             // Payroll fields (direct from payroll collection)
             grossSalary: 1,
             totalEarnings: 1,
@@ -301,69 +435,71 @@ router.get('/monthly',
         });
       }
 
-      // Calculate summary from employee data
-      const summary = {
-        totalEmployees: payrollData.length,
-        totalGrossSalary: payrollData.reduce((sum, emp) => sum + (emp.grossSalary || 0), 0),
-        totalDeductions: payrollData.reduce((sum, emp) => sum + (emp.totalDeductions || 0), 0),
-        netPay: payrollData.reduce((sum, emp) => sum + (emp.netSalary || 0), 0)
-      };
-
       // Transform data for frontend (using payroll data directly)
-      const transformedData = payrollData.map(employee => ({
-        // Basic employee info
-        employeeId: employee.employeeData?.employeeId || 'N/A',
-        employeeName: `${employee.employeeData?.firstName || ''} ${employee.employeeData?.lastName || ''}`.trim(),
-        guardianName: employee.employeeData?.guardianName || 'N/A',
-        idCard: employee.employeeData?.idCard || 'N/A',
-        bankName: employee.bankData?.name || 'N/A',
-        branchCode: employee.employeeData?.branchCode || 'N/A',
-        accountNumber: employee.employeeData?.accountNumber || 'N/A',
-        hireDate: employee.employeeData?.hireDate || null,
-        project: employee.project || 'N/A',
-        company: employee.company || 'N/A',
-        department: employee.departmentData?.name || 'N/A',
-        section: employee.section || 'N/A',
-        designation: employee.designation || 'N/A',
-        location: employee.location || 'N/A',
-        dateOfBirth: employee.employeeData?.dateOfBirth || null,
-        address: employee.employeeData?.address?.street || 'N/A',
-        qualification: employee.employeeData?.qualification || 'N/A',
-        phone: employee.employeeData?.phone || 'N/A',
-        probationPeriod: employee.employeeData?.probationPeriod || null,
-        joiningDate: employee.employeeData?.joiningDate || null,
-        appointmentDate: employee.employeeData?.appointmentDate || null,
-        confirmationDate: employee.employeeData?.confirmationDate || null,
-        // Salary fields from payroll data (direct from payroll collection)
-        grossSalary: employee.grossSalary || 0,
-        basicSalary: employee.basicSalary || 0,
-        houseRent: employee.houseRentAllowance || 0,
-        medical: employee.medicalAllowance || 0,
-        arrears: employee.arrears || 0,
-        conveyanceAllowance: employee.allowances?.conveyance?.amount || 0,
-        houseAllowance: employee.allowances?.houseRent?.amount || 0,
-        foodAllowance: employee.allowances?.food?.amount || 0,
-        vehicleAllowance: vehicleAllowanceAmount(employee.allowances),
-        fuelAllowance: fuelAllowanceAmount(employee.allowances),
-        vehicleFuelAllowance: vehicleFuelTotal(employee.allowances),
-        medicalAllowance: employee.allowances?.medical?.amount || 0,
-        totalEarnings: employee.totalEarnings || 0,
-        incomeTax: employee.incomeTax || 0,
-        companyLoan: employee.loanDeductions || employee.companyLoanDeduction || 0,
-        vehicleLoan: employee.vehicleLoanDeduction || 0,
-        eobiDeduction: employee.eobi || 0,
-        netPayable: employee.netSalary || 0,
-        netPay: employee.netSalary || 0, // For CSV export compatibility
-        // Deductions from payroll data
-        deductions: employee.totalDeductions || 0,
-        tax: employee.incomeTax || 0,
-        eobi: employee.eobi || 0,
-        healthInsurance: employee.healthInsurance || 0,
-        vehicleLoanDeduction: employee.vehicleLoanDeduction || 0,
-        companyLoanDeduction: employee.loanDeductions || employee.companyLoanDeduction || 0,
-        attendanceDeduction: employee.attendanceDeduction || 0,
-        otherDeductions: employee.otherDeductions || 0
-      }));
+      const transformedData = payrollData.map((employee) => {
+        const base = {
+          // Basic employee info
+          employeeId: employee.employeeData?.employeeId || 'N/A',
+          employeeName: `${employee.employeeData?.firstName || ''} ${employee.employeeData?.lastName || ''}`.trim(),
+          guardianName: (employee.resolvedGuardianName || employee.employeeData?.guardianName || '').trim() || 'N/A',
+          idCard: employee.employeeData?.idCard || 'N/A',
+          bankName: employee.bankData?.name || 'N/A',
+          branchCode: employee.employeeData?.branchCode || 'N/A',
+          accountNumber: employee.employeeData?.accountNumber || 'N/A',
+          hireDate: employee.employeeData?.hireDate || null,
+          project: employee.project || 'N/A',
+          company: employee.company || 'N/A',
+          department: employee.departmentData?.name || 'N/A',
+          section: employee.section || 'N/A',
+          designation: employee.designation || 'N/A',
+          location: employee.location || 'N/A',
+          dateOfBirth: employee.employeeData?.dateOfBirth || null,
+          address: employee.employeeData?.address?.street || 'N/A',
+          qualification: employee.employeeData?.qualification || 'N/A',
+          phone: employee.employeeData?.phone || 'N/A',
+          probationPeriod: employee.employeeData?.probationPeriod || null,
+          joiningDate: employee.employeeData?.joiningDate || null,
+          appointmentDate: employee.employeeData?.appointmentDate || null,
+          confirmationDate: employee.employeeData?.confirmationDate || null,
+          // Salary fields from payroll data (direct from payroll collection)
+          grossSalary: employee.grossSalary || 0,
+          basicSalary: employee.basicSalary || 0,
+          houseRent: employee.houseRentAllowance || 0,
+          medical: employee.medicalAllowance || 0,
+          arrears: employee.arrears || 0,
+          conveyanceAllowance: employee.allowances?.conveyance?.amount || 0,
+          houseAllowance: employee.allowances?.houseRent?.amount || 0,
+          foodAllowance: employee.allowances?.food?.amount || 0,
+          vehicleAllowance: vehicleAllowanceAmount(employee.allowances),
+          fuelAllowance: fuelAllowanceAmount(employee.allowances),
+          vehicleFuelAllowance: vehicleFuelTotal(employee.allowances),
+          medicalAllowance: employee.allowances?.medical?.amount || 0,
+          totalEarnings: employee.totalEarnings || 0,
+          incomeTax: employee.incomeTax || 0,
+          companyLoan: employee.loanDeductions || employee.companyLoanDeduction || 0,
+          vehicleLoan: employee.vehicleLoanDeduction || 0,
+          eobiDeduction: employee.eobi || 0,
+          netPayable: employee.netSalary || 0,
+          netPay: employee.netSalary || 0,
+          deductions: employee.totalDeductions || 0,
+          tax: employee.incomeTax || 0,
+          eobi: employee.eobi || 0,
+          healthInsurance: employee.healthInsurance || 0,
+          vehicleLoanDeduction: employee.vehicleLoanDeduction || 0,
+          companyLoanDeduction: employee.loanDeductions || employee.companyLoanDeduction || 0,
+          attendanceDeduction: employee.attendanceDeduction || 0,
+          otherDeductions: employee.otherDeductions || 0
+        };
+        return applyAttendanceExclusion(base, excludeAttendance);
+      });
+
+      // Summary uses adjusted export figures (attendance excluded when applicable)
+      const summary = {
+        totalEmployees: transformedData.length,
+        totalGrossSalary: transformedData.reduce((sum, emp) => sum + (emp.grossSalary || 0), 0),
+        totalDeductions: transformedData.reduce((sum, emp) => sum + (emp.deductions || 0), 0),
+        netPay: transformedData.reduce((sum, emp) => sum + (emp.netPay || 0), 0)
+      };
 
       const reportData = {
         summary,
@@ -371,7 +507,8 @@ router.get('/monthly',
         filters: {
           month: parseInt(month),
           year: parseInt(year),
-          department: department || 'All'
+          department: department || 'All',
+          excludeAttendanceDeduction: excludeAttendance
         },
         generatedAt: new Date(),
         reportType: 'monthly_payroll'
@@ -379,7 +516,7 @@ router.get('/monthly',
 
       // Handle different formats
       if (format === 'csv') {
-        const csvData = convertToCSV(reportData);
+        const csvData = convertToCSV(reportData, { excludeAttendanceDeduction: excludeAttendance });
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename=monthly-payroll-${month}-${year}.csv`);
         return res.send(csvData);
@@ -660,10 +797,13 @@ router.get('/salary',
 // ==================== UTILITY FUNCTIONS ====================
 
 // Convert data to CSV format matching Excel structure
-function convertToCSV(reportData) {
+function convertToCSV(reportData, options = {}) {
   if (!reportData.data || !Array.isArray(reportData.data)) {
     return 'No data available';
   }
+
+  const excludeAttendanceDeduction = options.excludeAttendanceDeduction === true
+    || reportData?.filters?.excludeAttendanceDeduction === true;
 
   // Function to convert JavaScript date to Excel serial date
   function dateToExcelSerial(date) {
@@ -746,7 +886,7 @@ function convertToCSV(reportData) {
     'Health Insurance',
     'Vehicle Loan Deduction',
     'Company Loan Deduction',
-    'Attendance Deduction',
+    ...(excludeAttendanceDeduction ? [] : ['Attendance Deduction']),
     'Other Deductions',
     'Net Payable'
   ];
@@ -799,9 +939,9 @@ function convertToCSV(reportData) {
       Math.round(row.healthInsurance || 0), // Health Insurance (from actual payroll)
       Math.round(row.vehicleLoanDeduction || 0), // Vehicle Loan Deduction (from actual payroll)
       Math.round(row.companyLoanDeduction || 0), // Company Loan Deduction (from actual payroll)
-      Math.round(row.attendanceDeduction || 0), // Attendance Deduction (from actual payroll)
+      ...(excludeAttendanceDeduction ? [] : [Math.round(row.attendanceDeduction || 0)]),
       Math.round(row.otherDeductions || 0), // Other Deductions (from actual payroll)
-      Math.round(row.netPay || 0) // Net Payable (from actual payroll)
+      Math.round(row.netPay || 0) // Net Payable (attendance excluded when applicable)
     ];
 
     // Escape commas and quotes in CSV

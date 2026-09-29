@@ -857,168 +857,307 @@ const FinanceHelper = {
    * Record payment for an AR Invoice
    * Optional installmentId links the receipt to a scheduled installment (still one voucher per receipt).
    */
+  /**
+   * Keep invoice header amountPaid aligned with payment rows (prevents statement drift).
+   */
+  _syncARAmountPaid(invoice) {
+    if (!invoice) return 0;
+    const sum = Math.round(
+      (invoice.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100
+    ) / 100;
+    invoice.amountPaid = sum;
+    FinanceHelper._updateDocumentStatus(invoice);
+    return sum;
+  },
+
+  /**
+   * Record receipt for one invoice / installment.
+   * Always goes through batch path so: one RV, JE created before invoice mutation, no orphan payments.
+   */
   recordARPayment: async (invoiceId, paymentData) => {
     try {
-      const invoice = await AccountsReceivable.findById(invoiceId);
-      if (!invoice) throw new Error('Invoice not found');
-
-      const {
-        amount,
-        paymentMethod,
-        reference,
-        date,
-        createdBy,
-        bankAccountId,
-        payingCompanyId: optsPayingCompanyId = null,
-        installmentId = null,
-        narration = '',
-        description = ''
-      } = paymentData;
-
-      const amountRounded = Math.round((Number(amount) || 0) * 100) / 100;
-      if (amountRounded <= 0) throw new Error('Receipt amount must be greater than zero');
-
-      const balance = Math.round((invoice.totalAmount - invoice.amountPaid) * 100) / 100;
-      if (amountRounded > balance + 0.01) {
-        throw new Error(`Receipt amount PKR ${amountRounded} exceeds outstanding balance PKR ${balance}`);
-      }
-
-      let installment = null;
-      if (installmentId) {
-        installment = invoice.installments?.id?.(installmentId)
-          || (invoice.installments || []).find((i) => String(i._id) === String(installmentId));
-        if (!installment) throw new Error('Installment not found on this invoice');
-        if (installment.status === 'paid' || installment.status === 'cancelled') {
-          throw new Error('This installment is already paid or cancelled');
-        }
-        const instBalance = Math.round(((installment.amount || 0) - (installment.paidAmount || 0)) * 100) / 100;
-        if (amountRounded > instBalance + 0.01) {
-          throw new Error(`Receipt amount PKR ${amountRounded} exceeds installment balance PKR ${instBalance}`);
-        }
-      }
-
-      invoice.payments.push({
-        amount: amountRounded,
-        paymentDate: date || new Date(),
-        paymentMethod,
-        reference,
-        createdBy,
-        installmentId: installmentId || null
+      const result = await FinanceHelper.recordARPaymentBatch({
+        lines: [{
+          invoiceId,
+          amount: paymentData.amount,
+          installmentId: paymentData.installmentId || null
+        }],
+        paymentMethod: paymentData.paymentMethod,
+        reference: paymentData.reference,
+        date: paymentData.date,
+        createdBy: paymentData.createdBy,
+        bankAccountId: paymentData.bankAccountId,
+        payingCompanyId: paymentData.payingCompanyId || null,
+        narration: paymentData.narration || '',
+        description: paymentData.description || '',
+        costCenter: paymentData.costCenter || null
       });
-      invoice.amountPaid = Math.round((invoice.amountPaid + amountRounded) * 100) / 100;
-      FinanceHelper._updateDocumentStatus(invoice);
-
-      if (installment) {
-        installment.paidAmount = Math.round(((installment.paidAmount || 0) + amountRounded) * 100) / 100;
-        installment.lastPaymentDate = date || new Date();
-        if (installment.paidAmount >= (installment.amount || 0) - 0.01) {
-          installment.status = 'paid';
-          installment.paidAmount = installment.amount;
-        } else {
-          installment.status = 'partial';
-        }
-      }
-
-      await invoice.save();
-
-      const companyId = co(invoice);
-      const receivingCompanyId = co({ companyId: optsPayingCompanyId }) || companyId;
-      const isIntercompany = receivingCompanyId && companyId && String(receivingCompanyId) !== String(companyId);
-
-      const A_target = acct(companyId);
-      const A_receiving = acct(receivingCompanyId);
-
-      const arAccount = await A_target.resolve(FinanceHelper.ACCOUNTS.RECEIVABLE);
-      let bankAccount = bankAccountId ? await A_receiving.map(bankAccountId) : null;
-      if (!bankAccount) {
-        bankAccount = await A_receiving.resolve(
-          paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
-        );
-      }
-
-      if (arAccount && bankAccount) {
-        const lines = [];
-        const customerParty = invoice.customer?.customerId
-          ? { partyType: 'Customer', party: invoice.customer.customerId }
-          : {};
-        const instLabel = installment
-          ? ` (Installment #${installment.sequence || ''})`
-          : '';
-
-        if (isIntercompany) {
-          const { resolveIntercompanyAccounts } = require('./financePosting');
-          const { icTargetAcc, icPayingAcc: icReceivingAcc } = await resolveIntercompanyAccounts({
-            targetCompanyId: companyId,
-            payingCompanyId: receivingCompanyId,
-            createdBy
-          });
-
-          lines.push({ account: icTargetAcc._id, description: `Intercompany Receipt via receiving bank account`, debit: amountRounded, department: invoice.department });
-          lines.push({
-            account: arAccount._id,
-            description: `Clear AR – ${invoice.invoiceNumber}${instLabel}`,
-            credit: amountRounded,
-            department: invoice.department,
-            ...customerParty
-          });
-
-          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}${instLabel}`, debit: amountRounded, department: invoice.department });
-          lines.push({ account: icReceivingAcc._id, description: `Intercompany Payable for receipt collected on behalf of subsidiary`, credit: amountRounded, department: invoice.department });
-        } else {
-          lines.push({ account: bankAccount._id, description: `Receipt – ${invoice.invoiceNumber}${instLabel}`, debit: amountRounded, department: invoice.department });
-          lines.push({
-            account: arAccount._id,
-            description: `Clear AR – ${invoice.invoiceNumber}${instLabel}`,
-            credit: amountRounded,
-            department: invoice.department,
-            ...customerParty
-          });
-        }
-
-        // Voucher date follows invoice/installment due date (not "today")
-        const voucherDate = installment?.dueDate || invoice.dueDate || date || new Date();
-
-        // Receipt voucher narration = what the user typed (never reuse invoice notes like "testing")
-        const userNarration = String(narration || description || '').trim();
-        const voucherNarration =
-          userNarration ||
-          `Receipt: ${invoice.invoiceNumber} from ${invoice.customer?.name || 'Customer'}${instLabel}${isIntercompany ? ' (Intercompany Receipt)' : ''}`;
-
-        const je = await FinanceHelper.createAndPostJournalEntry(
-          withVoucherNarration(withCompany({
-            date: voucherDate,
-            reference: reference || '',
-            description: voucherNarration,
-            department: invoice.department,
-            costCenter: invoice.costCenter?._id || invoice.costCenter || paymentData.costCenter || null,
-            vendorOrEmployeeName: invoice.customer?.name || invoice.customerName || 'Customer',
-            module: invoice.module,
-            referenceId: invoice._id,
-            referenceType: 'receipt',
-            journalCode: 'BANK',
-            voucherSeries: 'RV',
-            createdBy,
-            lines
-          }, companyId), voucherNarration)
-        );
-
-        if (je?._id) {
-          const lastPay = invoice.payments[invoice.payments.length - 1];
-          if (lastPay) lastPay.journalEntry = je._id;
-          if (installment) {
-            const liveInst = invoice.installments.id(installment._id)
-              || (invoice.installments || []).find((i) => String(i._id) === String(installment._id));
-            if (liveInst) liveInst.lastJournalEntry = je._id;
-          }
-          await invoice.save();
-        }
-      }
-
-      return invoice;
+      return result.invoices?.[0] || null;
     } catch (error) {
       console.error('❌ Error recording AR payment:', error);
       throw error;
     }
+  },
+
+  /**
+   * Record one consolidated receipt (single RV) against multiple invoices / installments.
+   * Used when Receive Payment selects several installment parts in one action.
+   *
+   * @param {{ lines: Array<{ invoiceId, amount, installmentId? }>, paymentMethod, reference?, date?, bankAccountId?, narration?, description?, createdBy, payingCompanyId? }} paymentData
+   */
+  recordARPaymentBatch: async (paymentData) => {
+    const {
+      lines: rawLines = [],
+      paymentMethod,
+      reference,
+      date,
+      createdBy,
+      bankAccountId,
+      payingCompanyId: optsPayingCompanyId = null,
+      narration = '',
+      description = '',
+      costCenter = null
+    } = paymentData || {};
+
+    const linesIn = (Array.isArray(rawLines) ? rawLines : [])
+      .map((l) => ({
+        invoiceId: l.invoiceId || l.billId || l.id,
+        amount: Math.round((Number(l.amount) || 0) * 100) / 100,
+        installmentId: l.installmentId || null
+      }))
+      .filter((l) => l.invoiceId && l.amount > 0);
+
+    if (!linesIn.length) throw new Error('Select at least one invoice or installment to receive payment against');
+
+    const invoiceIds = [...new Set(linesIn.map((l) => String(l.invoiceId)))];
+    const invoices = await AccountsReceivable.find({ _id: { $in: invoiceIds } });
+    if (invoices.length !== invoiceIds.length) {
+      throw new Error('One or more invoices were not found');
+    }
+
+    const byId = new Map(invoices.map((inv) => [String(inv._id), inv]));
+    const companyIds = [...new Set(invoices.map((inv) => String(co(inv) || '')).filter(Boolean))];
+    if (companyIds.length > 1) {
+      throw new Error('All selected invoices must belong to the same company for one receipt voucher');
+    }
+
+    const companyId = co(invoices[0]);
+    const receivingCompanyId = co({ companyId: optsPayingCompanyId }) || companyId;
+    const isIntercompany = receivingCompanyId && companyId && String(receivingCompanyId) !== String(companyId);
+
+    // Validate each line against live invoice / installment balances
+    const applied = [];
+    for (const line of linesIn) {
+      const invoice = byId.get(String(line.invoiceId));
+      if (!invoice) throw new Error('Invoice not found');
+      if (invoice.status === 'cancelled') {
+        throw new Error(`Invoice ${invoice.invoiceNumber} is cancelled`);
+      }
+
+      const balance = Math.round((invoice.totalAmount - invoice.amountPaid) * 100) / 100;
+      // Sum other lines already queued for this invoice in this batch
+      const queuedForInvoice = applied
+        .filter((a) => String(a.invoice._id) === String(invoice._id))
+        .reduce((s, a) => s + a.amount, 0);
+      if (line.amount > balance - queuedForInvoice + 0.01) {
+        throw new Error(
+          `Receipt amount exceeds outstanding on ${invoice.invoiceNumber} (open PKR ${Math.max(0, balance - queuedForInvoice)})`
+        );
+      }
+
+      let installment = null;
+      if (line.installmentId) {
+        installment = invoice.installments?.id?.(line.installmentId)
+          || (invoice.installments || []).find((i) => String(i._id) === String(line.installmentId));
+        if (!installment) {
+          throw new Error(`Installment not found on invoice ${invoice.invoiceNumber}`);
+        }
+        if (installment.status === 'paid' || installment.status === 'cancelled') {
+          throw new Error(
+            `Installment #${installment.sequence || ''} on ${invoice.invoiceNumber} is already paid or cancelled`
+          );
+        }
+        const instBalance = Math.round(((installment.amount || 0) - (installment.paidAmount || 0)) * 100) / 100;
+        const queuedForInst = applied
+          .filter((a) => a.installment && String(a.installment._id) === String(installment._id))
+          .reduce((s, a) => s + a.amount, 0);
+        if (line.amount > instBalance - queuedForInst + 0.01) {
+          throw new Error(
+            `Amount exceeds balance on installment #${installment.sequence || ''} of ${invoice.invoiceNumber}`
+          );
+        }
+      }
+
+      applied.push({ invoice, installment, amount: line.amount });
+    }
+
+    const totalAmount = Math.round(applied.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+    if (totalAmount <= 0) throw new Error('Receipt amount must be greater than zero');
+
+    const A_target = acct(companyId);
+    const A_receiving = acct(receivingCompanyId);
+    const arAccount = await A_target.resolve(FinanceHelper.ACCOUNTS.RECEIVABLE);
+    let bankAccount = bankAccountId ? await A_receiving.map(bankAccountId) : null;
+    if (!bankAccount) {
+      bankAccount = await A_receiving.resolve(
+        paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
+      );
+    }
+    if (!arAccount || !bankAccount) {
+      throw new Error('Accounts Receivable or Bank/Cash account not found');
+    }
+
+    const paymentDate = date ? new Date(date) : new Date();
+    const instLabels = applied
+      .filter((a) => a.installment)
+      .map((a) => `#${a.installment.sequence || ''}`)
+      .filter(Boolean);
+    const invoiceLabels = [...new Set(applied.map((a) => a.invoice.invoiceNumber))].join(', ');
+    const instSuffix = instLabels.length
+      ? ` (Installment${instLabels.length > 1 ? 's' : ''} ${instLabels.join(', ')})`
+      : '';
+    const customerName = invoices[0].customer?.name || invoices[0].customerName || 'Customer';
+    const userNarration = String(narration || description || '').trim();
+    const voucherNarration =
+      userNarration
+      || `Receipt: ${invoiceLabels} from ${customerName}${instSuffix}${isIntercompany ? ' (Intercompany Receipt)' : ''}`;
+
+    // Build journal lines — one DR bank, then CR AR per allocation (still one RV)
+    const jeLines = [];
+    const customerParty = invoices[0].customer?.customerId
+      ? { partyType: 'Customer', party: invoices[0].customer.customerId }
+      : {};
+    const department = invoices[0].department;
+
+    if (isIntercompany) {
+      const { resolveIntercompanyAccounts } = require('./financePosting');
+      const { icTargetAcc, icPayingAcc: icReceivingAcc } = await resolveIntercompanyAccounts({
+        targetCompanyId: companyId,
+        payingCompanyId: receivingCompanyId,
+        createdBy
+      });
+      jeLines.push({
+        account: icTargetAcc._id,
+        description: 'Intercompany Receipt via receiving bank account',
+        debit: totalAmount,
+        department
+      });
+      for (const row of applied) {
+        const label = row.installment
+          ? `${row.invoice.invoiceNumber} Inst #${row.installment.sequence || ''}`
+          : row.invoice.invoiceNumber;
+        jeLines.push({
+          account: arAccount._id,
+          description: `Clear AR – ${label}`,
+          credit: row.amount,
+          department,
+          ...customerParty
+        });
+      }
+      jeLines.push({
+        account: bankAccount._id,
+        description: `Receipt – ${invoiceLabels}${instSuffix}`,
+        debit: totalAmount,
+        department
+      });
+      jeLines.push({
+        account: icReceivingAcc._id,
+        description: 'Intercompany Payable for receipt collected on behalf of subsidiary',
+        credit: totalAmount,
+        department
+      });
+    } else {
+      jeLines.push({
+        account: bankAccount._id,
+        description: `Receipt – ${invoiceLabels}${instSuffix}`,
+        debit: totalAmount,
+        department
+      });
+      for (const row of applied) {
+        const label = row.installment
+          ? `${row.invoice.invoiceNumber} Inst #${row.installment.sequence || ''}`
+          : row.invoice.invoiceNumber;
+        jeLines.push({
+          account: arAccount._id,
+          description: `Clear AR – ${label}`,
+          credit: row.amount,
+          department,
+          ...customerParty
+        });
+      }
+    }
+
+    const firstDue = applied.find((a) => a.installment?.dueDate)?.installment?.dueDate
+      || applied[0].invoice.dueDate
+      || paymentDate;
+
+    const je = await FinanceHelper.createAndPostJournalEntry(
+      withVoucherNarration(withCompany({
+        date: paymentDate || firstDue,
+        reference: reference || '',
+        description: voucherNarration,
+        department,
+        costCenter: costCenter || invoices[0].costCenter?._id || invoices[0].costCenter || null,
+        vendorOrEmployeeName: customerName,
+        module: invoices[0].module || 'finance',
+        referenceId: invoices.length === 1 ? invoices[0]._id : null,
+        referenceType: 'receipt',
+        journalCode: 'BANK',
+        voucherSeries: 'RV',
+        createdBy,
+        lines: jeLines
+      }, companyId), voucherNarration)
+    );
+
+    if (!je?._id) {
+      throw new Error('Failed to create receipt voucher — invoice was not updated');
+    }
+
+    // Apply amounts only AFTER RV exists (never leave orphan payment rows without JE)
+    const touched = new Map();
+    for (const row of applied) {
+      const invoice = row.invoice;
+      invoice.payments.push({
+        amount: row.amount,
+        paymentDate,
+        paymentMethod: paymentMethod || 'bank_transfer',
+        reference: reference || '',
+        createdBy,
+        installmentId: row.installment?._id || null,
+        journalEntry: je._id
+      });
+
+      if (row.installment) {
+        const liveInst = invoice.installments.id(row.installment._id)
+          || (invoice.installments || []).find((i) => String(i._id) === String(row.installment._id));
+        if (liveInst) {
+          liveInst.paidAmount = Math.round(((liveInst.paidAmount || 0) + row.amount) * 100) / 100;
+          liveInst.lastPaymentDate = paymentDate;
+          liveInst.lastJournalEntry = je._id;
+          if (liveInst.paidAmount >= (liveInst.amount || 0) - 0.01) {
+            liveInst.status = 'paid';
+            liveInst.paidAmount = liveInst.amount;
+          } else {
+            liveInst.status = 'partial';
+          }
+        }
+      }
+      touched.set(String(invoice._id), invoice);
+    }
+
+    for (const invoice of touched.values()) {
+      FinanceHelper._syncARAmountPaid(invoice);
+      await invoice.save();
+    }
+
+    return {
+      journalEntryId: je._id,
+      entryNumber: je.entryNumber || null,
+      totalAmount,
+      invoiceCount: invoices.length,
+      lineCount: applied.length,
+      invoices
+    };
   },
 
   /**
@@ -1470,7 +1609,7 @@ const FinanceHelper = {
     }
     let bankAccount = bankAccountId ? await A_paying.map(bankAccountId) : null;
     if (bankAccountId && !bankAccount) {
-      throw new Error('Selected bank or cash account was not found. Pick a valid chart account.');
+      throw new Error('Selected bank or cash account was not found on the Paying company chart of accounts.');
     }
     if (!bankAccount) {
       bankAccount = await A_paying.resolve(
@@ -1478,6 +1617,9 @@ const FinanceHelper = {
       );
     }
     if (!advAccount || !bankAccount) throw new Error('Advance or Bank/Cash account not found');
+    if (bankAccount.companyId && String(bankAccount.companyId) !== String(payingCompanyId)) {
+      throw new Error('Pay from account must belong to the selected Paying company.');
+    }
 
     const validCategoryLines = Array.isArray(categoryLines)
       ? categoryLines.filter((l) => Number(l.amount) > 0)
@@ -1508,6 +1650,7 @@ const FinanceHelper = {
       referenceId,
       categoryLines: Array.isArray(categoryLines) ? categoryLines : [],
       companyId,
+      payingCompanyId: payingCompanyId || companyId,
       voucherWorkflowStatus: 'pending_authority',
       financeApprovalAuthorities: {
         accountsOfficerUser: createdBy,
@@ -1524,6 +1667,11 @@ const FinanceHelper = {
       }]
     });
 
+    // Party tag on advance debit = vendor sub-ledger (required for TB / vendor statements)
+    const vendorParty = vendorId
+      ? { partyType: 'Vendor', party: vendorId }
+      : {};
+
     let debitLines = [];
     if (validCategoryLines.length > 0) {
       for (const cl of validCategoryLines) {
@@ -1538,7 +1686,8 @@ const FinanceHelper = {
           account: lineAcc._id,
           description: cl.description || `Advance / ${lineAcc.name || 'Expense'} - ${vendorName || 'Vendor'}`,
           debit: Math.round((Number(cl.amount) || 0) * 100) / 100,
-          department
+          department,
+          ...vendorParty
         });
       }
     } else {
@@ -1546,63 +1695,144 @@ const FinanceHelper = {
         account: advAccount._id,
         description: `Advance to ${vendorName || 'Vendor'}`,
         debit: amount_,
-        department
+        department,
+        ...vendorParty
       });
     }
 
-    let linePayload = [];
-    if (isIntercompany) {
-      const { resolveIntercompanyAccounts } = require('./financePosting');
-      const { icTargetAcc, icPayingAcc } = await resolveIntercompanyAccounts({
-        targetCompanyId: companyId,
-        payingCompanyId,
-        createdBy
-      });
-
-      // Credit Intercompany Clearing on Target company ledger
-      const targetLines = [
-        ...debitLines,
-        { account: icTargetAcc._id, description: `Intercompany Advance Settlement via paying company`, credit: amount_, department }
-      ];
-
-      const payingLines = [
-        { account: icPayingAcc._id, description: `Intercompany Advance paid on behalf of company`, debit: amount_, department },
-        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${cleanChequeNo || advance.reference})`, credit: amount_, department }
-      ];
-
-      linePayload = [...targetLines, ...payingLines];
-    } else {
-      linePayload = [
-        ...debitLines,
-        { account: bankAccount._id, description: `Advance payment to ${vendorName || 'Vendor'} (${cleanChequeNo || advance.reference})`, credit: amount_, department }
-      ];
-    }
+    const PlacementCompany = require('../models/hr/Company');
+    const [targetCo, payingCo] = await Promise.all([
+      PlacementCompany.findById(companyId).select('name').lean(),
+      PlacementCompany.findById(payingCompanyId).select('name').lean()
+    ]);
+    const targetName = targetCo?.name || 'Target company';
+    const payingName = payingCo?.name || 'Paying company';
+    const narration = getVendorAdvanceNarration(advance) || reference;
+    const payRef = cleanChequeNo || advance.reference || '';
 
     try {
-      const journalEntry = await FinanceHelper.createDraftJournalEntry(
-        withVoucherNarration(
-          withCompany({
-            date: date || new Date(),
-            reference: cleanChequeNo || advance.reference,
-            description: `Vendor Advance: ${vendorName || 'Vendor'}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
-            department,
-            module,
-            referenceId: advance._id,
-            referenceType: 'payment',
-            journalCode: 'BANK',
-            voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
-            createdBy,
-            lines: linePayload,
-            payingCompanyId: payingCompanyId || null
-          }, companyId),
-          getVendorAdvanceNarration(advance) || reference
-        )
-      );
-      advance.journalEntryId = journalEntry._id;
-      await advance.save();
+      if (isIntercompany) {
+        const { resolveIntercompanyAccounts } = require('./financePosting');
+        const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
+        await seedChartOfAccountsForCompany(companyId, { skipExisting: true });
+        await seedChartOfAccountsForCompany(payingCompanyId, { skipExisting: true });
+        const { icTargetAcc, icPayingAcc } = await resolveIntercompanyAccounts({
+          targetCompanyId: companyId,
+          payingCompanyId,
+          createdBy
+        });
+
+        // Voucher 1 — original company (e.g. Taj): DR Vendor Advance, CR Intercompany Payable (paying co.)
+        const targetJournal = await FinanceHelper.createDraftJournalEntry(
+          withVoucherNarration(
+            withCompany({
+              date: date || new Date(),
+              reference: payRef,
+              description: `Vendor Advance: ${vendorName || 'Vendor'} (paid by ${payingName})`,
+              department,
+              module,
+              referenceId: advance._id,
+              referenceType: 'payment',
+              journalCode: 'BANK',
+              voucherSeries: 'JV',
+              createdBy,
+              payingCompanyId,
+              lines: [
+                ...debitLines,
+                {
+                  account: icTargetAcc._id,
+                  description: `Due to ${payingName} — intercompany vendor advance`,
+                  credit: amount_,
+                  department
+                }
+              ]
+            }, companyId),
+            narration
+          )
+        );
+
+        // Voucher 2 — paying company: DR Intercompany Receivable (original), CR Bank
+        const payingJournal = await FinanceHelper.createDraftJournalEntry(
+          withVoucherNarration(
+            {
+              companyId: payingCompanyId,
+              date: date || new Date(),
+              reference: payRef,
+              description: `Vendor Advance payment for ${targetName}: ${vendorName || 'Vendor'}`,
+              department,
+              module,
+              referenceId: advance._id,
+              referenceType: 'payment',
+              journalCode: 'BANK',
+              voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+              createdBy,
+              lines: [
+                {
+                  account: icPayingAcc._id,
+                  description: `Due from ${targetName} — vendor advance paid on their behalf`,
+                  debit: amount_,
+                  department
+                },
+                {
+                  account: bankAccount._id,
+                  description: `Advance payment to ${vendorName || 'Vendor'} (${payRef})`,
+                  credit: amount_,
+                  department
+                }
+              ]
+            },
+            narration
+          )
+        );
+
+        if (!payingJournal.companyId || String(payingJournal.companyId) !== String(payingCompanyId)) {
+          payingJournal.companyId = payingCompanyId;
+          await payingJournal.save();
+        }
+
+        advance.journalEntryId = targetJournal._id;
+        advance.payingJournalEntryId = payingJournal._id;
+        await advance.save();
+      } else {
+        const journalEntry = await FinanceHelper.createDraftJournalEntry(
+          withVoucherNarration(
+            withCompany({
+              date: date || new Date(),
+              reference: payRef,
+              description: `Vendor Advance: ${vendorName || 'Vendor'} (pending finance signatures)`,
+              department,
+              module,
+              referenceId: advance._id,
+              referenceType: 'payment',
+              journalCode: 'BANK',
+              voucherSeries: (paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+              createdBy,
+              payingCompanyId: payingCompanyId || null,
+              lines: [
+                ...debitLines,
+                {
+                  account: bankAccount._id,
+                  description: `Advance payment to ${vendorName || 'Vendor'} (${payRef})`,
+                  credit: amount_,
+                  department
+                }
+              ]
+            }, companyId),
+            narration
+          )
+        );
+        advance.journalEntryId = journalEntry._id;
+        await advance.save();
+      }
     } catch (jeErr) {
-      // Do not leave an advance row without a voucher — remove the orphan and surface the real error
+      // Do not leave an advance row without vouchers — remove the orphan and surface the real error
       try {
+        if (advance.journalEntryId) {
+          await JournalEntry.findByIdAndDelete(advance.journalEntryId);
+        }
+        if (advance.payingJournalEntryId) {
+          await JournalEntry.findByIdAndDelete(advance.payingJournalEntryId);
+        }
         await VendorAdvance.findByIdAndDelete(advance._id);
       } catch (_) { /* ignore cleanup failure */ }
       throw jeErr;
@@ -1611,10 +1841,11 @@ const FinanceHelper = {
   },
 
   /**
-   * Attach a draft BPV/CPV when an advance was saved without journalEntryId
+   * Attach draft voucher(s) when an advance was saved without journalEntryId
    * (legacy bug when companyId was "all").
+   * Intercompany: creates original-company JE + paying-company bank JE.
    */
-  ensureVendorAdvanceVoucher: async (advanceId, { companyId: optsCompanyId = null, createdBy = null } = {}) => {
+  ensureVendorAdvanceVoucher: async (advanceId, { companyId: optsCompanyId = null, payingCompanyId: optsPayingCompanyId = null, createdBy = null } = {}) => {
     const { normalizeCompanyId } = require('./financeCompanyContext');
     const advance = await VendorAdvance.findById(advanceId);
     if (!advance) throw new Error('Vendor advance not found');
@@ -1629,20 +1860,29 @@ const FinanceHelper = {
     let companyId =
       normalizeCompanyId(optsCompanyId)
       || normalizeCompanyId(advance.companyId);
+    let payingCompanyId =
+      normalizeCompanyId(optsPayingCompanyId)
+      || normalizeCompanyId(advance.payingCompanyId)
+      || companyId;
     if (!companyId && advance.bankAccountId) {
       const bank = await Account.findById(advance.bankAccountId).select('companyId').lean();
       companyId = normalizeCompanyId(bank?.companyId);
+      if (!payingCompanyId) payingCompanyId = companyId;
     }
     if (!companyId) {
       throw new Error('Select a finance company to create the missing voucher for this advance.');
     }
+    if (!payingCompanyId) payingCompanyId = companyId;
 
-    const A = acct(companyId);
-    let advAccount = await A.resolve(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
+    const isIntercompany = String(payingCompanyId) !== String(companyId);
+    const A_target = acct(companyId);
+    const A_paying = acct(payingCompanyId);
+
+    let advAccount = await A_target.resolve(FinanceHelper.ACCOUNTS.VENDOR_ADVANCE);
     if (!advAccount) throw new Error('Advance to Suppliers account (1110) not found for this company');
-    let bankAccount = advance.bankAccountId ? await A.map(advance.bankAccountId) : null;
+    let bankAccount = advance.bankAccountId ? await A_paying.map(advance.bankAccountId) : null;
     if (!bankAccount) {
-      bankAccount = await A.resolve(
+      bankAccount = await A_paying.resolve(
         (advance.paymentMethod || 'bank_transfer') === 'cash'
           ? FinanceHelper.ACCOUNTS.CASH
           : FinanceHelper.ACCOUNTS.BANK
@@ -1652,6 +1892,10 @@ const FinanceHelper = {
 
     const department = advance.department || 'procurement';
     const vendorName = advance.vendor?.name || 'Vendor';
+    const vendorId = advance.vendor?.vendorId || null;
+    const vendorParty = vendorId
+      ? { partyType: 'Vendor', party: vendorId }
+      : {};
     const categoryLines = Array.isArray(advance.categoryLines)
       ? advance.categoryLines.filter((l) => Number(l.amount) > 0)
       : [];
@@ -1659,14 +1903,15 @@ const FinanceHelper = {
     let debitLines = [];
     if (categoryLines.length > 0) {
       for (const cl of categoryLines) {
-        let lineAcc = cl.account ? await A.map(cl.account) : null;
-        if (!lineAcc && cl.accountNumber) lineAcc = await A.resolve(cl.accountNumber);
+        let lineAcc = cl.account ? await A_target.map(cl.account) : null;
+        if (!lineAcc && cl.accountNumber) lineAcc = await A_target.resolve(cl.accountNumber);
         if (!lineAcc) lineAcc = advAccount;
         debitLines.push({
           account: lineAcc._id,
           description: cl.description || `Advance / ${lineAcc.name || 'Expense'} - ${vendorName}`,
           debit: Math.round((Number(cl.amount) || 0) * 100) / 100,
-          department
+          department,
+          ...vendorParty
         });
       }
     } else {
@@ -1674,46 +1919,215 @@ const FinanceHelper = {
         account: advAccount._id,
         description: `Advance to ${vendorName}`,
         debit: amount_,
-        department
+        department,
+        ...vendorParty
       });
     }
 
-    const linePayload = [
-      ...debitLines,
-      {
-        account: bankAccount._id,
-        description: `Advance payment to ${vendorName} (${advance.chequeNumber || advance.reference || ''})`,
-        credit: amount_,
-        department
+    const PlacementCompany = require('../models/hr/Company');
+    const [targetCo, payingCo] = await Promise.all([
+      PlacementCompany.findById(companyId).select('name').lean(),
+      PlacementCompany.findById(payingCompanyId).select('name').lean()
+    ]);
+    const targetName = targetCo?.name || 'Target company';
+    const payingName = payingCo?.name || 'Paying company';
+    const payRef = advance.chequeNumber || advance.reference || '';
+    const narration = getVendorAdvanceNarration(advance) || advance.reference;
+    const createdById = createdBy || advance.createdBy;
+
+    if (isIntercompany) {
+      const { resolveIntercompanyAccounts } = require('./financePosting');
+      const { seedChartOfAccountsForCompany } = require('./companyChartOfAccounts');
+      await seedChartOfAccountsForCompany(companyId, { skipExisting: true });
+      await seedChartOfAccountsForCompany(payingCompanyId, { skipExisting: true });
+      const { icTargetAcc, icPayingAcc } = await resolveIntercompanyAccounts({
+        targetCompanyId: companyId,
+        payingCompanyId,
+        createdBy: createdById
+      });
+
+      const targetJournal = await FinanceHelper.createDraftJournalEntry(
+        withVoucherNarration(
+          withCompany({
+            date: advance.paymentDate || new Date(),
+            reference: payRef,
+            description: `Vendor Advance: ${vendorName} (paid by ${payingName})`,
+            department,
+            module: advance.module || 'procurement',
+            referenceId: advance._id,
+            referenceType: 'payment',
+            journalCode: 'BANK',
+            voucherSeries: 'JV',
+            createdBy: createdById,
+            payingCompanyId,
+            lines: [
+              ...debitLines,
+              {
+                account: icTargetAcc._id,
+                description: `Due to ${payingName} — intercompany vendor advance`,
+                credit: amount_,
+                department
+              }
+            ]
+          }, companyId),
+          narration
+        )
+      );
+
+      const payingJournal = await FinanceHelper.createDraftJournalEntry(
+        withVoucherNarration(
+          {
+            companyId: payingCompanyId,
+            date: advance.paymentDate || new Date(),
+            reference: payRef,
+            description: `Vendor Advance payment for ${targetName}: ${vendorName}`,
+            department,
+            module: advance.module || 'procurement',
+            referenceId: advance._id,
+            referenceType: 'payment',
+            journalCode: 'BANK',
+            voucherSeries: (advance.paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+            createdBy: createdById,
+            lines: [
+              {
+                account: icPayingAcc._id,
+                description: `Due from ${targetName} — vendor advance paid on their behalf`,
+                debit: amount_,
+                department
+              },
+              {
+                account: bankAccount._id,
+                description: `Advance payment to ${vendorName} (${payRef})`,
+                credit: amount_,
+                department
+              }
+            ]
+          },
+          narration
+        )
+      );
+
+      if (!payingJournal.companyId || String(payingJournal.companyId) !== String(payingCompanyId)) {
+        payingJournal.companyId = payingCompanyId;
+        await payingJournal.save();
       }
-    ];
 
-    const journalEntry = await FinanceHelper.createDraftJournalEntry(
-      withVoucherNarration(
-        withCompany({
-          date: advance.paymentDate || new Date(),
-          reference: advance.chequeNumber || advance.reference,
-          description: `Vendor Advance: ${vendorName} (pending finance signatures)`,
-          department,
-          module: advance.module || 'procurement',
-          referenceId: advance._id,
-          referenceType: 'payment',
-          journalCode: 'BANK',
-          voucherSeries: (advance.paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
-          createdBy: createdBy || advance.createdBy,
-          lines: linePayload
-        }, companyId),
-        getVendorAdvanceNarration(advance) || advance.reference
-      )
-    );
+      advance.journalEntryId = targetJournal._id;
+      advance.payingJournalEntryId = payingJournal._id;
+    } else {
+      const journalEntry = await FinanceHelper.createDraftJournalEntry(
+        withVoucherNarration(
+          withCompany({
+            date: advance.paymentDate || new Date(),
+            reference: payRef,
+            description: `Vendor Advance: ${vendorName} (pending finance signatures)`,
+            department,
+            module: advance.module || 'procurement',
+            referenceId: advance._id,
+            referenceType: 'payment',
+            journalCode: 'BANK',
+            voucherSeries: (advance.paymentMethod || 'bank_transfer') === 'cash' ? 'CPV' : 'BPV',
+            createdBy: createdById,
+            lines: [
+              ...debitLines,
+              {
+                account: bankAccount._id,
+                description: `Advance payment to ${vendorName} (${payRef})`,
+                credit: amount_,
+                department
+              }
+            ]
+          }, companyId),
+          narration
+        )
+      );
+      advance.journalEntryId = journalEntry._id;
+    }
 
-    advance.journalEntryId = journalEntry._id;
     advance.companyId = advance.companyId || companyId;
+    advance.payingCompanyId = advance.payingCompanyId || payingCompanyId;
     advance.voucherWorkflowStatus = advance.voucherWorkflowStatus === 'immediate'
       ? 'pending_authority'
       : (advance.voucherWorkflowStatus || 'pending_authority');
     await advance.save();
     return advance;
+  },
+
+  /**
+   * Backfill Vendor party tags on existing advance vouchers (debit lines).
+   * Does not change amounts — only party metadata for vendor sub-ledger / TB.
+   */
+  tagVendorAdvanceJournalParties: async (advanceId = null) => {
+    const GeneralLedger = require('../models/finance/GeneralLedger');
+    const filter = {
+      'vendor.vendorId': { $ne: null },
+      $or: [
+        { journalEntryId: { $ne: null } },
+        { payingJournalEntryId: { $ne: null } }
+      ]
+    };
+    if (advanceId) filter._id = advanceId;
+
+    const advances = await VendorAdvance.find(filter)
+      .select('_id vendor journalEntryId payingJournalEntryId amount')
+      .lean();
+
+    let updatedJes = 0;
+    let updatedLines = 0;
+    let skipped = 0;
+    const details = [];
+
+    for (const adv of advances) {
+      const vendorId = adv.vendor?.vendorId;
+      if (!vendorId) {
+        skipped += 1;
+        continue;
+      }
+      const jeIds = [adv.journalEntryId, adv.payingJournalEntryId].filter(Boolean);
+      for (const jeId of jeIds) {
+        const je = await JournalEntry.findById(jeId);
+        if (!je) {
+          skipped += 1;
+          continue;
+        }
+        let changed = false;
+        for (const line of je.lines || []) {
+          // Tag debit (advance / IC receivable) lines that lack vendor party
+          if ((Number(line.debit) || 0) > 0 && !(line.partyType && line.party)) {
+            line.partyType = 'Vendor';
+            line.party = vendorId;
+            changed = true;
+            updatedLines += 1;
+          }
+        }
+        if (!changed) {
+          skipped += 1;
+          continue;
+        }
+        await je.save();
+        updatedJes += 1;
+
+        // Keep posted GL in sync for party reports
+        if (je.status === 'posted') {
+          await GeneralLedger.updateMany(
+            {
+              journalEntry: je._id,
+              debit: { $gt: 0 },
+              $or: [{ partyType: null }, { partyType: { $exists: false } }, { party: null }]
+            },
+            { $set: { partyType: 'Vendor', party: vendorId } }
+          );
+        }
+        details.push({
+          advanceId: adv._id,
+          vendorId,
+          entryNumber: je.entryNumber,
+          status: je.status
+        });
+      }
+    }
+
+    return { updatedJes, updatedLines, skipped, count: advances.length, details };
   },
 
   applyVendorAdvanceToBill: async (billId, requestedAmount = null, createdBy = null, options = {}) => {

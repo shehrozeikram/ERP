@@ -138,14 +138,19 @@ const attachBillPaymentDetails = async (entries) => {
   const matchedVendorAdvances = await VendorAdvance.find({
     $or: [
       { _id: { $in: refIds } },
-      { journalEntryId: { $in: entryIds } }
+      { journalEntryId: { $in: entryIds } },
+      { payingJournalEntryId: { $in: entryIds } }
     ]
   })
-    .select('_id vendor chequeNumber journalEntryId')
+    .select('_id vendor chequeNumber journalEntryId payingJournalEntryId')
     .lean();
 
   const vaByRef = new Map(matchedVendorAdvances.map((v) => [String(v._id), v]));
-  const vaByJe = new Map(matchedVendorAdvances.filter(v => v.journalEntryId).map((v) => [String(v.journalEntryId), v]));
+  const vaByJe = new Map();
+  matchedVendorAdvances.forEach((v) => {
+    if (v.journalEntryId) vaByJe.set(String(v.journalEntryId), v);
+    if (v.payingJournalEntryId) vaByJe.set(String(v.payingJournalEntryId), v);
+  });
 
   // 3. Match CashApproval — party from advanceToName, vendor, or advanceToEmployee
   const matchedCashApprovals = await CashApproval.find({
@@ -292,7 +297,11 @@ async function tryAutoApprovePoAfterVendorAdvance(advance, userId) {
 
 async function populateVendorAdvanceDoc(query) {
   return VendorAdvance.findOne(query)
-    .populate('bankAccountId', 'name accountNumber type category')
+    .populate('bankAccountId', 'name accountNumber type category companyId')
+    .populate('companyId', 'name companyCode')
+    .populate('payingCompanyId', 'name companyCode')
+    .populate('journalEntryId', 'entryNumber voucherSeries companyId status')
+    .populate('payingJournalEntryId', 'entryNumber voucherSeries companyId status')
     .populate('financeApprovalAuthorities.accountsOfficerUser', 'firstName lastName email employeeId digitalSignature')
     .populate('financeApprovalAuthorities.accountsManagerUser', 'firstName lastName email employeeId digitalSignature')
     .populate('financeApprovalAuthorities.financeControllerUser', 'firstName lastName email employeeId digitalSignature')
@@ -411,14 +420,14 @@ router.get('/accounts/detail-types',
 // @desc    Get all accounts with filtering and pagination
 // @access  Private (Finance and Admin)
 // procurement_manager: read-only list for inventory item GL linking (same CoA as finance; no write access on other routes)
-router.get('/accounts',
-  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'),
+router.get('/accounts', 
+  authorize('super_admin', 'admin', 'finance_manager', 'procurement_manager'), 
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const {
-      page = 1,
-      limit = 20,
-      type,
+    const { 
+      page = 1, 
+      limit = 20, 
+      type, 
       category,
       department,
       module,
@@ -505,8 +514,8 @@ router.get('/accounts',
 // @route   GET /api/finance/accounts/hierarchy
 // @desc    Get accounts in hierarchical structure
 // @access  Private (Finance and Admin)
-router.get('/accounts/hierarchy',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/accounts/hierarchy', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const company = await requireCompanyFromRequest(req);
 
@@ -540,8 +549,8 @@ router.get('/accounts/hierarchy',
 // @route   GET /api/finance/accounts/trial-balance
 // @desc    Get trial balance
 // @access  Private (Finance and Admin)
-router.get('/accounts/trial-balance',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/accounts/trial-balance', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const company = await requireCompanyFromRequest(req);
 
@@ -810,13 +819,13 @@ router.delete('/accounts/:id',
 // @route   GET /api/finance/journal-entries
 // @desc    Get all journal entries with filtering
 // @access  Private (Finance and Admin)
-router.get('/journal-entries',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/journal-entries', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const {
-      page = 1,
-      limit = 20,
+    const { 
+      page = 1, 
+      limit = 20, 
       department,
       module,
       status,
@@ -883,7 +892,7 @@ router.get('/journal-entries',
     // Ensure populate refs are registered (hr routes usually load these first)
     require('../models/hr/Project');
     require('../models/hr/Department');
-
+    
     const [entries, totalCount] = await Promise.all([
       JournalEntry.find(filters)
         .populate('companyId', 'name companyCode')
@@ -901,7 +910,7 @@ router.get('/journal-entries',
 
     let finalEntries;
     try {
-      const entriesWithCaFlags = await attachCashApprovalWorkflowFlags(entries);
+    const entriesWithCaFlags = await attachCashApprovalWorkflowFlags(entries);
       const enrichedEntries = await attachBillPaymentDetails(entriesWithCaFlags);
 
       finalEntries = enrichedEntries.map(e => {
@@ -1064,6 +1073,7 @@ router.get('/journal-entries/:id',
     // finance company selector differs from the voucher's owning company.
     const entry = await JournalEntry.findById(req.params.id)
       .populate('companyId', 'name companyCode')
+      .populate('payingCompanyId', 'name companyCode')
       .populate('lines.account', 'accountNumber name type category')
       .populate('createdBy', 'firstName lastName')
       .populate('approvedBy', 'firstName lastName')
@@ -1234,7 +1244,9 @@ router.put('/journal-entries/:id/signed-document',
         await linkedCashApproval.save();
       }
 
-      const linkedVendorAdvance = await VendorAdvance.findOne({ journalEntryId: entry._id }).lean();
+      const linkedVendorAdvance = await VendorAdvance.findOne({
+        $or: [{ journalEntryId: entry._id }, { payingJournalEntryId: entry._id }]
+      }).lean();
       if (linkedVendorAdvance) {
         await tryAutoApprovePoAfterVendorAdvance(linkedVendorAdvance, req.user._id);
       }
@@ -1782,19 +1794,19 @@ router.put('/journal-entries/:id/finance-reject',
 // @route   GET /api/finance/general-ledger
 // @desc    Get general ledger entries
 // @access  Private (Finance and Admin)
-router.get('/general-ledger',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/general-ledger', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
-    const {
-      page = 1,
-      limit = 20,
+    const { 
+      page = 1, 
+      limit = 20, 
       accountId,
       department,
       module,
       startDate,
       endDate,
-      search
+      search 
     } = req.query;
 
     const filters = { status: 'posted' };
@@ -1835,7 +1847,7 @@ router.get('/general-ledger',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
+    
     const [entries, totalCount] = await Promise.all([
       GeneralLedger.find(filters)
         .populate('account', 'accountNumber name type')
@@ -1870,8 +1882,8 @@ router.get('/general-ledger',
 // @route   GET /api/finance/general-ledger/account/:id
 // @desc    Get ledger for specific account
 // @access  Private (Finance and Admin)
-router.get('/general-ledger/account/:id',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/general-ledger/account/:id', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { startDate, endDate } = req.query;
     // Match trial-balance-v2: full local calendar day for from/to (date-only query strings).
@@ -1904,18 +1916,18 @@ router.get('/general-ledger/account/:id',
 // @route   GET /api/finance/accounts-receivable
 // @desc    Get all accounts receivable
 // @access  Private (Finance and Admin)
-router.get('/accounts-receivable',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/accounts-receivable', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const {
-      page = 1,
-      limit = 20,
+    const { 
+      page = 1, 
+      limit = 20, 
       status,
       customerId,
       customer,
       startDate,
       endDate,
-      search
+      search 
     } = req.query;
 
     const company = await resolveCompanyForFinanceRoute(req);
@@ -2007,7 +2019,7 @@ router.get('/accounts-receivable',
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit, 10) || 20;
     const pageNum = parseInt(page, 10) || 1;
-
+    
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -2197,8 +2209,8 @@ router.get('/accounts-receivable',
 // @route   GET /api/finance/accounts-receivable/aging
 // @desc    Get accounts receivable aging report
 // @access  Private (Finance and Admin)
-router.get('/accounts-receivable/aging',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/accounts-receivable/aging', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { q } = await financeScope(req);
     const agingReport = await AccountsReceivable.getAgingReport(q({}));
@@ -2366,6 +2378,50 @@ router.delete('/accounts-receivable/:id',
       success: true,
       message: `Invoice ${invoiceNumber} deleted successfully`
     });
+  })
+);
+
+// @route   POST /api/finance/accounts-receivable/batch-payment
+// @desc    Record one consolidated RV for multiple invoices / installments selected in one Receive Payment
+// @access  Private (Finance and Admin)
+router.post('/accounts-receivable/batch-payment',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('lines').isArray({ min: 1 }).withMessage('At least one payment line is required'),
+    body('paymentMethod').isIn(['cash', 'check', 'credit_card', 'bank_transfer', 'ach', 'other']).withMessage('Valid payment method is required')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+
+    try {
+      const result = await FinanceHelper.recordARPaymentBatch({
+        lines: req.body.lines,
+        amount: req.body.amount,
+        paymentMethod: req.body.paymentMethod,
+        reference: req.body.reference,
+        date: req.body.paymentDate,
+        bankAccountId: req.body.bankAccountId || null,
+        financeApprovalAuthorities: req.body.financeApprovalAuthorities || null,
+        narration: req.body.narration || req.body.description || '',
+        description: req.body.description || req.body.narration || '',
+        costCenter: req.body.costCenter || null,
+        payingCompanyId: req.body.payingCompanyId || null,
+        createdBy: req.user._id
+      });
+
+      res.json({
+        success: true,
+        message: result.entryNumber
+          ? `Payment recorded — one receipt voucher ${result.entryNumber} for ${result.lineCount} part(s)`
+          : 'Payment recorded successfully',
+        data: result
+      });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message || 'Failed to record batch payment' });
+    }
   })
 );
 
@@ -2738,21 +2794,44 @@ router.get('/accounts-payable/vendor-advances',
       poDocs.forEach((p) => { poMap[String(p._id)] = p.orderNumber; });
     }
 
-    const jeIds = [...new Set(rows.map((r) => r.journalEntryId).filter(Boolean).map((id) => String(id)))];
+    const jeIds = [
+      ...new Set(
+        rows
+          .flatMap((r) => [r.journalEntryId, r.payingJournalEntryId])
+          .filter(Boolean)
+          .map((id) => String(id))
+      )
+    ];
     const jeSignedById = {};
     if (jeIds.length > 0) {
       const jes = await JournalEntry.find({ _id: { $in: jeIds } })
-        .select('signedDocumentStatus signedDocumentAt')
+        .select('signedDocumentStatus signedDocumentAt companyId entryNumber voucherSeries')
+        .populate('companyId', 'name companyCode')
         .lean();
       jes.forEach((je) => {
         jeSignedById[String(je._id)] = je;
       });
     }
 
+    const companyIds = [
+      ...new Set(
+        rows
+          .flatMap((r) => [r.companyId, r.payingCompanyId])
+          .filter(Boolean)
+          .map((id) => String(id))
+      )
+    ];
+    const companyById = {};
+    if (companyIds.length > 0) {
+      const PlacementCompany = require('../models/hr/Company');
+      const cos = await PlacementCompany.find({ _id: { $in: companyIds } }).select('name companyCode').lean();
+      cos.forEach((c) => { companyById[String(c._id)] = c; });
+    }
+
     const bankIds = [...new Set(rows.map((r) => r.bankAccountId).filter(Boolean).map((id) => String(id)))];
     const bankById = {};
     if (bankIds.length > 0) {
-      const bankRows = await Account.find({ _id: { $in: bankIds } }).select('name accountNumber').lean();
+      const bankRows = await Account.find({ _id: { $in: bankIds } }).select('name accountNumber companyId').lean();
       bankRows.forEach((b) => { bankById[String(b._id)] = b; });
     }
 
@@ -2763,18 +2842,21 @@ router.get('/accounts-payable/vendor-advances',
 
       const allocations = Array.isArray(a.allocations)
         ? a.allocations
-          .filter((al) => al && (al.billNumber || al.billId))
-          .map((al) => ({
-            billId: al.billId || null,
-            billNumber: al.billNumber || '',
-            amount: Math.round((Number(al.amount) || 0) * 100) / 100,
-            appliedAt: al.appliedAt || null
-          }))
-          .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
+            .filter((al) => al && (al.billNumber || al.billId))
+            .map((al) => ({
+              billId: al.billId || null,
+              billNumber: al.billNumber || '',
+              amount: Math.round((Number(al.amount) || 0) * 100) / 100,
+              appliedAt: al.appliedAt || null
+            }))
+            .sort((x, y) => new Date(x.appliedAt || 0) - new Date(y.appliedAt || 0))
         : [];
 
       const je = a.journalEntryId ? jeSignedById[String(a.journalEntryId)] : null;
+      const payingJe = a.payingJournalEntryId ? jeSignedById[String(a.payingJournalEntryId)] : null;
       const bankAcc = a.bankAccountId ? bankById[String(a.bankAccountId)] : null;
+      const companyDoc = a.companyId ? companyById[String(a.companyId)] : null;
+      const payingCompanyDoc = a.payingCompanyId ? companyById[String(a.payingCompanyId)] : null;
       return {
         _id: a._id,
         vendor: a.vendor,
@@ -2787,15 +2869,23 @@ router.get('/accounts-payable/vendor-advances',
           ? { _id: bankAcc._id, name: bankAcc.name, accountNumber: bankAcc.accountNumber }
           : null,
         reference: a.reference,
+        chequeNumber: a.chequeNumber || null,
         paymentDate: a.paymentDate,
         status: a.status,
         referenceType: a.referenceType,
         referenceId: a.referenceId,
         linkedPoNumber: a.referenceId ? (poMap[String(a.referenceId)] || null) : null,
+        companyId: a.companyId || null,
+        company: companyDoc ? { _id: companyDoc._id, name: companyDoc.name, companyCode: companyDoc.companyCode } : null,
+        payingCompanyId: a.payingCompanyId || null,
+        payingCompany: payingCompanyDoc
+          ? { _id: payingCompanyDoc._id, name: payingCompanyDoc.name, companyCode: payingCompanyDoc.companyCode }
+          : null,
         journalEntryId: a.journalEntryId || null,
+        payingJournalEntryId: a.payingJournalEntryId || null,
         voucherWorkflowStatus: a.voucherWorkflowStatus || 'immediate',
-        voucherSignedDocumentStatus: je?.signedDocumentStatus || null,
-        voucherSignedDocumentAt: je?.signedDocumentAt || null,
+        voucherSignedDocumentStatus: (payingJe || je)?.signedDocumentStatus || null,
+        voucherSignedDocumentAt: (payingJe || je)?.signedDocumentAt || null,
         allocations
       };
     });
@@ -2925,7 +3015,10 @@ router.get('/accounts-payable/vendor-advance-po-queue',
 router.get('/vendor-advances/by-journal-entry/:journalEntryId',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const doc = await populateVendorAdvanceDoc({ journalEntryId: req.params.journalEntryId });
+    const jeId = req.params.journalEntryId;
+    const doc = await populateVendorAdvanceDoc({
+      $or: [{ journalEntryId: jeId }, { payingJournalEntryId: jeId }]
+    });
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Vendor advance not found for this voucher' });
     }
@@ -3021,9 +3114,13 @@ router.put('/vendor-advances/:id/finance-approve',
     const remaining = [...requiredKeys].filter((k) => !approvedNow.has(k)).length;
 
     if (remaining === 0) {
-      const je = await JournalEntry.findById(advance.journalEntryId);
+      const postLinkedJe = async (jeId, label) => {
+        if (!jeId) return;
+        const je = await JournalEntry.findById(jeId);
       if (!je) {
-        return res.status(500).json({ success: false, message: 'Linked journal entry missing' });
+          const err = new Error(`Linked ${label} journal entry missing`);
+          err.statusCode = 500;
+          throw err;
       }
       if (je.status === 'draft') {
         await je.post(req.user._id);
@@ -3032,9 +3129,19 @@ router.put('/vendor-advances/:id/finance-approve',
           await FinanceHelper.postToGeneralLedger(je._id);
         }
       } else if (je.status !== 'posted') {
-        return res.status(400).json({
+          const err = new Error(`${label} journal entry cannot be finalized from status: ${je.status}`);
+          err.statusCode = 400;
+          throw err;
+        }
+      };
+
+      try {
+        await postLinkedJe(advance.journalEntryId, 'vendor advance');
+        await postLinkedJe(advance.payingJournalEntryId, 'paying-company');
+      } catch (postErr) {
+        return res.status(postErr.statusCode || 500).json({
           success: false,
-          message: `Journal entry cannot be finalized from status: ${je.status}`
+          message: postErr.message || 'Failed to post voucher(s)'
         });
       }
       advance.voucherWorkflowStatus = 'fully_approved';
@@ -3043,7 +3150,9 @@ router.put('/vendor-advances/:id/finance-approve',
 
     const fresh = await populateVendorAdvanceDoc({ _id: advance._id });
     const message = remaining === 0
-      ? 'All finance authorities approved. Voucher posted to the ledger.'
+      ? (advance.payingJournalEntryId
+        ? 'All finance authorities approved. Original-company and paying-company vouchers posted to the ledger.'
+        : 'All finance authorities approved. Voucher posted to the ledger.')
       : `Finance authority recorded. ${remaining} approval(s) remaining.`;
     res.json({ success: true, message, data: fresh.toObject ? fresh.toObject() : fresh });
   })
@@ -3089,16 +3198,21 @@ router.put('/vendor-advances/:id/finance-reject',
     advance.voucherWorkflowStatus = 'rejected';
     await advance.save();
 
-    const je = advance.journalEntryId ? await JournalEntry.findById(advance.journalEntryId) : null;
+    const cancelDraft = async (jeId) => {
+      if (!jeId) return;
+      const je = await JournalEntry.findById(jeId);
     if (je && je.status === 'draft') {
       je.status = 'cancelled';
       await je.save();
     }
+    };
+    await cancelDraft(advance.journalEntryId);
+    await cancelDraft(advance.payingJournalEntryId);
 
     const fresh = await populateVendorAdvanceDoc({ _id: advance._id });
     res.json({
       success: true,
-      message: 'Finance authority rejection recorded. Draft voucher cancelled.',
+      message: 'Finance authority rejection recorded. Draft voucher(s) cancelled.',
       data: fresh.toObject ? fresh.toObject() : fresh
     });
   })
@@ -3649,9 +3763,9 @@ router.post('/accounts-payable/advance-payment',
     const financeApprovalAuthorities =
       rawFa && typeof rawFa === 'object'
         ? {
-          accountsManagerUser: rawFa.accountsManagerUser || rawFa.accountsManager,
-          financeControllerUser: rawFa.financeControllerUser || rawFa.financeController
-        }
+            accountsManagerUser: rawFa.accountsManagerUser || rawFa.accountsManager,
+            financeControllerUser: rawFa.financeControllerUser || rawFa.financeController
+          }
         : null;
     const amId = financeApprovalAuthorities?.accountsManagerUser;
     const fcId = financeApprovalAuthorities?.financeControllerUser;
@@ -3740,7 +3854,9 @@ router.post('/accounts-payable/advance-payment',
 
     const message =
       advance.voucherWorkflowStatus === 'pending_authority'
-        ? 'Vendor advance saved. Voucher is pending finance signatures — open it from Vouchers to approve. The PO (if linked) is auto-approved only after the voucher signed document is marked signed.'
+        ? (advance.payingJournalEntryId
+          ? 'Vendor advance saved with intercompany vouchers (original company + paying company). Both are pending finance signatures — open them from Vouchers to approve.'
+          : 'Vendor advance saved. Voucher is pending finance signatures — open it from Vouchers to approve. The PO (if linked) is auto-approved only after the voucher signed document is marked signed.')
         : 'Vendor advance recorded successfully';
 
     res.json({ success: true, message, data: advance });
@@ -3787,14 +3903,36 @@ router.post('/vendor-advances/:id/ensure-voucher',
     }
     const advance = await FinanceHelper.ensureVendorAdvanceVoucher(req.params.id, {
       companyId,
+      payingCompanyId: normalizeCompanyId(req.body.payingCompanyId) || undefined,
       createdBy: req.user._id
     });
     res.json({
       success: true,
-      message: advance.journalEntryId
-        ? 'Voucher is ready — open it from Advance history'
-        : 'No voucher created',
+      message: advance.payingJournalEntryId
+        ? 'Intercompany vouchers ready — original company + paying company'
+        : (advance.journalEntryId
+          ? 'Voucher is ready — open it from Advance history'
+          : 'No voucher created'),
       data: advance
+    });
+  })
+);
+
+// @route   POST /api/finance/vendor-advances/tag-vendor-parties
+// @desc    Backfill Vendor party tags on advance voucher debit lines (no amount change)
+// @access  Private (Finance and Admin)
+router.post('/vendor-advances/tag-vendor-parties',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const advanceId = req.body?.advanceId || null;
+    if (advanceId && !mongoose.Types.ObjectId.isValid(advanceId)) {
+      return res.status(400).json({ success: false, message: 'Invalid vendor advance id' });
+    }
+    const result = await FinanceHelper.tagVendorAdvanceJournalParties(advanceId || null);
+    res.json({
+      success: true,
+      message: `Tagged vendor party on ${result.updatedJes} voucher(s) / ${result.updatedLines} line(s)`,
+      data: result
     });
   })
 );
@@ -3920,19 +4058,19 @@ router.post('/accounts-payable/:id/apply-advance',
 // @route   GET /api/finance/accounts-payable
 // @desc    Get all accounts payable
 // @access  Private (Finance and Admin)
-router.get('/accounts-payable',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/accounts-payable', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const {
-      page = 1,
-      limit = 20,
+    const { 
+      page = 1, 
+      limit = 20, 
       status,
       vendorId,
       vendor,
       employeeId,
       startDate,
       endDate,
-      search
+      search 
     } = req.query;
 
     const company = await resolveCompanyForFinanceRoute(req);
@@ -4061,7 +4199,7 @@ router.get('/accounts-payable',
     const filters = companyQuery(baseFilters, company);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
+    
     const [bills, totalCount] = await Promise.all([
       AccountsPayable.find(filters)
         .populate('payeeEmployee', 'firstName lastName employeeId')
@@ -4075,7 +4213,7 @@ router.get('/accounts-payable',
     // Calculate summary using aggregation pipeline for better performance
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
+    
     const summaryResult = await AccountsPayable.aggregate([
       { $match: filters },
       {
@@ -4323,16 +4461,16 @@ router.delete('/accounts-payable/:id',
 // @route   GET /api/finance/banking/accounts
 // @desc    Get all bank accounts
 // @access  Private (Finance and Admin)
-router.get('/banking/accounts',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/banking/accounts', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const {
-      page = 1,
-      limit = 20,
+    const { 
+      page = 1, 
+      limit = 20, 
       accountType,
       department,
       isActive,
-      search
+      search 
     } = req.query;
 
     const { q } = await financeScope(req);
@@ -4350,7 +4488,7 @@ router.get('/banking/accounts',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
+    
     const [accounts, totalCount] = await Promise.all([
       Banking.find(filters)
         .sort({ accountName: 1 })
@@ -4381,16 +4519,16 @@ router.get('/banking/accounts',
 // @route   GET /api/finance/banking
 // @desc    Get all bank accounts (alias for /banking/accounts)
 // @access  Private (Finance and Admin)
-router.get('/banking',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/banking', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const {
-      page = 1,
-      limit = 20,
+    const { 
+      page = 1, 
+      limit = 20, 
       accountType,
       department,
       isActive,
-      search
+      search 
     } = req.query;
 
     const { q } = await financeScope(req);
@@ -4408,7 +4546,7 @@ router.get('/banking',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
+    
     const [accounts, totalCount] = await Promise.all([
       Banking.find(filters)
         .sort({ accountName: 1 })
@@ -4442,11 +4580,11 @@ router.get('/banking',
 // @route   GET /api/finance/banking/transactions
 // @desc    Get reconciled / cleared banking transactions with complete accounting breakdown
 // @access  Private (Finance and Admin)
-router.get('/banking/transactions',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/banking/transactions', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const {
-      page = 1,
+    const { 
+      page = 1, 
       limit = 50,
       accountId,
       bankAccount,
@@ -4610,8 +4748,8 @@ router.get('/banking/transactions',
         signedBy: je.signedBySignatory || '—',
         signedDate: je.signedDocumentAt || null,
         status: 'Cleared'
-      });
-    });
+          });
+        });
 
     // Also check Journal Entries directly with clearanceStatus === 'cleared' that might not be in GL
     const jeDirectQuery = q({
@@ -4705,8 +4843,8 @@ router.get('/banking/transactions',
             });
           }
         }
+        });
       });
-    });
 
     // Apply keyword search
     let filtered = transactions;
@@ -4808,8 +4946,8 @@ router.put('/banking/transactions/:id/custom-meta',
 // @route   GET /api/finance/banking/summary
 // @desc    Get banking summary
 // @access  Private (Finance and Admin)
-router.get('/banking/summary',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/banking/summary', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { q } = await financeScope(req);
     const summary = await Banking.getAccountSummary(q({}));
@@ -4868,19 +5006,19 @@ router.post('/banking',
 // @route   GET /api/finance/reports
 // @desc    Get financial reports (unified endpoint)
 // @access  Private (Finance and Admin)
-router.get('/reports',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/reports', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { reportType = 'overview', startDate, endDate, department } = req.query;
-
+    
     try {
       let reportData = {};
-
+      
       if (reportType === 'overview') {
         // Calculate date range
         const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
         const end = endDate ? new Date(endDate) : new Date();
-
+        
         // Get all accounts
         const [revenueAccounts, expenseAccounts, cashAccounts] = await Promise.all([
           Account.find({ type: 'Revenue', isActive: true }),
@@ -4895,7 +5033,7 @@ router.get('/reports',
             date: { $gte: startDate, $lte: endDate },
             status: 'posted'
           });
-
+          
           let balance = 0;
           ledgerEntries.forEach(entry => {
             balance += entry.debit - entry.credit;
@@ -4906,11 +5044,11 @@ router.get('/reports',
         // Calculate revenue
         let totalRevenue = 0;
         const departmentBreakdown = {};
-
+        
         for (const account of revenueAccounts) {
           const balance = await calculatePeriodBalance(account._id, start, end);
           totalRevenue += Math.abs(balance);
-
+          
           const dept = account.department || 'general';
           if (!departmentBreakdown[dept]) {
             departmentBreakdown[dept] = { revenue: 0, expenses: 0, netProfit: 0 };
@@ -4923,7 +5061,7 @@ router.get('/reports',
         for (const account of expenseAccounts) {
           const balance = await calculatePeriodBalance(account._id, start, end);
           totalExpenses += Math.abs(balance);
-
+          
           const dept = account.department || 'general';
           if (!departmentBreakdown[dept]) {
             departmentBreakdown[dept] = { revenue: 0, expenses: 0, netProfit: 0 };
@@ -4933,7 +5071,7 @@ router.get('/reports',
 
         // Calculate department net profit
         Object.keys(departmentBreakdown).forEach(dept => {
-          departmentBreakdown[dept].netProfit =
+          departmentBreakdown[dept].netProfit = 
             departmentBreakdown[dept].revenue - departmentBreakdown[dept].expenses;
         });
 
@@ -4950,18 +5088,18 @@ router.get('/reports',
           cashBalance,
           departmentBreakdown
         };
-      }
+      } 
       else if (reportType === 'profit-loss') {
         const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
         const end = endDate ? new Date(endDate) : new Date();
-
+        
         const [revenueAccounts, expenseAccounts] = await Promise.all([
           Account.find({ type: 'Revenue', isActive: true }),
           Account.find({ type: 'Expense', isActive: true })
         ]);
 
         const profitLossData = [];
-
+        
         // Add revenue items
         for (const account of revenueAccounts) {
           const ledgerEntries = await GeneralLedger.find({
@@ -4969,12 +5107,12 @@ router.get('/reports',
             date: { $gte: start, $lte: end },
             status: 'posted'
           });
-
+          
           let amount = 0;
           ledgerEntries.forEach(entry => {
             amount += entry.credit - entry.debit;
           });
-
+          
           if (amount !== 0) {
             profitLossData.push({
               name: account.name,
@@ -4985,7 +5123,7 @@ router.get('/reports',
             });
           }
         }
-
+        
         // Add expense items
         for (const account of expenseAccounts) {
           const ledgerEntries = await GeneralLedger.find({
@@ -4993,12 +5131,12 @@ router.get('/reports',
             date: { $gte: start, $lte: end },
             status: 'posted'
           });
-
+          
           let amount = 0;
           ledgerEntries.forEach(entry => {
             amount += entry.debit - entry.credit;
           });
-
+          
           if (amount !== 0) {
             profitLossData.push({
               name: account.name,
@@ -5009,12 +5147,12 @@ router.get('/reports',
             });
           }
         }
-
+        
         reportData = { profitLossData };
       }
       else if (reportType === 'balance-sheet') {
         const asOf = endDate ? new Date(endDate) : new Date();
-
+        
         const [assets, liabilities] = await Promise.all([
           Account.find({ type: 'Asset', isActive: true }),
           Account.find({ type: 'Liability', isActive: true })
@@ -5022,7 +5160,7 @@ router.get('/reports',
 
         const assetData = [];
         const liabilityData = [];
-
+        
         for (const account of assets) {
           if (account.balance !== 0) {
             assetData.push({
@@ -5031,7 +5169,7 @@ router.get('/reports',
             });
           }
         }
-
+        
         for (const account of liabilities) {
           if (account.balance !== 0) {
             liabilityData.push({
@@ -5040,7 +5178,7 @@ router.get('/reports',
             });
           }
         }
-
+        
         reportData = {
           balanceSheetData: {
             assets: assetData,
@@ -5048,7 +5186,7 @@ router.get('/reports',
           }
         };
       }
-
+      
       res.json({
         success: true,
         data: reportData
@@ -5067,8 +5205,8 @@ router.get('/reports',
 // @route   GET /api/finance/reports/trial-balance
 // @desc    Get trial balance report
 // @access  Private (Finance and Admin)
-router.get('/reports/trial-balance',
-  authorize('super_admin', 'admin', 'finance_manager'),
+router.get('/reports/trial-balance', 
+  authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
     const { asOfDate } = req.query;
     const trialBalance = await JournalEntry.getTrialBalance(asOfDate ? new Date(asOfDate) : new Date());
@@ -5350,7 +5488,7 @@ const collectVendorJournalEntryIds = async (vendorObjectId, companyId) => {
     const fromRefs = await JournalEntry.find({
       ...jeBase,
       referenceId: { $in: referenceIds }
-    }).distinct('_id');
+  }).distinct('_id');
     fromRefs.forEach((id) => jeIdSet.add(String(id)));
   }
 
@@ -6134,11 +6272,11 @@ router.get('/employees/:employeeId',
     const baseFilter = employeeFilter || { advanceToEmployee: employeeObjectId };
     const [cashApprovals, employeeJeIds] = await Promise.all([
       CashApproval.find(q(baseFilter))
-        .sort({ approvalDate: -1, createdAt: -1 })
-        .limit(200)
-        .select(
-          'caNumber status totalAmount advanceAmount actualAmountSpent apAdvanceApplied advanceIssuedAt settlementDate approvalDate purpose originatingModule voucherEntryId advanceGlAccountNumber'
-        )
+      .sort({ approvalDate: -1, createdAt: -1 })
+      .limit(200)
+      .select(
+        'caNumber status totalAmount advanceAmount actualAmountSpent apAdvanceApplied advanceIssuedAt settlementDate approvalDate purpose originatingModule voucherEntryId advanceGlAccountNumber'
+      )
         .lean(),
       collectEmployeeJournalEntryIds(employeeObjectId, employee.employeeAdvanceAccount, companyId)
     ]);
@@ -6271,12 +6409,12 @@ router.get('/reports/vendor-statement',
       { $match: q({ supplier: { $exists: true, $ne: null } }) },
       {
         $group: {
-          _id: '$supplier',
-          supplierName: { $first: '$supplierName' },
+        _id: '$supplier',
+        supplierName: { $first: '$supplierName' },
           totalBilled: { $sum: '$amount' },
           totalPaid: { $sum: '$paidAmount' },
-          totalBalance: { $sum: '$balance' },
-          lastActivity: { $max: '$createdAt' }
+        totalBalance: { $sum: '$balance' },
+        lastActivity: { $max: '$createdAt' }
         }
       },
       { $sort: { supplierName: 1 } }
@@ -6799,8 +6937,8 @@ router.get('/reports/customer-statement',
       {
         $group: {
           _id: '$customer.name',
-          customerEmail: { $first: '$customer.email' },
-          totalInvoiced: { $sum: '$totalAmount' },
+        customerEmail: { $first: '$customer.email' },
+        totalInvoiced: { $sum: '$totalAmount' },
           totalReceived: {
             $sum: { $ifNull: ['$amountPaid', { $ifNull: ['$paidAmount', 0] }] }
           },
@@ -7579,7 +7717,7 @@ router.post('/reports/bank-reconciliation/reconcile',
         'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending'),
         'transactions.$[elem].clearedAt': isCleared || hasValidDate ? clearDate : null
       };
-      await Banking.updateMany(
+    await Banking.updateMany(
         { 'transactions._id': { $in: bankingIds } },
         { $set: bankingUpdate },
         { arrayFilters: [{ 'elem._id': { $in: bankingIds } }] }
@@ -8040,10 +8178,10 @@ router.post('/year-end-closing',
     // Simplified: single line closing entry for the net
     const closingLines = netIncome > 0
       ? [
-        { account: reAccount._id, description: `Net profit for ${year} transferred to Retained Earnings`, credit: netIncome, department: 'finance' },
-        // Placeholder debit to Income Summary (use a clearing approach)
-        // In practice this balances via the revenue/expense accounts already closed
-      ]
+          { account: reAccount._id, description: `Net profit for ${year} transferred to Retained Earnings`, credit: netIncome, department: 'finance' },
+          // Placeholder debit to Income Summary (use a clearing approach)
+          // In practice this balances via the revenue/expense accounts already closed
+        ]
       : [];
 
     if (netIncome > 0) {
@@ -9267,11 +9405,11 @@ router.post('/deferred-entries/:id/recognize/:lineId',
         ? [
           { account: entry.deferredAccount, description: `Deferred revenue – ${entry.name}`, debit: line.amount, department: entry.department },
           { account: entry.recognitionAccount, description: `Revenue recognized – ${entry.name}`, credit: line.amount, department: entry.department }
-        ]
+          ]
         : [
           { account: entry.recognitionAccount, description: `Expense recognized – ${entry.name}`, debit: line.amount, department: entry.department },
           { account: entry.deferredAccount, description: `Deferred expense – ${entry.name}`, credit: line.amount, department: entry.department }
-        ]
+          ]
     }));
 
     line.journalEntry = je._id;
@@ -9306,7 +9444,7 @@ router.post('/banking/import-statement',
     const XLSX = require('xlsx');
     const Banking = require('../models/finance/Banking');
     const { bankAccountId, dateColumn = 'Date', descColumn = 'Description',
-      debitColumn = 'Debit', creditColumn = 'Credit', balanceColumn = 'Balance' } = req.body;
+            debitColumn = 'Debit', creditColumn = 'Credit', balanceColumn = 'Balance' } = req.body;
 
     if (!bankAccountId) return res.status(400).json({ success: false, message: 'bankAccountId is required' });
 
@@ -9744,9 +9882,9 @@ router.put('/company-profile',
     const SystemSettings = require('../models/general/SystemSettings');
     const settings = await SystemSettings.getSingleton();
     const allowed = ['name', 'legalName', 'ntn', 'strn', 'address', 'city', 'country',
-      'phone', 'email', 'website', 'logoUrl', 'currency',
-      'bankName', 'bankAccount', 'bankIBAN', 'bankBranchCode', 'bankBranchName',
-      'salaryLetterRefPrefix', 'invoiceFooter'];
+                     'phone', 'email', 'website', 'logoUrl', 'currency',
+                     'bankName', 'bankAccount', 'bankIBAN', 'bankBranchCode', 'bankBranchName',
+                     'salaryLetterRefPrefix', 'invoiceFooter'];
     if (!settings.companyProfile) settings.companyProfile = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) settings.companyProfile[f] = req.body[f]; });
     settings.updatedBy = req.user.id;

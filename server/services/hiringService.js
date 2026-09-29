@@ -462,6 +462,8 @@ class HiringService {
         gender: approval.candidate.gender,
         nationality: approval.candidate.nationality,
         address: approval.candidate.address,
+        guardianName: joiningDocument.guardianName || '',
+        idCard: joiningDocument.cnic || approval.candidate.idCard || '',
         currentPosition: approval.jobPosting.title,
         currentCompany: 'SGC',
         yearsOfExperience: approval.candidate.yearsOfExperience,

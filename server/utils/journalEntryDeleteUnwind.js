@@ -275,9 +275,16 @@ const unwindCashApprovals = async (entryId) => {
 
 const unwindVendorAdvances = async (entryId) => {
   const VendorAdvance = require('../models/finance/VendorAdvance');
-  const advances = await VendorAdvance.find({ journalEntryId: entryId });
+  const advances = await VendorAdvance.find({
+    $or: [{ journalEntryId: entryId }, { payingJournalEntryId: entryId }]
+  });
   for (const adv of advances) {
-    adv.journalEntryId = null;
+    if (adv.journalEntryId && String(adv.journalEntryId) === String(entryId)) {
+      adv.journalEntryId = null;
+    }
+    if (adv.payingJournalEntryId && String(adv.payingJournalEntryId) === String(entryId)) {
+      adv.payingJournalEntryId = null;
+    }
     if (adv.voucherWorkflowStatus === 'fully_approved' || adv.voucherWorkflowStatus === 'immediate') {
       adv.voucherWorkflowStatus = 'rejected';
     }

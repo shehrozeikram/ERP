@@ -48,11 +48,18 @@ const resolveCompanyName = (entry, linkedDocs, companies) => {
     if (match?.name) return match.name;
   }
 
-  const { payrollPeriodPaymentApp, apPaymentApp } = linkedDocs;
+  const { payrollPeriodPaymentApp, apPaymentApp, vendorAdvanceDoc } = linkedDocs;
   if (payrollPeriodPaymentApp?.companyName) return payrollPeriodPaymentApp.companyName;
   if (apPaymentApp?.companyName) return apPaymentApp.companyName;
+  const payingCo = vendorAdvanceDoc?.payingCompany || vendorAdvanceDoc?.payingCompanyId;
+  const owningCo = vendorAdvanceDoc?.company || vendorAdvanceDoc?.companyId;
+  if (payingCo?.name && entry?._id
+    && String(vendorAdvanceDoc.payingJournalEntryId?._id || vendorAdvanceDoc.payingJournalEntryId) === String(entry._id)) {
+    return payingCo.name;
+  }
+  if (owningCo?.name) return owningCo.name;
 
-  return 'Sardar Group of Companies';
+  return '—';
 };
 
 const resolveVoucherTitle = (entry) => {
@@ -337,8 +344,8 @@ const VoucherView = () => {
   const voucherType = useMemo(() => String(entry?.referenceType || 'manual').toUpperCase(), [entry]);
   const voucherTitle = useMemo(() => resolveVoucherTitle(entry), [entry]);
   const voucherCompanyName = useMemo(
-    () => resolveCompanyName(entry, { payrollPeriodPaymentApp, apPaymentApp }, companies),
-    [entry, payrollPeriodPaymentApp, apPaymentApp, companies]
+    () => resolveCompanyName(entry, { payrollPeriodPaymentApp, apPaymentApp, vendorAdvanceDoc }, companies),
+    [entry, payrollPeriodPaymentApp, apPaymentApp, vendorAdvanceDoc, companies]
   );
   const monthName = useMemo(() => {
     if (!entry?.date) return '—';

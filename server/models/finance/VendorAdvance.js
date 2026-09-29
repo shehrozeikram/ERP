@@ -76,7 +76,12 @@ const vendorAdvanceSchema = new mongoose.Schema({
     default: 'open'
   },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true }
+  /** Company that owns the PO / vendor advance (e.g. Taj Residencia) */
+  companyId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true },
+  /** Company that pays the bank (may differ for intercompany advances) */
+  payingCompanyId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany', index: true, default: null },
+  /** Paying-company bank payment voucher when intercompany (separate from journalEntryId) */
+  payingJournalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry', default: null }
 }, { timestamps: true });
 
 vendorAdvanceSchema.virtual('remainingAmount').get(function() {
@@ -84,8 +89,10 @@ vendorAdvanceSchema.virtual('remainingAmount').get(function() {
 });
 
 vendorAdvanceSchema.index({ companyId: 1, status: 1 });
+vendorAdvanceSchema.index({ payingCompanyId: 1, status: 1 });
 vendorAdvanceSchema.index({ 'vendor.vendorId': 1, status: 1, paymentDate: 1 });
 vendorAdvanceSchema.index({ paymentDate: -1 });
 vendorAdvanceSchema.index({ journalEntryId: 1 });
+vendorAdvanceSchema.index({ payingJournalEntryId: 1 });
 
 module.exports = mongoose.model('VendorAdvance', vendorAdvanceSchema);
