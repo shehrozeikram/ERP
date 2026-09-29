@@ -794,9 +794,9 @@ router.get('/monthly',
       }
     }
 
-    // Need attendanceDeduction so summary Net Pay can exclude it
+    // Select only essential fields for list view to improve performance
     const query = Payroll.find(matchStage)
-      .select('month year basicSalary grossSalary netSalary attendanceDeduction status employee createdAt remarks isCashSalary proration')
+      .select('month year basicSalary grossSalary netSalary status employee createdAt remarks isCashSalary proration')
       .populate({
         path: 'employee',
         select: 'firstName lastName employeeId placementProject placementDepartment cashSalary',

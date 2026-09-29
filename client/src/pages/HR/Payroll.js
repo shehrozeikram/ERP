@@ -82,19 +82,6 @@ const months = [
   { value: '12', label: 'December' }
 ];
 
-/** Attendance deduction must not affect any displayed payroll figures. */
-const withoutAttendanceImpact = (row = {}) => {
-  const att = Number(row.attendanceDeduction) || 0;
-  const gross = Number(row.grossSalary) || 0;
-  const earnings = Number(row.totalEarnings);
-  const net = Number(row.netSalary ?? row.netPay ?? row.netPayable) || 0;
-  return {
-    grossSalary: Math.max(0, gross - att),
-    totalEarnings: Math.max(0, (Number.isFinite(earnings) ? earnings : gross) - att),
-    netSalary: net + att
-  };
-};
-
 const Payroll = () => {
   const navigate = useNavigate();
   const { employees, departments, projects, loading: dataLoading } = useData();
@@ -359,9 +346,8 @@ const Payroll = () => {
         }
         acc[key].payrolls.push(payroll);
         acc[key].totalEmployees++;
-        const figures = withoutAttendanceImpact(payroll);
-        acc[key].totalGrossSalary += figures.grossSalary;
-        acc[key].totalNetSalary += figures.netSalary;
+        acc[key].totalGrossSalary += payroll.grossSalary || 0;
+        acc[key].totalNetSalary += payroll.netSalary || 0;
         acc[key].totalBasicSalary += payroll.basicSalary || 0;
         acc[key].statuses.add(payroll.status);
         return acc;
@@ -1075,15 +1061,9 @@ const Payroll = () => {
   const generalPayrollSummary = useMemo(() => {
     const totals = filteredGeneralEmployees.reduce(
       (acc, emp) => {
-        const figures = withoutAttendanceImpact({
-          grossSalary: emp.totalEarnings || emp.grossSalary,
-          totalEarnings: emp.totalEarnings,
-          netSalary: emp.netSalary,
-          attendanceDeduction: emp.attendanceDeduction
-        });
         acc.totalBasicSalary += emp.basicSalary || 0;
-        acc.totalGrossSalary += figures.totalEarnings;
-        acc.totalNetSalary += figures.netSalary;
+        acc.totalGrossSalary += emp.totalEarnings || 0;
+        acc.totalNetSalary += emp.netSalary || 0;
         return acc;
       },
       { totalBasicSalary: 0, totalGrossSalary: 0, totalNetSalary: 0 }
@@ -2019,12 +1999,6 @@ Do you want to:
                         }
 
                         return paginationInfo.paginatedEmployees.map((employee) => {
-                          const figures = withoutAttendanceImpact({
-                            grossSalary: employee.totalEarnings || employee.grossSalary,
-                            totalEarnings: employee.totalEarnings,
-                            netSalary: employee.netSalary,
-                            attendanceDeduction: employee.attendanceDeduction
-                          });
                           return (
                             <TableRow key={employee._id}>
                               <TableCell>
@@ -2044,8 +2018,8 @@ Do you want to:
                                 </Box>
                               </TableCell>
                               <TableCell>{formatCurrency(employee.basicSalary)}</TableCell>
-                              <TableCell>{formatCurrency(figures.totalEarnings)}</TableCell>
-                              <TableCell>{formatCurrency(figures.netSalary)}</TableCell>
+                              <TableCell>{formatCurrency(employee.totalEarnings)}</TableCell>
+                              <TableCell>{formatCurrency(employee.netSalary)}</TableCell>
                               <TableCell>
                                 <Chip
                                   label="Active"
@@ -2614,9 +2588,7 @@ Do you want to:
                                           );
                                         }
 
-                                        return paginationInfo.paginatedEmployees.map((payroll) => {
-                                          const figures = withoutAttendanceImpact(payroll);
-                                          return (
+                                        return paginationInfo.paginatedEmployees.map((payroll) => (
                                           <TableRow key={payroll._id}>
                                             <TableCell>
                                               <Box>
@@ -2638,8 +2610,8 @@ Do you want to:
                                               </Box>
                                             </TableCell>
                                             <TableCell>{formatCurrency(payroll.basicSalary)}</TableCell>
-                                            <TableCell>{formatCurrency(figures.grossSalary)}</TableCell>
-                                            <TableCell>{formatCurrency(figures.netSalary)}</TableCell>
+                                            <TableCell>{formatCurrency(payroll.grossSalary)}</TableCell>
+                                            <TableCell>{formatCurrency(payroll.netSalary)}</TableCell>
                                             <TableCell>
                                               <Chip
                                                 label={getStatusLabel(payroll.status)}
@@ -2677,8 +2649,7 @@ Do you want to:
                                               </Box>
                                             </TableCell>
                                           </TableRow>
-                                          );
-                                        });
+                                        ));
                                       })()}
                                     </TableBody>
                                   </Table>

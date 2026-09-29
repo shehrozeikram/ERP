@@ -30,6 +30,7 @@ export const PROJECT_SUMMARY_AMOUNT_COLUMNS = [
   { key: 'eobiEmployer', label: 'EOBI (Employer)' },
   { key: 'empSecurityDed', label: 'Provident Fund' },
   { key: 'healthInsurance', label: 'Health Insurance' },
+  { key: 'attendanceDeduction', label: 'Attendance Ded.' },
   { key: 'leaveDeduction', label: 'Leave Ded.' },
   { key: 'otherDeductions', label: 'Other Deductions' }
 ];
@@ -55,6 +56,7 @@ export const PAYROLL_DEDUCTION_SUMMARY_ROWS = [
   { key: 'eobiEmployee', label: 'EOBI Payable — Employee Contribution' },
   { key: 'eobiEmployer', label: 'EOBI Payable — Employer Contribution' },
   { key: 'healthInsurance', label: 'Health Insurance' },
+  { key: 'attendanceDeduction', label: 'Attendance Deduction' },
   { key: 'leaveDeduction', label: 'Leave Deduction' },
   { key: 'otherDeductions', label: 'Other Payroll Deductions' }
 ];
