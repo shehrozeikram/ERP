@@ -347,7 +347,9 @@ const Payroll = () => {
         acc[key].payrolls.push(payroll);
         acc[key].totalEmployees++;
         acc[key].totalGrossSalary += payroll.grossSalary || 0;
-        acc[key].totalNetSalary += payroll.netSalary || 0;
+        // Match monthly CSV Net Payable: exclude attendance deduction from net
+        acc[key].totalNetSalary +=
+          (payroll.netSalary || 0) + (payroll.attendanceDeduction || 0);
         acc[key].totalBasicSalary += payroll.basicSalary || 0;
         acc[key].statuses.add(payroll.status);
         return acc;
