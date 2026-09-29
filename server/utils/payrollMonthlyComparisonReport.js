@@ -87,7 +87,9 @@ const aggregatePayrollTotals = (payrolls = []) => {
   const totals = payrolls.reduce(
     (acc, row) => {
       acc.totalGrossSalary += Number(row.grossSalary) || 0;
-      acc.totalNetSalary += Number(row.netSalary) || 0;
+      // Match monthly CSV Net Payable: exclude attendance deduction from net
+      acc.totalNetSalary +=
+        (Number(row.netSalary) || 0) + (Number(row.attendanceDeduction) || 0);
       acc.totalBasicSalary += Number(row.basicSalary) || 0;
       return acc;
     },
