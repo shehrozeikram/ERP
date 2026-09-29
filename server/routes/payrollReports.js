@@ -30,14 +30,16 @@ const months = [
 ];
 
 /**
- * Attendance deduction is excluded from monthly payroll downloads / Net Pay
- * (column hidden; amount added back into Net Payable).
+ * Attendance deduction is excluded from monthly payroll CSV / Net Pay only:
+ * - column hidden
+ * - amount added back into Net Payable (net does not apply attendance deduction)
+ * - Gross Salary / Total Earnings stay full (never reduced by attendance)
  */
 const shouldExcludeAttendanceDeduction = () => true;
 
 const roundMoney = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-/** Adjust stored payroll totals so attendance deduction has no impact on export. */
+/** Adjust export totals so attendance deduction does not affect Net Pay (Gross unchanged). */
 const applyAttendanceExclusion = (row, exclude) => {
   const attendanceDeduction = roundMoney(row.attendanceDeduction);
   if (!exclude || attendanceDeduction <= 0) {
@@ -51,16 +53,15 @@ const applyAttendanceExclusion = (row, exclude) => {
     };
   }
   const deductions = Math.max(0, roundMoney((row.deductions ?? row.totalDeductions) - attendanceDeduction));
+  // Net without attendance deduction applied; Gross stays as stored (full).
   const netPay = roundMoney((row.netPay ?? row.netPayable) + attendanceDeduction);
-  const grossSalary = Math.max(0, roundMoney((row.grossSalary || 0) - attendanceDeduction));
-  const totalEarnings = Math.max(0, roundMoney((row.totalEarnings || 0) - attendanceDeduction));
   return {
     ...row,
     attendanceDeduction: 0,
     deductions,
     totalDeductions: deductions,
-    grossSalary,
-    totalEarnings,
+    grossSalary: roundMoney(row.grossSalary || 0),
+    totalEarnings: roundMoney(row.totalEarnings || 0),
     netPay,
     netPayable: netPay
   };
