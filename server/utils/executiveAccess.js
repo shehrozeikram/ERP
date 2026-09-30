@@ -5,7 +5,7 @@
 
 const normalizeToken = (value) => String(value || '')
   .toLowerCase()
-  .replace(/[^a-z0-9]/g, '');
+  .replace(/[^a-z0-9]+/g, '');
 
 const getUserIdentityTokens = (user) => {
   const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
@@ -46,6 +46,57 @@ const isDesignatedCeoApprover = (user) => {
   return false;
 };
 
+const collectRoleLabels = (user) => {
+  const labels = [];
+  const add = (value) => {
+    const text = String(value || '').trim().toLowerCase();
+    if (text) labels.push(text);
+  };
+  add(user?.role);
+  add(user?.roleRef?.name);
+  add(user?.roleRef?.displayName);
+  if (Array.isArray(user?.roles)) {
+    user.roles.forEach((role) => {
+      add(typeof role === 'string' ? role : role?.name);
+      add(role?.displayName);
+    });
+  }
+  if (Array.isArray(user?.subRoles)) {
+    user.subRoles.forEach((role) => {
+      add(typeof role === 'string' ? role : role?.name);
+      add(role?.displayName);
+    });
+  }
+  return labels;
+};
+
+const roleDocHasModule = (roleDoc, moduleKey) => {
+  if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
+  return roleDoc.permissions.some((p) => p?.module === moduleKey);
+};
+
+/**
+ * PS / CEO Secretariat role from User Management (name "PS", Personal Secretary,
+ * CEO Secretariat, or ceo_secretariat module permission).
+ */
+const isCeoSecretariatPsRole = (user) => {
+  if (!user) return false;
+  const labels = collectRoleLabels(user);
+  if (labels.some((label) => (
+    label === 'ps'
+    || label.includes('personal secretary')
+    || label === 'ceo secretariat'
+    || label.includes('ceo secretariat')
+  ))) {
+    return true;
+  }
+  if (roleDocHasModule(user.roleRef, 'ceo_secretariat')) return true;
+  if (Array.isArray(user.roles) && user.roles.some((role) => roleDocHasModule(role, 'ceo_secretariat'))) {
+    return true;
+  }
+  return false;
+};
+
 /**
  * CEO Secretariat coordinators (forward to CEO, Send to CEO Office queue).
  * Does NOT include every higher_management user.
@@ -53,12 +104,9 @@ const isDesignatedCeoApprover = (user) => {
 const hasCeoSecretariatCoordinatorAccess = (user) => {
   if (!user) return false;
   if (['super_admin', 'admin', 'hr_manager', 'developer'].includes(user.role)) return true;
-  const hasModuleAccess = (roleDoc, moduleKey) => {
-    if (!roleDoc?.isActive || !Array.isArray(roleDoc.permissions)) return false;
-    return roleDoc.permissions.some((p) => p?.module === moduleKey);
-  };
-  if (hasModuleAccess(user.roleRef, 'hr') || hasModuleAccess(user.roleRef, 'general')) return true;
-  if (Array.isArray(user.roles) && user.roles.some((r) => hasModuleAccess(r, 'hr') || hasModuleAccess(r, 'general'))) {
+  if (isCeoSecretariatPsRole(user)) return true;
+  if (roleDocHasModule(user.roleRef, 'hr') || roleDocHasModule(user.roleRef, 'general')) return true;
+  if (Array.isArray(user.roles) && user.roles.some((r) => roleDocHasModule(r, 'hr') || roleDocHasModule(r, 'general'))) {
     return true;
   }
   return false;
@@ -71,6 +119,10 @@ const hasCeoSecretariatCoordinatorAccess = (user) => {
  */
 const hasCeoSecretariatAccess = (user) =>
   hasCeoSecretariatCoordinatorAccess(user) || isDesignatedCeoApprover(user);
+
+/** See Forwarded-to-CEO queue (CEO can act; PS/coordinators view only). */
+const canViewCeoForwardedQueue = (user) =>
+  isDesignatedCeoApprover(user) || hasCeoSecretariatCoordinatorAccess(user);
 
 const userMatchesText = (user, text) => {
   const token = normalizeToken(text);
@@ -90,8 +142,10 @@ module.exports = {
   parseEnvList,
   isExecutiveOverride,
   isDesignatedCeoApprover,
+  isCeoSecretariatPsRole,
   hasCeoSecretariatCoordinatorAccess,
   hasCeoSecretariatAccess,
+  canViewCeoForwardedQueue,
   userMatchesText,
   sameUserId
 };

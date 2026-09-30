@@ -12,6 +12,8 @@ const UtilityBill = require('../models/hr/UtilityBill');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const {
   isDesignatedCeoApprover,
+  isCeoSecretariatPsRole,
+  canViewCeoForwardedQueue,
   getUserIdentityTokens,
   userMatchesText,
   sameUserId
@@ -44,6 +46,8 @@ const card = (partial) => ({
   displayNotes: partial.subtitle || partial.itemType || '',
   department: partial.department || null,
   workflowStatus: partial.status,
+  /** PS / secretariat may see CEO queue but must not approve as CEO */
+  ceoViewOnly: Boolean(partial.ceoViewOnly),
   raw: partial.raw || null
 });
 
@@ -74,10 +78,11 @@ const userPendingInChain = (chain, user) => {
 async function fetchPurchaseOrdersForUser(user) {
   const uid = String(user._id || user.id || '');
   const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
   const tokens = getUserIdentityTokens(user);
 
   const or = [];
-  if (isCeo) {
+  if (canViewCeoQueue) {
     or.push({ status: 'Forwarded to CEO' });
   }
 
@@ -144,19 +149,19 @@ async function fetchPurchaseOrdersForUser(user) {
       .lean();
 
     const matched = candidates.filter((po) => {
-      if (po.status === 'Forwarded to CEO') return isCeo;
+      if (po.status === 'Forwarded to CEO') return canViewCeoQueue;
       return isAssignedByAuthorityText(po.approvalAuthorities, user);
     });
     docs = [...docs, ...matched];
   }
 
-  // Deduplicate + CEO isolation: non-CEO must never see Forwarded to CEO
+  // Deduplicate + CEO isolation: only CEO/PS-coordinator may see Forwarded to CEO
   const seen = new Set();
   return docs.filter((po) => {
     const id = String(po._id);
     if (seen.has(id)) return false;
     seen.add(id);
-    if (po.status === 'Forwarded to CEO' && !isCeo) return false;
+    if (po.status === 'Forwarded to CEO' && !canViewCeoQueue) return false;
     return true;
   }).map((po) => card({
     id: po._id,
@@ -170,17 +175,19 @@ async function fetchPurchaseOrdersForUser(user) {
     subtitle: po.notes || (po.indent?.title ? `PR: ${po.indent.title}` : 'Purchase Order'),
     department: 'Procurement',
     path: `/procurement/purchase-orders/${po._id}`,
+    ceoViewOnly: po.status === 'Forwarded to CEO' && !isCeo,
     raw: po
   }));
 }
 
 async function fetchCashApprovalsForUser(user) {
   const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
   const uid = String(user._id || user.id || '');
   const tokens = getUserIdentityTokens(user);
 
   const or = [];
-  if (isCeo) or.push({ status: 'Forwarded to CEO' });
+  if (canViewCeoQueue) or.push({ status: 'Forwarded to CEO' });
 
   // Pending department approval chain
   or.push({
@@ -224,7 +231,7 @@ async function fetchCashApprovalsForUser(user) {
       .lean();
 
     const matched = candidates.filter((ca) => {
-      if (ca.status === 'Forwarded to CEO') return isCeo;
+      if (ca.status === 'Forwarded to CEO') return canViewCeoQueue;
       return isAssignedByAuthorityText(ca.approvalAuthorities, user);
     });
     docs = [...docs, ...matched];
@@ -235,7 +242,7 @@ async function fetchCashApprovalsForUser(user) {
     const id = String(ca._id);
     if (seen.has(id)) return false;
     seen.add(id);
-    if (ca.status === 'Forwarded to CEO' && !isCeo) return false;
+    if (ca.status === 'Forwarded to CEO' && !canViewCeoQueue) return false;
     return true;
   }).map((ca) => card({
     id: ca._id,
@@ -249,14 +256,21 @@ async function fetchCashApprovalsForUser(user) {
     subtitle: ca.purpose || 'Cash Approval',
     department: ca.requestingDepartment || 'Cash Approval',
     path: `/procurement/cash-approvals/${ca._id}`,
+    ceoViewOnly: (ca.status || ca.workflowStatus) === 'Forwarded to CEO' && !isCeo,
     raw: ca
   }));
 }
 
 async function fetchSettlementsForUser(user) {
   const isCeo = isDesignatedCeoApprover(user);
-  const filter = isCeo
-    ? { workflowStatus: 'Forwarded to CEO' }
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
+  const filter = canViewCeoQueue
+    ? {
+        $or: [
+          { workflowStatus: 'Forwarded to CEO' },
+          ...(!isCeo ? [{ workflowStatus: { $regex: /Send to|Pending|Forwarded/i } }] : [])
+        ]
+      }
     : {
         // Named prepared/approved-by text fields under HM review stages
         workflowStatus: { $regex: /Send to|Pending|Forwarded/i }
@@ -264,12 +278,12 @@ async function fetchSettlementsForUser(user) {
 
   let docs = await PaymentSettlement.find(filter)
     .sort({ updatedAt: -1 })
-    .limit(isCeo ? 100 : 80)
+    .limit(canViewCeoQueue ? 100 : 80)
     .lean();
 
   if (!isCeo) {
     docs = docs.filter((s) => {
-      if (s.workflowStatus === 'Forwarded to CEO') return false;
+      if (s.workflowStatus === 'Forwarded to CEO') return canViewCeoQueue;
       // Match if user name appears on authorization slots and status is awaiting sign-off
       const texts = [
         s.preparedBy,
@@ -296,6 +310,7 @@ async function fetchSettlementsForUser(user) {
     department: s.fromDepartment || 'Administration',
     company: s.subsidiaryName || s.parentCompanyName,
     path: `/admin/payment-settlement`,
+    ceoViewOnly: s.workflowStatus === 'Forwarded to CEO' && !isCeo,
     raw: s
   }));
 }
@@ -303,13 +318,14 @@ async function fetchSettlementsForUser(user) {
 async function fetchOnboardingForUser(user) {
   const uid = String(user._id || user.id || '');
   const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
   const or = [
     { workflowStatus: 'Pending AVP', assignedAvp: uid },
     { workflowStatus: 'Pending Chairman', assignedChairman: uid },
     { workflowStatus: 'Pending HOD HR', assignedHod: uid },
     { workflowStatus: 'Pending Sr Director', assignedSrDirector: uid }
   ];
-  if (isCeo) or.push({ workflowStatus: 'Forwarded to CEO' });
+  if (canViewCeoQueue) or.push({ workflowStatus: 'Forwarded to CEO' });
 
   const docs = await NonEmployeeRecord.find({ $or: or })
     .populate('assignedAvp', 'firstName lastName')
@@ -340,6 +356,7 @@ async function fetchOnboardingForUser(user) {
       subtitle: 'Non-employee onboarding',
       department: 'HR',
       path: `/hr/non-employee-onboarding`,
+      ceoViewOnly: r.workflowStatus === 'Forwarded to CEO' && !isCeo,
       raw: r
     });
   });
@@ -445,7 +462,14 @@ async function fetchVendorBillsForUser(user) {
  */
 async function buildExecutiveMyApprovals(user) {
   if (!user) {
-    return { items: [], counts: {}, isDesignatedCeo: false };
+    return {
+      items: [],
+      counts: {},
+      isDesignatedCeo: false,
+      canApproveAsCeo: false,
+      isCeoSecretariatPs: false,
+      canViewCeoForwardedQueue: false
+    };
   }
 
   const [
@@ -511,7 +535,10 @@ async function buildExecutiveMyApprovals(user) {
   return {
     items,
     counts,
-    isDesignatedCeo: isDesignatedCeoApprover(user)
+    isDesignatedCeo: isDesignatedCeoApprover(user),
+    canApproveAsCeo: isDesignatedCeoApprover(user),
+    isCeoSecretariatPs: isCeoSecretariatPsRole(user),
+    canViewCeoForwardedQueue: canViewCeoForwardedQueue(user)
   };
 }
 

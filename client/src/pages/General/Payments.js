@@ -111,6 +111,7 @@ const Payments = () => {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [departments, setDepartments] = useState([]);
   const [tabValue, setTabValue] = useState(getInitialTab);
+  const [canApproveAsCeo, setCanApproveAsCeo] = useState(false);
   
   // Dialog states
   const [viewDialog, setViewDialog] = useState({ open: false, settlement: null, isPurchaseOrder: false, isCashApproval: false, quotations: [], caLinkedDocs: [], poQuotations: [], poGrns: [], poLinkedDocs: [], poAuditTab: 0 });
@@ -152,6 +153,21 @@ const Payments = () => {
     fetchSettlements();
     fetchDepartments();
   }, [page, rowsPerPage, searchQuery, departmentFilter, tabValue]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get('/executive/me');
+        if (!cancelled) {
+          setCanApproveAsCeo(Boolean(res.data?.data?.canApproveAsCeo ?? res.data?.data?.isDesignatedCeo));
+        }
+      } catch {
+        if (!cancelled) setCanApproveAsCeo(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const fetchDepartments = async () => {
     try {
@@ -1769,8 +1785,8 @@ const Payments = () => {
                                                   </IconButton>
                                                 </Tooltip>
 
-                                                 {/* Forwarded to CEO: CEO actions (Approve, Reject, Return with Observations) */}
-                                                 {settlement.workflowStatus === 'Forwarded to CEO' && (
+                                                 {/* Forwarded to CEO: CEO actions only (PS can view, not approve) */}
+                                                 {settlement.workflowStatus === 'Forwarded to CEO' && canApproveAsCeo && (
                                                    <>
                                                      <Tooltip title="Approve (CEO)">
                                                        <IconButton
@@ -2647,7 +2663,7 @@ const Payments = () => {
           </Box>
           <Box>
             {/* View Dialog Quick Actions based on status */}
-            {((viewDialog.settlement?.workflowStatus || viewDialog.settlement?.status) === 'Forwarded to CEO') && (
+            {((viewDialog.settlement?.workflowStatus || viewDialog.settlement?.status) === 'Forwarded to CEO') && canApproveAsCeo && (
               <>
                 <Button
                   variant="contained"

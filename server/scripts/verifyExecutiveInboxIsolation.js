@@ -89,13 +89,34 @@ assert('userMatchesText matches Fahad Farid', userMatchesText(fahad, 'Fahad Fari
 assert('userMatchesText rejects Ahmed for Fahad name', !userMatchesText(fahad, 'Ahmed Tasnim'));
 
 console.log('\n5) Forwarded-to-CEO inbox rule (simulated)');
+const {
+  canViewCeoForwardedQueue,
+  isCeoSecretariatPsRole
+} = require('../utils/executiveAccess');
 const simulateCeoStepVisible = (user, status) => {
+  if (status !== 'Forwarded to CEO') return false;
+  return canViewCeoForwardedQueue(user);
+};
+const simulateCeoCanApprove = (user, status) => {
   if (status !== 'Forwarded to CEO') return false;
   return isDesignatedCeoApprover(user);
 };
+const psUser = {
+  _id: 'ps-id-004',
+  firstName: 'PS',
+  lastName: 'User',
+  email: 'ps@sgc.example',
+  role: 'user',
+  roleRef: { name: 'PS', displayName: 'PS', isActive: true, permissions: [{ module: 'ceo_secretariat' }] }
+};
 assert('Forwarded to CEO visible to CEO', simulateCeoStepVisible(ceoUser, 'Forwarded to CEO'));
+assert('Forwarded to CEO visible to PS (view)', simulateCeoStepVisible(psUser, 'Forwarded to CEO'));
 assert('Forwarded to CEO hidden from Fahad', !simulateCeoStepVisible(fahad, 'Forwarded to CEO'));
 assert('Forwarded to CEO hidden from Ahmed', !simulateCeoStepVisible(ahmed, 'Forwarded to CEO'));
+assert('PS cannot approve as CEO', !simulateCeoCanApprove(psUser, 'Forwarded to CEO'));
+assert('CEO can approve Forwarded docs', simulateCeoCanApprove(ceoUser, 'Forwarded to CEO'));
+assert('PS role detected', isCeoSecretariatPsRole(psUser));
+assert('Fahad is not PS', !isCeoSecretariatPsRole(fahad));
 
 console.log('\n6) Pending AVP assignment (simulated)');
 const simulateAvpVisible = (user, doc) =>

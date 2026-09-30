@@ -1174,10 +1174,19 @@ router.get('/purchase-orders/ceo-secretariat',
     const isCeo = isDesignatedCeoApprover(req.user);
     const statuses = [];
     if (isCoordinator) {
-      statuses.push('Send to CEO Office', 'Returned from CEO Office');
+      // Pending / Forwarded / Returned / Approved / Rejected for CEO Secretariat (PS) tabs
+      statuses.push(
+        'Send to CEO Office',
+        'Forwarded to CEO',
+        'Returned from CEO Office',
+        'Returned from CEO Secretariat',
+        'Approved',
+        'Pending Finance',
+        'Rejected'
+      );
     }
     if (isCeo) {
-      statuses.push('Forwarded to CEO');
+      statuses.push('Forwarded to CEO', 'Returned from CEO Office');
     }
     // Keep Returned visible to CEO as well when override/CEO
     if (isCeo && !statuses.includes('Returned from CEO Office')) {
@@ -1196,14 +1205,14 @@ router.get('/purchase-orders/ceo-secretariat',
         return res.json({ success: true, data: [] });
       }
       filter = {
-        status: { $in: ['Send to CEO Office', 'Forwarded to CEO', 'Returned from CEO Office'] },
+        status: { $in: ['Send to CEO Office', 'Forwarded to CEO', 'Returned from CEO Office', 'Approved', 'Pending Finance', 'Rejected'] },
         $or: [
           ...(indentIds.length ? [{ indent: { $in: indentIds } }] : []),
           ...authorityTextConditions
         ]
       };
-      // Never expose Forwarded to CEO to non-CEO via this branch
-      if (!isCeo) {
+      // Non-CEO assigned authorities may not act on Forwarded to CEO, but PS coordinators already hit statuses.length branch
+      if (!isCeo && !isCoordinator) {
         filter.status = { $in: ['Send to CEO Office', 'Returned from CEO Office'] };
       }
     }

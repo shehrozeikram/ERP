@@ -914,6 +914,7 @@ router.get('/ceo-secretariat',
     if (isCoordinator) {
       statuses.push(
         'Send to CEO Office',
+        'Forwarded to CEO',
         'Returned from CEO Office',
         'Returned from CEO Secretariat',
         'Pending Finance',

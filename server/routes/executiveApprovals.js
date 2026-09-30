@@ -2,7 +2,12 @@ const express = require('express');
 const router = express.Router();
 const { asyncHandler } = require('../middleware/errorHandler');
 const { buildExecutiveMyApprovals } = require('../utils/executiveMyApprovals');
-const { isDesignatedCeoApprover, isExecutiveOverride } = require('../utils/executiveAccess');
+const {
+  isDesignatedCeoApprover,
+  isCeoSecretariatPsRole,
+  canViewCeoForwardedQueue,
+  isExecutiveOverride
+} = require('../utils/executiveAccess');
 
 /**
  * GET /api/executive/my-approvals
@@ -16,6 +21,9 @@ router.get('/my-approvals', asyncHandler(async (req, res) => {
       items: result.items,
       counts: result.counts,
       isDesignatedCeo: result.isDesignatedCeo,
+      canApproveAsCeo: result.canApproveAsCeo,
+      isCeoSecretariatPs: result.isCeoSecretariatPs,
+      canViewCeoForwardedQueue: result.canViewCeoForwardedQueue,
       viewer: {
         id: String(req.user?._id || req.user?.id || ''),
         name: `${req.user?.firstName || ''} ${req.user?.lastName || ''}`.trim(),
@@ -35,6 +43,9 @@ router.get('/me', asyncHandler(async (req, res) => {
     success: true,
     data: {
       isDesignatedCeo: isDesignatedCeoApprover(req.user),
+      canApproveAsCeo: isDesignatedCeoApprover(req.user),
+      isCeoSecretariatPs: isCeoSecretariatPsRole(req.user),
+      canViewCeoForwardedQueue: canViewCeoForwardedQueue(req.user),
       isOverride: isExecutiveOverride(req.user),
       role: req.user?.role || null
     }

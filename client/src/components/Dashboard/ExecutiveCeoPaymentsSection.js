@@ -96,6 +96,7 @@ const ExecutiveCeoPaymentsSection = () => {
 
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState([]);
+  const [canApproveAsCeo, setCanApproveAsCeo] = useState(false);
   const [filterTab, setFilterTab] = useState(0); // 0: All, 1: PO, 2: CA, 3: Settlement, 4: Onboarding, 5: Other
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -148,6 +149,7 @@ const ExecutiveCeoPaymentsSection = () => {
       const res = await executiveApprovalsService.getMyApprovals();
       const payload = res.data?.data || {};
       const items = Array.isArray(payload.items) ? payload.items : [];
+      setCanApproveAsCeo(Boolean(payload.canApproveAsCeo ?? payload.isDesignatedCeo));
 
       const combined = items.map((item) => {
         const raw = item.raw && typeof item.raw === 'object' ? item.raw : {};
@@ -171,7 +173,8 @@ const ExecutiveCeoPaymentsSection = () => {
           department: item.department || raw.fromDepartment || '—',
           workflowStatus: item.workflowStatus || item.status || raw.workflowStatus || raw.status,
           status: item.status || raw.status || raw.workflowStatus,
-          path: item.path || raw.path || null
+          path: item.path || raw.path || null,
+          ceoViewOnly: Boolean(item.ceoViewOnly)
         };
       });
 
@@ -182,6 +185,7 @@ const ExecutiveCeoPaymentsSection = () => {
       console.error('Error fetching executive approvals:', error);
       toast.error(error.response?.data?.message || 'Failed to load your approval inbox');
       setPayments([]);
+      setCanApproveAsCeo(false);
     } finally {
       setLoading(false);
     }
@@ -960,13 +964,34 @@ const ExecutiveCeoPaymentsSection = () => {
   };
 
   const role = String(user?.role || '');
+  const roleLabels = [
+    role,
+    user?.roleRef?.name,
+    user?.roleRef?.displayName,
+    ...(Array.isArray(user?.roles) ? user.roles.map((r) => (typeof r === 'string' ? r : r?.name || r?.displayName)) : []),
+    ...(Array.isArray(user?.subRoles) ? user.subRoles.map((r) => (typeof r === 'string' ? r : r?.name || r?.displayName)) : [])
+  ].map((v) => String(v || '').toLowerCase().trim()).filter(Boolean);
+  const isPsRole = roleLabels.some((label) => (
+    label === 'ps'
+    || label.includes('personal secretary')
+    || label === 'ceo secretariat'
+    || label.includes('ceo secretariat')
+  ));
   const canReceiveExecutiveApprovals = [
     'higher_management',
     'ceo',
     'super_admin',
     'admin',
     'developer'
-  ].includes(role);
+  ].includes(role) || isPsRole || canApproveAsCeo;
+
+  const canActOnInboxItem = (item) => {
+    if (!item) return false;
+    if (item.ceoViewOnly) return false;
+    const status = item.workflowStatus || item.status || '';
+    if (status === 'Forwarded to CEO' && !canApproveAsCeo) return false;
+    return true;
+  };
 
   // Hide cleanly for users who cannot receive executive/HM approvals and have an empty inbox
   if (!loading && !canReceiveExecutiveApprovals && payments.length === 0) {
@@ -1003,37 +1028,41 @@ const ExecutiveCeoPaymentsSection = () => {
           <HistoryIcon fontSize="small" />
         </IconButton>
       </Tooltip>
-      <Tooltip title="Approve">
-        <IconButton
-          size="small"
-          color="success"
-          onClick={() => openApprove(item)}
-          sx={actionBtnSx('rgba(46, 125, 50, 0.3)', alpha('#2e7d32', 0.08), alpha('#2e7d32', 0.2))}
-        >
-          <CheckCircleIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Tooltip title="Reject">
-        <IconButton
-          size="small"
-          color="error"
-          onClick={() => openReject(item)}
-          sx={actionBtnSx('rgba(211, 47, 47, 0.3)', alpha('#d32f2f', 0.05), alpha('#d32f2f', 0.15))}
-        >
-          <CancelIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      {!(item.isIndent || item.isUtilityBill || item.isVendorBill) && (
-        <Tooltip title="Return with observations">
-          <IconButton
-            size="small"
-            color="warning"
-            onClick={() => openReturn(item)}
-            sx={actionBtnSx('rgba(237, 108, 2, 0.3)', alpha('#ed6c02', 0.05), alpha('#ed6c02', 0.15))}
-          >
-            <WarningIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
+      {canActOnInboxItem(item) && (
+        <>
+          <Tooltip title="Approve">
+            <IconButton
+              size="small"
+              color="success"
+              onClick={() => openApprove(item)}
+              sx={actionBtnSx('rgba(46, 125, 50, 0.3)', alpha('#2e7d32', 0.08), alpha('#2e7d32', 0.2))}
+            >
+              <CheckCircleIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Reject">
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => openReject(item)}
+              sx={actionBtnSx('rgba(211, 47, 47, 0.3)', alpha('#d32f2f', 0.05), alpha('#d32f2f', 0.15))}
+            >
+              <CancelIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          {!(item.isIndent || item.isUtilityBill || item.isVendorBill) && (
+            <Tooltip title="Return with observations">
+              <IconButton
+                size="small"
+                color="warning"
+                onClick={() => openReturn(item)}
+                sx={actionBtnSx('rgba(237, 108, 2, 0.3)', alpha('#ed6c02', 0.05), alpha('#ed6c02', 0.15))}
+              >
+                <WarningIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+        </>
       )}
     </Stack>
   );
@@ -1627,88 +1656,7 @@ const ExecutiveCeoPaymentsSection = () => {
                       </TableCell>
 
                       <TableCell align="center">
-                        <Stack direction="row" spacing={0.8} justifyContent="center">
-                          {/* View Detail */}
-                          <Tooltip title="View Complete Audit Details">
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              onClick={() => openView(item)}
-                              sx={{
-                                border: '1px solid rgba(25, 118, 210, 0.3)',
-                                bgcolor: alpha('#1976d2', 0.05)
-                              }}
-                            >
-                              <ViewIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-
-                          {/* Workflow History */}
-                          <Tooltip title="See Workflow History">
-                            <IconButton
-                              size="small"
-                              color="info"
-                              onClick={() => openWorkflowHistory(item)}
-                              sx={{
-                                border: '1px solid rgba(2, 136, 209, 0.3)',
-                                bgcolor: alpha('#0288d1', 0.05),
-                                '&:hover': { bgcolor: alpha('#0288d1', 0.15) }
-                              }}
-                            >
-                              <HistoryIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-
-                          {/* Approve / reject / return — in-place for all inbox types */}
-                          <>
-                              <Tooltip title="Approve">
-                            <IconButton
-                              size="small"
-                              color="success"
-                              onClick={() => openApprove(item)}
-                              sx={{
-                                border: '1px solid rgba(46, 125, 50, 0.3)',
-                                bgcolor: alpha('#2e7d32', 0.08),
-                                '&:hover': { bgcolor: alpha('#2e7d32', 0.2) }
-                              }}
-                            >
-                              <CheckCircleIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-
-                              <Tooltip title="Reject">
-                            <IconButton
-                              size="small"
-                              color="error"
-                              onClick={() => openReject(item)}
-                              sx={{
-                                border: '1px solid rgba(211, 47, 47, 0.3)',
-                                bgcolor: alpha('#d32f2f', 0.05),
-                                '&:hover': { bgcolor: alpha('#d32f2f', 0.15) }
-                              }}
-                            >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-
-                              {!(item.isIndent || item.isUtilityBill || item.isVendorBill) && (
-                              <Tooltip title="Return with observations">
-                            <IconButton
-                              size="small"
-                              color="warning"
-                              onClick={() => openReturn(item)}
-                              sx={{
-                                border: '1px solid rgba(237, 108, 2, 0.3)',
-                                bgcolor: alpha('#ed6c02', 0.05),
-                                '&:hover': { bgcolor: alpha('#ed6c02', 0.15) }
-                              }}
-                            >
-                              <WarningIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                              )}
-                            </>
-                        </Stack>
+                        {renderInboxItemActions(item)}
                       </TableCell>
                     </TableRow>
                   );
@@ -2560,6 +2508,8 @@ const ExecutiveCeoPaymentsSection = () => {
           </Box>
 
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', width: { xs: '100%', sm: 'auto' }, justifyContent: { xs: 'stretch', sm: 'flex-end' }, '& .MuiButton-root': { flex: { xs: '1 1 auto', sm: '0 0 auto' }, minHeight: 40 } }}>
+            {canActOnInboxItem(viewDialog.settlement) && (
+              <>
             <Button
               variant="contained"
               color="success"
@@ -2627,6 +2577,8 @@ const ExecutiveCeoPaymentsSection = () => {
             >
               Return
             </Button>
+            )}
+              </>
             )}
             <Button
               variant="outlined"
