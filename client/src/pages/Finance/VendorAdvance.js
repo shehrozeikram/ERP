@@ -1911,13 +1911,10 @@ const VendorAdvance = () => {
 
                     <Box sx={{ mb: 0.6, '@media print': { mb: 0.35 } }}>
                       <Typography fontWeight={600} sx={{ mb: 0.15, fontSize: '0.85rem', '@media print': { fontSize: '0.75rem' } }}>
-                        Residencia
+                        Taj Residencia
                       </Typography>
                       <Typography sx={{ fontSize: '0.75rem', lineHeight: 1.25, '@media print': { fontSize: '0.65rem' } }}>
-                        1st Avenue 18 4 Islamabad
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.75rem', lineHeight: 1.25, '@media print': { fontSize: '0.65rem' } }}>
-                        1. Het Sne 1-8. Islamabad.
+                        Link Road I-14, adjacent to CDA Sectors I-14 and I-15
                       </Typography>
                     </Box>
 
@@ -1927,6 +1924,9 @@ const VendorAdvance = () => {
                       <Box sx={{ width: '48%', fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>
                         <Typography fontWeight={600} sx={{ mb: 0.2, fontSize: '0.82rem', '@media print': { fontSize: '0.72rem' } }}>
                           {viewDialog.po.vendor?.name || 'Vendor Name'}
+                        </Typography>
+                        <Typography sx={{ fontSize: 'inherit', lineHeight: 1.3, mb: 0.25, fontWeight: 600 }}>
+                          Payee Name: {viewDialog.po.vendor?.payeeName || viewDialog.po.vendor?.name || '—'}
                         </Typography>
                         <Typography sx={{ fontSize: 'inherit', lineHeight: 1.3, mb: 0.3 }}>
                           {viewDialog.po.vendor?.address || 'Vendor Address'}
@@ -2111,7 +2111,7 @@ const VendorAdvance = () => {
                         </Box>
                         {(viewDialog.po.vendor?.cnic || viewDialog.po.vendor?.payeeName) && (
                           <Typography sx={{ fontSize: 'inherit' }}>
-                            {[viewDialog.po.vendor?.cnic ? `CNIC ${viewDialog.po.vendor.cnic}` : '', viewDialog.po.vendor?.payeeName ? `Payee: ${viewDialog.po.vendor.payeeName}` : ''].filter(Boolean).join(' | ')}
+                            {[viewDialog.po.vendor?.cnic ? `CNIC ${viewDialog.po.vendor.cnic}` : '', viewDialog.po.vendor?.payeeName ? `Payee Name: ${viewDialog.po.vendor.payeeName}` : ''].filter(Boolean).join(' | ')}
                           </Typography>
                         )}
                       </Box>

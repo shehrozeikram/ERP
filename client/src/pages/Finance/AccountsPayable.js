@@ -1348,6 +1348,13 @@ const AccountsPayable = () => {
     }
   };
 
+  const getBillWorkflowStatusLabel = (bill) => {
+    if (bill?.approvalStatus === 'Submitted') return 'PENDING DEPT APPROVAL';
+    if (bill?.approvalStatus === 'Rejected') return 'DEPT REJECTED';
+    if (bill?.status === 'draft' && bill?.approvalStatus === 'Approved') return 'PENDING AUDIT';
+    return String(bill?.status || 'UNKNOWN').toUpperCase();
+  };
+
   const getStatusColor = (status) => {
     const colorMap = {
       'draft': 'default',
@@ -1357,7 +1364,10 @@ const AccountsPayable = () => {
       'paid': 'success',
       'overdue': 'error',
       'partial': 'info',
-      'cancelled': 'default'
+      'cancelled': 'default',
+      'PENDING DEPT APPROVAL': 'warning',
+      'DEPT REJECTED': 'error',
+      'PENDING AUDIT': 'info'
     };
     return colorMap[status] || 'default';
   };
@@ -1374,6 +1384,51 @@ const AccountsPayable = () => {
       'cancelled': <AccountBalanceIcon />
     };
     return iconMap[status] || <AccountBalanceIcon />;
+  };
+
+  const getPendingCoaDeptStep = (bill) => {
+    if (!bill || bill.approvalStatus !== 'Submitted') return null;
+    const chain = Array.isArray(bill.approvalChain) ? bill.approvalChain : [];
+    return chain.find((step) => step.status === 'pending') || null;
+  };
+
+  const canApproveCoaDeptBill = (bill) => {
+    const pending = getPendingCoaDeptStep(bill);
+    if (!pending?.approver) return false;
+    const approverId = String(pending.approver?._id || pending.approver || '');
+    return Boolean(preparerUserId && approverId && preparerUserId === approverId);
+  };
+
+  const handleCoaDepartmentApprove = async () => {
+    if (!selectedBill?._id) return;
+    try {
+      const res = await api.post(`/finance/accounts-payable/${selectedBill._id}/department-approve`, {
+        comments: 'Approved'
+      });
+      toast.success(res.data?.message || 'Department approval recorded');
+      const refreshed = res.data?.data || null;
+      if (refreshed) setSelectedBill(refreshed);
+      fetchAccountsPayable();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to approve');
+    }
+  };
+
+  const handleCoaDepartmentReject = async () => {
+    if (!selectedBill?._id) return;
+    const reason = window.prompt('Rejection reason');
+    if (!reason || !String(reason).trim()) return;
+    try {
+      const res = await api.post(`/finance/accounts-payable/${selectedBill._id}/department-reject`, {
+        rejectionReason: String(reason).trim()
+      });
+      toast.success(res.data?.message || 'Bill rejected');
+      const refreshed = res.data?.data || null;
+      if (refreshed) setSelectedBill(refreshed);
+      fetchAccountsPayable();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to reject');
+    }
   };
 
   const getAgingColor = (days) => {
@@ -1515,6 +1570,7 @@ const AccountsPayable = () => {
               >
                 <MenuItem value="">All Status</MenuItem>
                 <MenuItem value="unpaid">Unpaid / Unsettled</MenuItem>
+                <MenuItem value="pending_dept_approval">Pending Dept Approval</MenuItem>
                 <MenuItem value="draft">Draft</MenuItem>
                 <MenuItem value="received">Received</MenuItem>
                 <MenuItem value="approved">Approved</MenuItem>
@@ -1818,7 +1874,12 @@ const AccountsPayable = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Chip label={bill.status?.toUpperCase() || 'UNKNOWN'} size="small" color={getStatusColor(bill.status)} icon={getStatusIcon(bill.status)} />
+                          <Chip
+                            label={getBillWorkflowStatusLabel(bill)}
+                            size="small"
+                            color={getStatusColor(getBillWorkflowStatusLabel(bill))}
+                            icon={getStatusIcon(bill.status)}
+                          />
                           {getSettlementPending(bill) > 0 ? (
                             <Chip label="Pending approval" size="small" color="warning" variant="outlined" sx={{ ml: 0.5 }} />
                           ) : null}
@@ -1834,7 +1895,7 @@ const AccountsPayable = () => {
                                 <Chip onClick={() => handleVoucherCreatedClick(bill)} label="VOUCHER CREATED" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem', cursor: 'pointer' }} />
                               </Tooltip>
                             )}
-                            {bill.status !== 'paid' && outstanding > 0 && (
+                            {bill.status !== 'paid' && outstanding > 0 && bill.status !== 'draft' && bill.approvalStatus !== 'Submitted' && bill.approvalStatus !== 'Rejected' && (
                               <Tooltip title="Make Payment">
                                 <IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)}>
                                   <PaymentIcon fontSize="small" />
@@ -2068,6 +2129,26 @@ const AccountsPayable = () => {
                       showChargesSummary={true}
                     />
 
+                    {canApproveCoaDeptBill(selectedBill) && (
+                      <Alert severity="info" sx={{ mb: 2 }}
+                        action={
+                          <Stack direction="row" spacing={1}>
+                            <Button color="success" size="small" variant="contained" onClick={handleCoaDepartmentApprove}>
+                              Approve
+                            </Button>
+                            <Button color="error" size="small" variant="outlined" onClick={handleCoaDepartmentReject}>
+                              Reject
+                            </Button>
+                          </Stack>
+                        }
+                      >
+                        You are the pending department approval authority
+                        {getPendingCoaDeptStep(selectedBill)?.roleLabel
+                          ? ` (${getPendingCoaDeptStep(selectedBill).roleLabel})`
+                          : ''} for this Chart of Accounts bill.
+                      </Alert>
+                    )}
+
                     {/* Approval Authority Table — Rendered for All Vendor Bills */}
                     {(() => {
                       const getApprovalRows = () => {
@@ -2102,8 +2183,9 @@ const AccountsPayable = () => {
                           dateTime: requesterDate ? formatDateTime(requesterDate) : '-'
                         });
 
-                        // ─── 2. Manager / HOD Approver ───
-                        // For Centralized Store: from sourceUtilityBill.approvalChain (department approval)
+                        // ─── 2. Department Approval Authorities ───
+                        // Centralized Store: sourceUtilityBill.approvalChain (Manager / HOD)
+                        // Chart of Accounts bills: bill.approvalChain (Sr Manager Finance / GM Finance)
                         if (isCentralizedStore && srcBill) {
                           const approvalChain = Array.isArray(srcBill.approvalChain) ? srcBill.approvalChain : [];
                           if (approvalChain.length > 0) {
@@ -2127,6 +2209,20 @@ const AccountsPayable = () => {
                               signatureUser: srcBill.approvedBy || null,
                               signaturePath: srcBill.approvedBy?.digitalSignature || '',
                               dateTime: srcBill.approvedAt ? formatDateTime(srcBill.approvedAt) : '-'
+                            });
+                          }
+                        } else if (isChartOfAccountsBill) {
+                          const coaChain = Array.isArray(selectedBill?.approvalChain) ? selectedBill.approvalChain : [];
+                          if (coaChain.length > 0) {
+                            coaChain.forEach((step, idx) => {
+                              const label = step.roleLabel || (idx === 0 ? 'Sr Manager Finance' : 'GM Finance');
+                              rows.push({
+                                authority: label,
+                                name: step.approver ? userDisplayName(step.approver) : '-',
+                                signatureUser: step.status === 'approved' ? (step.approver || null) : null,
+                                signaturePath: step.status === 'approved' ? (step.approver?.digitalSignature || '') : '',
+                                dateTime: step.actedAt ? formatDateTime(step.actedAt) : (step.status === 'pending' ? 'Pending' : '-')
+                              });
                             });
                           }
                         }
@@ -2429,14 +2525,21 @@ const AccountsPayable = () => {
                       >
                         <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1, fontSize: { xs: '1.25rem', print: '1.05rem' }, '@media print': { mb: 0.5 } }}>Purchase Order</Typography>
                         <Box sx={{ mb: 0.75, '@media print': { mb: 0.4 } }}>
-                          <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.9rem', '@media print': { fontSize: '0.78rem' } }}>Residencia</Typography>
-                          <Typography variant="body2" sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>1st Avenue 18 4 Islamabad</Typography>
-                          <Typography variant="body2" sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>1. Het Sne 1-8. Islamabad.</Typography>
+                          <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.9rem', '@media print': { fontSize: '0.78rem' } }}>Taj Residencia</Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>Link Road I-14, adjacent to CDA Sectors I-14 and I-15</Typography>
                         </Box>
                         <Divider sx={{ my: 0.75, '@media print': { my: 0.4 } }} />
                         <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap', '@media print': { mb: 0.6 } }}>
                           <Box sx={{ width: { xs: '100%', md: '45%' }, fontSize: '0.78rem', '@media print': { fontSize: '0.68rem' } }}>
                             <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.85rem', '@media print': { fontSize: '0.74rem' } }}>{selectedBill.poDetail.po.vendor?.name || 'Vendor Name'}</Typography>
+                            <Typography variant="body2" sx={{ mb: 0.25, fontSize: 'inherit', lineHeight: 1.3, fontWeight: 600 }}>
+                              Payee Name: {selectedBill.poDetail.po.vendor?.payeeName || selectedBill.poDetail.po.vendor?.name || '—'}
+                            </Typography>
+                            {(selectedBill.poDetail.po.vendor?.cnic || selectedBill.poDetail.po.vendor?.ntnCnic) && (
+                              <Typography variant="body2" sx={{ mb: 0.35, fontSize: 'inherit', lineHeight: 1.3, fontWeight: 600, color: 'text.secondary' }}>
+                                NTN / CNIC: {selectedBill.poDetail.po.vendor.ntnCnic || selectedBill.poDetail.po.vendor.cnic}
+                              </Typography>
+                            )}
                             <Typography variant="body2" sx={{ mb: 0.75, fontSize: 'inherit', lineHeight: 1.3 }}>{typeof selectedBill.poDetail.po.vendor?.address === 'string' ? selectedBill.poDetail.po.vendor.address : (selectedBill.poDetail.po.vendor?.address ? Object.values(selectedBill.poDetail.po.vendor.address).filter(Boolean).join(', ') : 'Vendor Address')}</Typography>
                             <Box>
                               <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Indent Details: </Typography>

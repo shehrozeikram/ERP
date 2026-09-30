@@ -426,34 +426,41 @@ async function fetchUtilityBillsForUser(user) {
 
 async function fetchVendorBillsForUser(user) {
   const uid = String(user._id || user.id || '');
-  // AP bills rarely have approvalChain; include if schema has pending chain or observations assigned
+  // Chart of Accounts bills: department approvalChain (Sr Manager Finance → GM Finance), sequential pending step
   const docs = await AccountsPayable.find({
-    $or: [
-      { 'approvalChain.approver': uid, 'approvalChain.status': 'pending' },
-      { 'financeApprovalAuthorities.assignedUser': uid }
-    ],
-    status: { $nin: ['paid', 'cancelled', 'void'] }
+    approvalStatus: 'Submitted',
+    approvalChain: {
+      $elemMatch: { approver: uid, status: 'pending' }
+    },
+    status: { $nin: ['paid', 'cancelled', 'void', 'approved', 'partial'] }
   })
-    .select('billNumber billDate totalAmount status vendor vendorName company companyId notes')
+    .select('billNumber billDate totalAmount status approvalStatus vendor vendorName company companyId notes approvalChain module referenceType')
     .sort({ updatedAt: -1 })
     .limit(50)
     .lean()
     .catch(() => []);
 
-  return (docs || []).map((b) => card({
-    id: b._id,
-    type: 'vendor_bill',
-    itemType: 'Vendor Bill',
-    number: b.billNumber,
-    status: b.status,
-    date: b.billDate || b.updatedAt,
-    amount: b.totalAmount,
-    party: b.vendorName || b.vendor?.name,
-    subtitle: b.notes || 'Vendor bill',
-    department: 'Finance',
-    path: `/finance/accounts-payable`,
-    raw: b
-  }));
+  return (docs || [])
+    .filter((b) => {
+      // Only surface when this user is the first pending step (sequential like Centralized Store)
+      const chain = Array.isArray(b.approvalChain) ? b.approvalChain : [];
+      const firstPending = chain.find((s) => s.status === 'pending');
+      return firstPending && String(firstPending.approver) === uid;
+    })
+    .map((b) => card({
+      id: b._id,
+      type: 'vendor_bill',
+      itemType: 'Chart of Accounts Bill',
+      number: b.billNumber,
+      status: b.approvalStatus || b.status,
+      date: b.billDate || b.updatedAt,
+      amount: b.totalAmount,
+      party: b.vendorName || b.vendor?.name,
+      subtitle: b.notes || 'Pending department approval (Finance)',
+      department: 'Finance',
+      path: `/finance/accounts-payable`,
+      raw: b
+    }));
 }
 
 /**

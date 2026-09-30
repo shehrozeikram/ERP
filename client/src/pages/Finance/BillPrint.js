@@ -424,11 +424,11 @@ export default function BillPrint() {
         @media print {
           html, body {
             width: 100% !important;
-            height: 100% !important;
+            height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #ffffff !important;
-            overflow: hidden !important;
+            overflow: visible !important;
           }
           body * {
             visibility: hidden;
@@ -446,6 +446,16 @@ export default function BillPrint() {
             margin: 0 !important;
             box-shadow: none !important;
             border: none !important;
+            overflow: visible !important;
+          }
+          .print-content .MuiTableContainer-root {
+            overflow: visible !important;
+            max-width: 100% !important;
+          }
+          .print-content table {
+            width: 100% !important;
+            min-width: 0 !important;
+            table-layout: fixed !important;
           }
         }
       `}</style>

@@ -1908,13 +1908,10 @@ const PreAudit = () => {
         {/* Buyer Information - First Row */}
         <Box sx={{ mb: 2.5 }}>
           <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
-            Residencia
-          </Typography>
-          <Typography sx={{ fontSize: '0.9rem', mb: 0.5 }}>
-            1st Avenue 18 4 Islamabad
+            Taj Residencia
           </Typography>
           <Typography sx={{ fontSize: '0.9rem' }}>
-            1. Het Sne 1-8. Islamabad.
+            Link Road I-14, adjacent to CDA Sectors I-14 and I-15
           </Typography>
         </Box>
 

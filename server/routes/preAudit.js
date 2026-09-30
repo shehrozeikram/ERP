@@ -727,7 +727,7 @@ router.get('/finance-vendors/bills/:id',
       const GoodsReceive = require('../models/procurement/GoodsReceive');
 
       const po = await PurchaseOrder.findById(targetPoId)
-        .populate('vendor', 'name email phone address')
+        .populate('vendor', 'name email phone address payeeName cnic ntnCnic ntnNo')
         .populate('indent')
         .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
         .populate('auditReturnedBy', 'firstName lastName email')
@@ -743,7 +743,7 @@ router.get('/finance-vendors/bills/:id',
             .populate('requestedBy', 'firstName lastName name email digitalSignature')
             .populate('department', 'name code')
             .lean();
-          quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
+          quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email payeeName cnic ntnCnic').lean();
         }
         const grnIds = (bill.linkedGRNs && bill.linkedGRNs.length > 0)
           ? bill.linkedGRNs.map(g => g.grnId).filter(Boolean)
@@ -1677,6 +1677,29 @@ router.put('/:id/approve',
       vbApprove.updatedBy = req.user.id;
       await vbApprove.save();
 
+      // Chart of Accounts bills defer GL until audit final approval (created with skipJournal)
+      let financePost = null;
+      if (vbApprove.referenceType === 'manual' || vbApprove.module === 'finance') {
+        try {
+          const FinanceHelper = require('../utils/financeHelper');
+          financePost = await FinanceHelper.postAPBillJournalIfMissing(vbApprove, req.user.id);
+          if (financePost?.posted) {
+            vbApprove.workflowHistory.push({
+              fromStatus: 'approved',
+              toStatus: 'Posted to Finance GL',
+              changedBy: req.user.id,
+              changedAt: new Date(),
+              comments: 'AP journal posted after Audit Director approval',
+              module: 'Finance'
+            });
+            await vbApprove.save();
+          }
+        } catch (postErr) {
+          console.error('Failed to post COA bill journal after audit approval:', postErr);
+          financePost = { posted: false, error: postErr.message };
+        }
+      }
+
       await notifyPreAuditStakeholders({
         actorId: req.user.id,
         title: 'Audit Director final approval completed',
@@ -1688,12 +1711,15 @@ router.put('/:id/approve',
 
       return res.json({
         success: true,
-        message: 'Vendor bill approved successfully by Audit Director and activated in Finance.',
+        message: financePost?.error && !financePost?.posted
+          ? `Vendor bill approved by Audit Director, but Finance GL post failed: ${financePost.error}`
+          : 'Vendor bill approved successfully by Audit Director and activated in Finance.',
         data: {
           _id: vbApprove._id,
           isVendorBill: true,
           status: 'approved',
-          workflowStatus: 'approved'
+          workflowStatus: 'approved',
+          financePost: financePost || undefined
         }
       });
     }

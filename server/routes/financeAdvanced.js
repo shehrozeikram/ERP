@@ -3528,6 +3528,9 @@ router.get('/accounts-payable/:id',
       .populate('lastModifiedBy', 'firstName lastName email')
       .populate('payeeEmployee', 'firstName lastName employeeId')
       .populate('approval.approvedBy', 'firstName lastName email digitalSignature')
+      .populate('approvedBy', 'firstName lastName email digitalSignature')
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
+      .populate('financeApprovalAuthorities.assignedUser', 'firstName lastName email employeeId digitalSignature')
       .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
       .populate('observations.addedBy', 'firstName lastName email')
       .populate('lineItems.account')
@@ -3570,7 +3573,7 @@ router.get('/accounts-payable/:id',
       const Quotation = require('../models/procurement/Quotation');
       const Indent = require('../models/general/Indent');
       const po = await PurchaseOrder.findById(targetPoId)
-        .populate('vendor', 'name email phone address')
+        .populate('vendor', 'name email phone address payeeName cnic ntnCnic ntnNo')
         .populate('indent')
         .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
         .populate('auditReturnedBy', 'firstName lastName email')
@@ -3590,7 +3593,7 @@ router.get('/accounts-payable/:id',
             .populate('department', 'name code')
             .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
             .lean();
-          quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email').lean();
+          quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email payeeName cnic ntnCnic').lean();
         }
         const grnIds = (bill.linkedGRNs && bill.linkedGRNs.length > 0)
           ? bill.linkedGRNs.map(g => g.grnId).filter(Boolean)
@@ -4107,12 +4110,23 @@ router.get('/accounts-payable',
 
     if (status) {
       if (status === 'unpaid') {
-        baseFilters.status = { $ne: 'paid', $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
+        // Include draft COA bills awaiting department approval so creators can find them.
+        // Still hide audit-queue bills until Audit finishes (same as before).
+        // Payment UI already blocks draft / Submitted dept-approval bills.
+        baseFilters.status = {
+          $ne: 'paid',
+          $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit']
+        };
+      } else if (status === 'pending_dept_approval') {
+        baseFilters.status = 'draft';
+        baseFilters.approvalStatus = 'Submitted';
+        baseFilters.referenceType = 'manual';
       } else {
         baseFilters.status = status;
       }
     } else {
       // By default in Finance AP, hide bills that are pending pre-audit / audit director approval
+      // Keep draft COA bills visible so creators can track department approval
       baseFilters.status = { $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
     }
     if (vendorId) baseFilters['vendor.vendorId'] = vendorId;
@@ -4345,8 +4359,74 @@ router.get('/accounts-payable',
   })
 );
 
+const COA_DEPT_APPROVAL_ROLE_LABELS = ['Sr Manager Finance', 'GM Finance'];
+
+const normalizeCoaDepartmentApproverIds = (body = {}) => {
+  const fromList = Array.isArray(body.departmentApproverIds)
+    ? body.departmentApproverIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  if (fromList.length >= 2) return [...new Set(fromList)].slice(0, 2);
+
+  const dept = body.departmentApprovalAuthorities || {};
+  const sr = dept.srManagerFinance || body.srManagerFinance || null;
+  const gm = dept.gmFinance || body.gmFinance || null;
+  const ids = [sr, gm].map((id) => String(id || '').trim()).filter(Boolean);
+  return [...new Set(ids)].slice(0, 2);
+};
+
+const normalizeApPaymentTerms = (raw) => {
+  const v = String(raw || '').trim();
+  if (!v) return undefined;
+  const allowed = new Set([
+    'net_15', 'net_30', 'net_45', 'net_60', 'due_on_receipt', 'custom',
+    'Cash', 'cash', 'Immediate', 'immediate'
+  ]);
+  if (allowed.has(v)) return v;
+  const map = {
+    '15 days': 'net_15',
+    '30 days': 'net_30',
+    '45 days': 'net_45',
+    '60 days': 'net_60',
+    '90 days': 'net_90',
+    cash: 'Cash',
+    'due on receipt': 'due_on_receipt'
+  };
+  const mapped = map[v.toLowerCase()];
+  if (mapped && allowed.has(mapped)) return mapped;
+  return 'net_30';
+};
+
+const notifyCoaBillAuditQueue = async ({ actorId, bill }) => {
+  const users = await User.find({
+    isActive: true,
+    role: { $in: ['audit_manager', 'auditor', 'audit_director', 'super_admin', 'admin'] }
+  }).select('_id');
+  const recipientIds = users.map((user) => String(user._id));
+  if (!recipientIds.length) return;
+  const { createAndEmitNotification } = require('../services/realtimeNotificationService');
+  await createAndEmitNotification({
+    recipientIds,
+    title: 'Chart of Accounts bill pending Pre Audit',
+    message: `Vendor Bill ${bill.billNumber || bill._id} completed department approval and moved to Audit queue.`,
+    type: 'info',
+    category: 'approval',
+    priority: 'high',
+    actionUrl: '/audit',
+    createdBy: actorId,
+    excludeUserId: actorId,
+    metadata: {
+      module: 'audit',
+      entityId: bill._id,
+      entityType: 'AccountsPayable',
+      queueStage: 'pending_audit',
+      targetModule: 'audit',
+      targetTab: 'pre_audit'
+    }
+  });
+};
+
 // @route   POST /api/finance/accounts-payable
-// @desc    Create new bill
+// @desc    Create Chart of Accounts vendor bill (department approval → audit → finance)
 // @access  Private (Finance and Admin)
 router.post('/accounts-payable',
   authorize('super_admin', 'admin', 'finance_manager'),
@@ -4363,12 +4443,34 @@ router.post('/accounts-payable',
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errors: errors.array(),
         errors: errors.array()
       });
     }
 
-    // Use FinanceHelper to create AP and post to GL with account details
+    const approverIds = normalizeCoaDepartmentApproverIds(req.body);
+    if (approverIds.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select Sr Manager Finance and GM Finance as department approval authorities (same pattern as Centralized Store Manager / HOD).'
+      });
+    }
+
+    const actorId = String(req.user._id || req.user.id || '');
+    if (approverIds.includes(actorId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Requester cannot be selected as a department approval authority'
+      });
+    }
+
+    const approvers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');
+    if (approvers.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected department approval authorities are not valid'
+      });
+    }
+
     const lineItems = (req.body.lineItems || []).map(li => ({
       description: li.description || 'Line item',
       quantity: Number(li.quantity) || 1,
@@ -4382,14 +4484,11 @@ router.post('/accounts-payable',
       project: li.project || req.body.project || ''
     })).filter(li => li.unitPrice >= 0);
 
-    const expenseJournalLines = lineItems
-      .filter(li => li.account || li.accountNumber)
-      .map(li => ({
-        account: li.account || null,
-        accountNumber: li.accountNumber || null,
-        debit: li.amount || (li.quantity * li.unitPrice),
-        description: li.description || `Expense — ${req.body.billNumber}`
-      }));
+    const approvalChain = approverIds.map((approverId, idx) => ({
+      approver: approverId,
+      roleLabel: COA_DEPT_APPROVAL_ROLE_LABELS[idx] || `Approver ${idx + 1}`,
+      status: 'pending'
+    }));
 
     const company = await resolveCompanyForFinanceRoute(req);
     const apEntry = await FinanceHelper.createAPFromBill({
@@ -4404,15 +4503,25 @@ router.post('/accounts-payable',
       billDate: req.body.billDate,
       dueDate: req.body.dueDate,
       amount: Number(req.body.totalAmount) || 0,
-      paymentTerms: req.body.paymentTerms,
+      paymentTerms: normalizeApPaymentTerms(req.body.paymentTerms),
       notes: req.body.notes || req.body.memo || lineItems.map(l => l.description).filter(Boolean).join('; ') || `Expense Bill — ${req.body.billNumber}`,
       department: req.body.department || 'finance',
       module: 'finance',
       referenceId: null,
       referenceType: 'manual',
       lineItems: lineItems.length > 0 ? lineItems : undefined,
-      expenseJournalLines: expenseJournalLines.length > 0 ? expenseJournalLines : undefined,
-      multiLineExpenseJournal: expenseJournalLines.length > 0,
+      skipJournal: true,
+      status: 'draft',
+      approvalStatus: 'Submitted',
+      approvalChain,
+      workflowHistory: [{
+        fromStatus: 'Draft',
+        toStatus: 'Submitted',
+        changedBy: req.user._id,
+        changedAt: new Date(),
+        comments: 'Submitted for department approval (Sr Manager Finance → GM Finance)',
+        module: 'Finance'
+      }],
       createdBy: req.user._id
     });
 
@@ -4421,11 +4530,180 @@ router.post('/accounts-payable',
       await apEntry.save();
     }
 
+    notifyChatApprovers(approverIds, {
+      docType: 'Chart of Accounts Bill',
+      docNumber: apEntry.billNumber || '',
+      url: `/finance/accounts-payable`,
+      fromUser: req.user
+    }).catch(() => {});
+
     res.status(201).json({
       success: true,
-      message: 'Bill created successfully',
+      message: 'Bill created and sent for department approval (Sr Manager Finance → GM Finance). After approval it goes to Audit, then Finance.',
       data: apEntry
     });
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/:id/department-approve
+// @desc    Department approval step for Chart of Accounts bills (like Centralized Store Manager/HOD)
+// @access  Private (assigned approvalChain approver)
+router.post('/accounts-payable/:id/department-approve',
+  asyncHandler(async (req, res) => {
+    const bill = await AccountsPayable.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+    if (bill.approvalStatus !== 'Submitted') {
+      return res.status(400).json({ success: false, message: 'Only bills submitted for department approval can be approved' });
+    }
+
+    const userId = String(req.user._id || req.user.id || '');
+    if (String(bill.createdBy) === userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Requester cannot approve department approval authority on their own bill'
+      });
+    }
+
+    const pendingIndex = (bill.approvalChain || []).findIndex((step) => (
+      String(step.approver) === userId && step.status === 'pending'
+    ));
+    if (pendingIndex === -1) {
+      return res.status(403).json({ success: false, message: 'You are not the pending department approval authority for this bill' });
+    }
+
+    // Sequential chain: earlier steps must be approved first
+    const earlierPending = (bill.approvalChain || []).findIndex((step, idx) => (
+      idx < pendingIndex && step.status === 'pending'
+    ));
+    if (earlierPending !== -1) {
+      return res.status(400).json({
+        success: false,
+        message: 'Previous department approval authority must approve first'
+      });
+    }
+
+    bill.approvalChain[pendingIndex].status = 'approved';
+    bill.approvalChain[pendingIndex].actedAt = new Date();
+    if (req.body?.comments) bill.approvalChain[pendingIndex].comment = String(req.body.comments);
+
+    const roleLabel = bill.approvalChain[pendingIndex].roleLabel || COA_DEPT_APPROVAL_ROLE_LABELS[pendingIndex] || 'Department Approver';
+    const previousStatus = bill.approvalStatus;
+    const allApproved = (bill.approvalChain || []).every((step) => step.status === 'approved');
+
+    bill.workflowHistory = Array.isArray(bill.workflowHistory) ? bill.workflowHistory : [];
+    if (allApproved) {
+      bill.approvalStatus = 'Approved';
+      bill.approvedBy = userId;
+      bill.approvedAt = new Date();
+      bill.status = 'Pending Audit';
+      bill.workflowHistory.push({
+        fromStatus: previousStatus,
+        toStatus: 'Approved',
+        changedBy: userId,
+        changedAt: new Date(),
+        comments: req.body?.comments || `${roleLabel} approved — department approval complete`,
+        module: 'Finance'
+      });
+      bill.workflowHistory.push({
+        fromStatus: 'Approved',
+        toStatus: 'Pending Audit',
+        changedBy: userId,
+        changedAt: new Date(),
+        comments: 'Sent to Pre-Audit after department approval (Sr Manager Finance / GM Finance)',
+        module: 'Finance'
+      });
+    } else {
+      bill.workflowHistory.push({
+        fromStatus: previousStatus,
+        toStatus: previousStatus,
+        changedBy: userId,
+        changedAt: new Date(),
+        comments: req.body?.comments || `${roleLabel} approved`,
+        module: 'Finance'
+      });
+    }
+
+    await bill.save();
+
+    if (allApproved) {
+      await notifyCoaBillAuditQueue({ actorId: userId, bill });
+    }
+
+    const populated = await AccountsPayable.findById(bill._id)
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('createdBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: allApproved
+        ? 'Department approval complete. Bill sent to Pre-Audit.'
+        : 'Department approval recorded.',
+      data: populated
+    });
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/:id/department-reject
+// @desc    Reject Chart of Accounts bill at department approval stage
+// @access  Private (assigned approvalChain approver)
+router.post('/accounts-payable/:id/department-reject',
+  asyncHandler(async (req, res) => {
+    const reason = String(req.body?.rejectionReason || req.body?.comments || '').trim();
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required' });
+    }
+
+    const bill = await AccountsPayable.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+    if (bill.approvalStatus !== 'Submitted') {
+      return res.status(400).json({ success: false, message: 'Only bills submitted for department approval can be rejected' });
+    }
+
+    const userId = String(req.user._id || req.user.id || '');
+    if (String(bill.createdBy) === userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Requester cannot reject department approval authority on their own bill'
+      });
+    }
+
+    const pendingIndex = (bill.approvalChain || []).findIndex((step) => (
+      String(step.approver) === userId && step.status === 'pending'
+    ));
+    if (pendingIndex === -1) {
+      return res.status(403).json({ success: false, message: 'You are not the pending department approval authority for this bill' });
+    }
+
+    bill.approvalChain[pendingIndex].status = 'rejected';
+    bill.approvalChain[pendingIndex].actedAt = new Date();
+    bill.approvalChain[pendingIndex].comment = reason;
+
+    const previousStatus = bill.approvalStatus;
+    bill.approvalStatus = 'Rejected';
+    bill.rejectedBy = userId;
+    bill.rejectedAt = new Date();
+    bill.rejectionReason = reason;
+    bill.status = 'draft';
+    bill.workflowHistory = Array.isArray(bill.workflowHistory) ? bill.workflowHistory : [];
+    bill.workflowHistory.push({
+      fromStatus: previousStatus,
+      toStatus: 'Rejected',
+      changedBy: userId,
+      changedAt: new Date(),
+      comments: reason,
+      module: 'Finance'
+    });
+    await bill.save();
+
+    const populated = await AccountsPayable.findById(bill._id)
+      .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('createdBy', 'firstName lastName email');
+
+    res.json({ success: true, message: 'Bill rejected at department approval', data: populated });
   })
 );
 

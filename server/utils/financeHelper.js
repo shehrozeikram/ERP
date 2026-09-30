@@ -689,7 +689,12 @@ const FinanceHelper = {
         debitAccountNumber,
         multiLineExpenseJournal = false,
         expenseJournalLines = null,
-        attachments = []
+        attachments = [],
+        skipJournal = false,
+        status: statusOverride = null,
+        approvalStatus = null,
+        approvalChain = null,
+        workflowHistory = null
       } = options;
       const companyId = co(options);
       const A = acct(companyId);
@@ -716,7 +721,7 @@ const FinanceHelper = {
         dueDate,
         totalAmount: amount,
         subtotal: amount,
-        status: 'approved',
+        status: statusOverride || 'approved',
         department,
         module,
         referenceId,
@@ -726,10 +731,17 @@ const FinanceHelper = {
         linkedGRNs: Array.isArray(linkedGRNs) ? linkedGRNs : [],
         notes: notes || '',
         attachments: Array.isArray(attachments) ? attachments : [],
-        createdBy
+        createdBy,
+        ...(approvalStatus ? { approvalStatus } : {}),
+        ...(Array.isArray(approvalChain) ? { approvalChain } : {}),
+        ...(Array.isArray(workflowHistory) ? { workflowHistory } : {})
       });
 
       await apEntry.save();
+
+      if (skipJournal) {
+        return apEntry;
+      }
 
       const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
 
@@ -851,6 +863,105 @@ const FinanceHelper = {
       console.error('❌ Error creating AP from Bill:', error);
       throw error;
     }
+  },
+
+  /**
+   * Post DR expense / CR AP journal for an existing bill that was created with skipJournal
+   * (Chart of Accounts bills after department + audit approval).
+   */
+  postAPBillJournalIfMissing: async (apBill, createdByUserId) => {
+    if (!apBill?._id) return { posted: false, skipped: true, reason: 'invalid_bill' };
+
+    const JournalEntry = require('../models/finance/JournalEntry');
+    const existing = await JournalEntry.findOne({
+      referenceId: apBill._id,
+      referenceType: 'bill',
+      status: { $ne: 'voided' }
+    }).select('_id entryNumber').lean();
+    if (existing) {
+      return { posted: false, skipped: true, reason: 'already_posted', journalId: existing._id };
+    }
+
+    const companyId = co({ companyId: apBill.companyId });
+    const A = acct(companyId);
+    const apAccount = await A.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
+    if (!apAccount) {
+      return { posted: false, error: 'Accounts Payable account not found' };
+    }
+
+    const amount = Math.round(Number(apBill.totalAmount || 0) * 100) / 100;
+    if (amount <= 0) {
+      return { posted: false, skipped: true, reason: 'zero_amount' };
+    }
+
+    const lineItems = Array.isArray(apBill.lineItems) ? apBill.lineItems : [];
+    const expenseJournalLines = [];
+    for (const li of lineItems) {
+      const debit = Math.round((Number(li.amount) || (Number(li.quantity) || 1) * (Number(li.unitPrice) || 0)) * 100) / 100;
+      if (debit <= 0) continue;
+      let accRef = li.account || null;
+      if (!accRef && li.accountNumber) {
+        accRef = (await A.resolve(String(li.accountNumber)))?._id;
+      }
+      if (!accRef) continue;
+      expenseJournalLines.push({
+        account: accRef,
+        description: (li.description || `Expense — ${apBill.billNumber}`).slice(0, 200),
+        debit,
+        department: apBill.department
+      });
+    }
+
+    let journalLines;
+    if (expenseJournalLines.length > 0) {
+      journalLines = [
+        ...expenseJournalLines,
+        {
+          account: apAccount._id,
+          description: `Payable to ${apBill.vendor?.name || 'Vendor'}`,
+          credit: amount,
+          department: apBill.department
+        }
+      ];
+    } else {
+      const debitAccount = await A.resolve(FinanceHelper.ACCOUNTS.EXPENSE_GENERAL);
+      if (!debitAccount) {
+        return { posted: false, error: 'Expense account not found for bill journal' };
+      }
+      journalLines = [
+        {
+          account: debitAccount._id,
+          description: `Expense for ${apBill.billNumber}`,
+          debit: amount,
+          department: apBill.department
+        },
+        {
+          account: apAccount._id,
+          description: `Payable to ${apBill.vendor?.name || 'Vendor'}`,
+          credit: amount,
+          department: apBill.department
+        }
+      ];
+    }
+
+    const billDateNorm = apBill.billDate ? new Date(apBill.billDate) : new Date();
+    await FinanceHelper.createAndPostJournalEntry(
+      withVoucherNarration(withCompany({
+        date: billDateNorm,
+        reference: apBill.billNumber,
+        description: `AP Bill: ${apBill.billNumber} from ${apBill.vendor?.name || 'Vendor'}`,
+        department: apBill.department,
+        module: apBill.module || 'finance',
+        referenceId: apBill._id,
+        referenceType: 'bill',
+        journalCode: 'PURCH',
+        voucherSeries: 'BILL',
+        createdBy: createdByUserId,
+        lines: journalLines
+      }, companyId), getBillNarration(apBill))
+    );
+
+    return { posted: true };
   },
 
   /**

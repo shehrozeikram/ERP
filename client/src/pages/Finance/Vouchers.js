@@ -1515,13 +1515,10 @@ const Vouchers = () => {
                       {/* Buyer Information */}
                       <Box sx={{ mb: 0.75, '@media print': { mb: 0.4 } }}>
                         <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.9rem', '@media print': { fontSize: '0.78rem', mb: 0.15 } }}>
-                          Residencia
-                        </Typography>
-                        <Typography sx={{ fontSize: '0.78rem', mb: 0.1, lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>
-                          1st Avenue 18 4 Islamabad
+                          Taj Residencia
                         </Typography>
                         <Typography sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>
-                          1. Het Sne 1-8. Islamabad.
+                          Link Road I-14, adjacent to CDA Sectors I-14 and I-15
                         </Typography>
                       </Box>
 
@@ -1532,6 +1529,9 @@ const Vouchers = () => {
                         <Box sx={{ width: '48%', fontSize: '0.78rem', '@media print': { fontSize: '0.68rem' } }}>
                           <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.85rem', '@media print': { fontSize: '0.74rem', mb: 0.15 } }}>
                             {viewDialog.po.vendor?.name || 'Vendor Name'}
+                          </Typography>
+                          <Typography sx={{ fontSize: 'inherit', lineHeight: 1.3, mb: 0.25, fontWeight: 600 }}>
+                            Payee Name: {viewDialog.po.vendor?.payeeName || viewDialog.po.vendor?.name || '—'}
                           </Typography>
                           <Typography sx={{ fontSize: 'inherit', lineHeight: 1.3, mb: 0.35 }}>
                             {viewDialog.po.vendor?.address || 'Vendor Address'}

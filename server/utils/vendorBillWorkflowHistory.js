@@ -168,6 +168,21 @@ const buildFinanceBillSynthetic = (bill) => {
       module: 'Finance'
     });
   }
+  if (Array.isArray(bill.approvalChain) && bill.approvalChain.length) {
+    bill.approvalChain.forEach((step, idx) => {
+      if (!step?.actedAt && step?.status === 'pending') return;
+      if (step.status !== 'approved' && step.status !== 'rejected') return;
+      const label = step.roleLabel || (idx === 0 ? 'Sr Manager Finance' : idx === 1 ? 'GM Finance' : `Department Approver ${idx + 1}`);
+      entries.push({
+        fromStatus: 'Submitted',
+        toStatus: step.status === 'rejected' ? 'Department Approval Rejected' : `${label} Approved`,
+        changedBy: step.approver || null,
+        changedAt: step.actedAt || null,
+        comments: step.comment || label,
+        module: 'Finance'
+      });
+    });
+  }
   if (bill.approval?.approvedBy && bill.approval?.approvedDate) {
     entries.push({
       fromStatus: bill.status || 'Open',

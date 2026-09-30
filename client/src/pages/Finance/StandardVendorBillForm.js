@@ -234,7 +234,7 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
     gmFinance: null
   });
 
-  // Prefill Chart of Accounts bill authorities: Sr Manager Finance + GM Finance
+  // Prefill COA bill department approval authorities (like store Manager/HOD): Sr Manager Finance + GM Finance
   useEffect(() => {
     let cancelled = false;
     fetchFinanceAuthorityCandidates()
@@ -537,7 +537,13 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
       return;
     }
     if (!billFinAuth.srManagerFinance || !billFinAuth.gmFinance) {
-      setError('Select Sr Manager Finance and GM Finance approval authorities.');
+      setError('Select Sr Manager Finance and GM Finance as department approval authorities.');
+      return;
+    }
+    const srId = String(billFinAuth.srManagerFinance?._id || billFinAuth.srManagerFinance || '');
+    const gmId = String(billFinAuth.gmFinance?._id || billFinAuth.gmFinance || '');
+    if (!srId || !gmId || srId === gmId) {
+      setError('Sr Manager Finance and GM Finance must be two different users.');
       return;
     }
 
@@ -574,17 +580,17 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
           company: l.company || compName,
           project: l.project || primaryProject
         })),
-        financeApprovalAuthorities: {
-          accountsManagerUser: billFinAuth.srManagerFinance?._id || billFinAuth.srManagerFinance,
-          financeControllerUser: billFinAuth.gmFinance?._id || billFinAuth.gmFinance,
-          srManagerFinance: billFinAuth.srManagerFinance?._id || billFinAuth.srManagerFinance,
-          gmFinance: billFinAuth.gmFinance?._id || billFinAuth.gmFinance
+        // Department approval (like Centralized Store Manager/HOD) — NOT finance voucher authorities
+        departmentApproverIds: [srId, gmId],
+        departmentApprovalAuthorities: {
+          srManagerFinance: srId,
+          gmFinance: gmId
         }
       };
 
       const res = await api.post('/finance/accounts-payable', payload);
       if (res.data?.success || res.status === 201 || res.status === 200) {
-        toast.success(`✓ Bill ${billNumber} created successfully!`);
+        toast.success(res.data?.message || `Bill ${billNumber} submitted for department approval`);
         navigate(backPath);
       }
     } catch (err) {
@@ -1150,14 +1156,15 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
         </CardContent>
       </Card>
 
-      {/* Approval Authorities — Chart of Accounts vendor bills */}
+      {/* Department Approval Authorities — same stage as Centralized Store Manager/HOD (not finance voucher authorities) */}
       <Card sx={{ mb: 2, borderRadius: 2 }}>
         <CardContent>
           <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
-            Approval Authorities
+            Department Approval Authorities
           </Typography>
           <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-            Predefined for Chart of Accounts bills: Sr Manager Finance (Muhammad Iftikhar Rashid) and GM Finance (Faisal Farooq).
+            Like Centralized Store bills: first department approval (Sr Manager Finance → GM Finance), then Audit, then Finance creates the voucher.
+            This is not Finance voucher approval authorities.
           </Typography>
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
@@ -1257,7 +1264,7 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
             onClick={handleSubmitBill}
             sx={{ px: 4, fontWeight: 700 }}
           >
-            {submitting ? 'Creating Bill...' : 'Create Bill'}
+            {submitting ? 'Submitting...' : 'Submit for Department Approval'}
           </Button>
         </Stack>
       </Paper>

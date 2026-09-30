@@ -750,8 +750,10 @@ const ExecutiveCeoPaymentsSection = () => {
         });
         toast.success(`Utility bill ${item.displayRef} approved`);
       } else if (item.isVendorBill) {
-        toast.error('Approve this vendor bill from Accounts Payable');
-        return;
+        await api.post(`/finance/accounts-payable/${item._id}/department-approve`, {
+          comments: approvalComments || 'Approved'
+        });
+        toast.success(`Chart of Accounts bill ${item.displayRef} approved`);
       } else {
         await paymentSettlementService.approvePayment(item._id, {
           comments: approvalComments || 'Approved',
@@ -812,8 +814,10 @@ const ExecutiveCeoPaymentsSection = () => {
       } else if (item.isUtilityBill) {
         await utilityBillService.rejectUtilityBill(item._id, rejectionComments);
       } else if (item.isVendorBill) {
-        toast.error('Reject this vendor bill from Accounts Payable');
-        return;
+        await api.post(`/finance/accounts-payable/${item._id}/department-reject`, {
+          rejectionReason: rejectionComments,
+          comments: rejectionComments
+        });
       } else {
         await paymentSettlementService.rejectPayment(item._id, {
           comments: rejectionComments,

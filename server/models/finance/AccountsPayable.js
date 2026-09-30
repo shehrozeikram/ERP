@@ -414,6 +414,54 @@ const accountsPayableSchema = new mongoose.Schema({
     approvedDate: Date,
     approvalNotes: String
   },
+  /**
+   * Department approval (Chart of Accounts bills) — same role as Centralized Store Manager/HOD chain.
+   * Default COA chain: Sr Manager Finance → GM Finance, then Pre-Audit / Audit Director, then Finance voucher.
+   * This is NOT financeApprovalAuthorities (voucher payment authorities).
+   */
+  approvalStatus: {
+    type: String,
+    enum: ['Draft', 'Submitted', 'Approved', 'Rejected'],
+    default: 'Draft',
+    index: true
+  },
+  approvalChain: [{
+    approver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+    roleLabel: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    actedAt: Date,
+    comment: {
+      type: String,
+      trim: true
+    }
+  }],
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  approvedAt: Date,
+  rejectedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  rejectedAt: Date,
+  rejectionReason: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   // Additional fields
   company: {
     type: String,
@@ -456,7 +504,10 @@ const accountsPayableSchema = new mongoose.Schema({
     digitalSignature: String,
     stampPosition: String
   }],
-  /** Chart of Accounts / vendor bill finance approval chain (Sr Manager Finance, GM Finance, …) */
+  /**
+   * Finance voucher / payment authorities (Accounts Officer, Sr Manager Accounts, GM Finance on BPV etc.).
+   * Do not use this for Chart of Accounts bill department approval — that lives on approvalChain.
+   */
   financeApprovalAuthorities: [{
     levelKey: { type: String, trim: true },
     levelName: { type: String, trim: true },
