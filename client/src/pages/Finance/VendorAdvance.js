@@ -1869,12 +1869,13 @@ const VendorAdvance = () => {
                 </Box>
               )}
 
-              {/* Tab 1: Purchase Order (Official Layout matching Audit and CEO) */}
+              {/* Tab 1: Purchase Order — compact single A4 print (matches vendor bill sizing) */}
               {viewDialog.poAuditTab === 1 && (
-                <Box sx={{ p: 2 }}>
+                <Box sx={{ p: { xs: 1, sm: 1.5 }, '@media print': { p: 0 } }} className="vendor-advance-po-print">
                   <Paper
+                    className="finance-po-print-page"
                     sx={{
-                      p: { xs: 3, sm: 3.5, md: 4 },
+                      p: { xs: 1.5, sm: 2 },
                       maxWidth: '210mm',
                       mx: 'auto',
                       backgroundColor: '#fff',
@@ -1883,64 +1884,61 @@ const VendorAdvance = () => {
                       fontFamily: 'Arial, sans-serif',
                       '@media print': {
                         boxShadow: 'none',
-                        p: 2.5,
+                        p: '5mm 7mm',
                         maxWidth: '100%',
                         backgroundColor: '#fff',
                         mx: 0,
                         width: '100%',
-                        pageBreakInside: 'avoid'
+                        pageBreakInside: 'avoid',
+                        breakInside: 'avoid'
                       }
                     }}
                   >
-                    {/* Title - Centered */}
                     <Typography
                       variant="h4"
                       fontWeight={700}
                       align="center"
                       sx={{
                         textTransform: 'uppercase',
-                        mb: 3,
-                        fontSize: { xs: '1.8rem', print: '1.6rem' },
-                        letterSpacing: 1
+                        mb: 0.75,
+                        fontSize: { xs: '1.2rem', print: '1.05rem' },
+                        letterSpacing: 0.5,
+                        '@media print': { mb: 0.4, lineHeight: 1.2 }
                       }}
                     >
                       Purchase Order
                     </Typography>
 
-                    {/* Buyer Information - First Row */}
-                    <Box sx={{ mb: 2.5 }}>
-                      <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+                    <Box sx={{ mb: 0.6, '@media print': { mb: 0.35 } }}>
+                      <Typography fontWeight={600} sx={{ mb: 0.15, fontSize: '0.85rem', '@media print': { fontSize: '0.75rem' } }}>
                         Residencia
                       </Typography>
-                      <Typography sx={{ fontSize: '0.9rem', mb: 0.5 }}>
+                      <Typography sx={{ fontSize: '0.75rem', lineHeight: 1.25, '@media print': { fontSize: '0.65rem' } }}>
                         1st Avenue 18 4 Islamabad
                       </Typography>
-                      <Typography sx={{ fontSize: '0.9rem' }}>
+                      <Typography sx={{ fontSize: '0.75rem', lineHeight: 1.25, '@media print': { fontSize: '0.65rem' } }}>
                         1. Het Sne 1-8. Islamabad.
                       </Typography>
                     </Box>
 
-                    {/* Divider */}
-                    <Divider sx={{ my: 2.5, borderWidth: 1, borderColor: '#ccc' }} />
+                    <Divider sx={{ my: 0.6, borderColor: '#ccc', '@media print': { my: 0.35 } }} />
 
-                    {/* Vendor and PO Details - Second Row in Columns */}
-                    <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3 }}>
-                      {/* Left Column - Vendor Info */}
-                      <Box sx={{ width: '45%', fontSize: '0.9rem' }}>
-                        <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+                    <Box sx={{ mb: 0.75, display: 'flex', justifyContent: 'space-between', gap: 1.25, '@media print': { mb: 0.5, gap: 1 } }}>
+                      <Box sx={{ width: '48%', fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>
+                        <Typography fontWeight={600} sx={{ mb: 0.2, fontSize: '0.82rem', '@media print': { fontSize: '0.72rem' } }}>
                           {viewDialog.po.vendor?.name || 'Vendor Name'}
                         </Typography>
-                        <Typography sx={{ fontSize: '0.9rem', lineHeight: 1.6, mb: 1 }}>
+                        <Typography sx={{ fontSize: 'inherit', lineHeight: 1.3, mb: 0.3 }}>
                           {viewDialog.po.vendor?.address || 'Vendor Address'}
                         </Typography>
                         {(viewDialog.po.vendor?.ntnCnic || viewDialog.po.vendor?.ntnNo || viewDialog.po.vendor?.cnic) && (
-                          <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, mb: 1.5, color: 'text.secondary' }}>
+                          <Typography sx={{ fontSize: 'inherit', fontWeight: 600, mb: 0.3, color: 'text.secondary' }}>
                             ntn / cnic : {viewDialog.po.vendor.ntnCnic || viewDialog.po.vendor.ntnNo || viewDialog.po.vendor.cnic}
                           </Typography>
                         )}
-                        <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.6 }}>
-                          <Typography component="span" sx={{ fontWeight: 600, mr: 1 }}>Indent Details:</Typography>
-                          <Typography component="span">
+                        <Box sx={{ display: 'flex', alignItems: 'flex-start', lineHeight: 1.3 }}>
+                          <Typography component="span" sx={{ fontWeight: 600, mr: 0.5, fontSize: 'inherit' }}>Indent Details:</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>
                             Indent# {viewDialog.po.indent?.indentNumber || 'N/A'} Dated. {viewDialog.po.indent?.requestedDate ? formatDateForPrint(viewDialog.po.indent.requestedDate) : 'N/A'}.
                             {viewDialog.po.indent?.title && ` ${viewDialog.po.indent.title}.`}
                             {viewDialog.po.indent?.requestedBy && ` End User. ${viewDialog.po.indent.requestedBy.firstName || ''} ${viewDialog.po.indent.requestedBy.lastName || ''}`}
@@ -1948,29 +1946,28 @@ const VendorAdvance = () => {
                         </Box>
                       </Box>
 
-                      {/* Right Column - PO Details */}
-                      <Box sx={{ width: '50%', fontSize: '0.9rem', lineHeight: 2 }}>
-                        <Box sx={{ display: 'flex', mb: 0.5 }}>
-                          <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>P.O No.:</Typography>
-                          <Typography component="span">
-                            {viewDialog.po.orderNumber ? 
-                              (viewDialog.po.orderNumber.startsWith('P') && !viewDialog.po.orderNumber.includes('-')
+                      <Box sx={{ width: '48%', fontSize: '0.75rem', lineHeight: 1.3, '@media print': { fontSize: '0.65rem', lineHeight: 1.25 } }}>
+                        <Box sx={{ display: 'flex', mb: 0.1 }}>
+                          <Typography component="span" sx={{ minWidth: '110px', fontWeight: 600, fontSize: 'inherit' }}>P.O No.:</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>
+                            {viewDialog.po.orderNumber
+                              ? (viewDialog.po.orderNumber.startsWith('P') && !viewDialog.po.orderNumber.includes('-')
                                 ? viewDialog.po.orderNumber
                                 : 'P' + (viewDialog.po.orderNumber.match(/\d+$/)?.[0] || viewDialog.po.orderNumber.split('-').pop() || '').padStart(9, '0'))
                               : 'N/A'}
                           </Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', mb: 0.5 }}>
-                          <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Date:</Typography>
-                          <Typography component="span">{formatDateForPrint(viewDialog.po.orderDate)}</Typography>
+                        <Box sx={{ display: 'flex', mb: 0.1 }}>
+                          <Typography component="span" sx={{ minWidth: '110px', fontWeight: 600, fontSize: 'inherit' }}>Date:</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>{formatDateForPrint(viewDialog.po.orderDate)}</Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', mb: 0.5 }}>
-                          <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Date:</Typography>
-                          <Typography component="span">{viewDialog.po.expectedDeliveryDate ? formatDateForPrint(viewDialog.po.expectedDeliveryDate) : '___________'}</Typography>
+                        <Box sx={{ display: 'flex', mb: 0.1 }}>
+                          <Typography component="span" sx={{ minWidth: '110px', fontWeight: 600, fontSize: 'inherit' }}>Delivery Date:</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>{viewDialog.po.expectedDeliveryDate ? formatDateForPrint(viewDialog.po.expectedDeliveryDate) : '___________'}</Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', mb: 0.5 }}>
-                          <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Delivery Address:</Typography>
-                          <Typography component="span">
+                        <Box sx={{ display: 'flex', mb: 0.1 }}>
+                          <Typography component="span" sx={{ minWidth: '110px', fontWeight: 600, fontSize: 'inherit' }}>Delivery Address:</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>
                             {(() => {
                               if (viewDialog.po.deliveryAddress && typeof viewDialog.po.deliveryAddress === 'string' && viewDialog.po.deliveryAddress.trim()) {
                                 return viewDialog.po.deliveryAddress.trim();
@@ -1990,66 +1987,49 @@ const VendorAdvance = () => {
                             })()}
                           </Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', mb: 0.5 }}>
-                          <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
-                          <Typography component="span">{viewDialog.po.indent?.department?.name || viewDialog.po.indent?.department || '___________'}</Typography>
+                        <Box sx={{ display: 'flex', mb: 0.1 }}>
+                          <Typography component="span" sx={{ minWidth: '110px', fontWeight: 600, fontSize: 'inherit' }}>Cost Center:</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>{viewDialog.po.indent?.department?.name || viewDialog.po.indent?.department || '___________'}</Typography>
                         </Box>
                       </Box>
                     </Box>
 
-                    {/* Items Table */}
-                    <Box sx={{ mb: 3 }}>
+                    <Box sx={{ mb: 0.6, '@media print': { mb: 0.4 } }}>
                       <table
+                        className="finance-po-items-table"
                         style={{
                           width: '100%',
                           borderCollapse: 'collapse',
                           border: '1px solid #000',
-                          fontSize: '0.85rem',
-                          fontFamily: 'Arial, sans-serif'
+                          fontSize: '0.65rem',
+                          fontFamily: 'Arial, sans-serif',
+                          lineHeight: 1.2
                         }}
                       >
                         <thead>
                           <tr style={{ backgroundColor: '#f5f5f5', border: '1px solid #000' }}>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '5%' }}>
-                              Sr no
-                            </th>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
-                              Product
-                            </th>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '23%' }}>
-                              Description
-                            </th>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>
-                              Specification
-                            </th>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '11%' }}>
-                              Brand
-                            </th>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '11%' }}>
-                              Quantity Unit
-                            </th>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
-                              Rate
-                            </th>
-                            <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '11%' }}>
-                              Amount
-                            </th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'center', width: '5%' }}>Sr no</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Product</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'left', width: '23%' }}>Description</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Specification</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Brand</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'center', width: '11%' }}>Quantity Unit</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Rate</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Amount</th>
                           </tr>
                         </thead>
                         <tbody>
                           {viewDialog.po.items && viewDialog.po.items.length > 0 ? (
                             viewDialog.po.items.map((item, index) => (
                               <tr key={index} style={{ border: '1px solid #000' }}>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
-                                  {index + 1}
-                                </td>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'center', verticalAlign: 'top' }}>{index + 1}</td>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', verticalAlign: 'top' }}>
                                   {item.productCode || viewDialog.po.indent?.items?.[index]?.itemCode || `44-001-${String(index + 1).padStart(4, '0')}`}
                                 </td>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', verticalAlign: 'top' }}>
                                   {item.itemName || item.description || viewDialog.po.indent?.items?.[index]?.itemName || '___________'}
                                 </td>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', verticalAlign: 'top' }}>
                                   {(() => {
                                     if (item.specification && String(item.specification).trim()) return item.specification.trim();
                                     const indentItem = viewDialog.po.indent?.items?.[index];
@@ -2059,112 +2039,116 @@ const VendorAdvance = () => {
                                     return '___________';
                                   })()}
                                 </td>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', verticalAlign: 'top' }}>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', verticalAlign: 'top' }}>
                                   {item.brand || viewDialog.po.indent?.items?.[index]?.brand || '___________'}
                                 </td>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center', verticalAlign: 'top' }}>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'center', verticalAlign: 'top' }}>
                                   {item.quantity ? `${Math.round(Number(item.quantity)).toLocaleString()} ${item.unit || 'Nos'}` : '___________'}
                                 </td>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'right', verticalAlign: 'top' }}>
                                   {item.unitPrice ? Math.round(Number(item.unitPrice)).toLocaleString() : '___________'}
                                 </td>
-                                <td style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'right', verticalAlign: 'top' }}>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'right', verticalAlign: 'top' }}>
                                   {item.totalPrice || item.amount ? Math.round(Number(item.totalPrice || item.amount)).toLocaleString() : '___________'}
                                 </td>
                               </tr>
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={8} style={{ border: '1px solid #000', padding: '10px 8px', textAlign: 'center' }}>
-                                No items
-                              </td>
+                              <td colSpan={8} style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'center' }}>No items</td>
                             </tr>
                           )}
                         </tbody>
                       </table>
                     </Box>
 
-                    {/* Financial Summary - Right Aligned */}
-                    <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                      <Box sx={{ width: '300px', fontSize: '0.9rem' }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                          <Typography component="span" fontWeight={600}>Subtotal:</Typography>
-                          <Typography component="span">{Math.round(Number(viewDialog.po.subtotal || viewDialog.po.totalAmount || 0)).toLocaleString()}</Typography>
+                    <Box sx={{ mb: 0.6, display: 'flex', justifyContent: 'flex-end', '@media print': { mb: 0.4 } }}>
+                      <Box sx={{ width: '230px', fontSize: '0.7rem', '@media print': { fontSize: '0.62rem' } }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.15 }}>
+                          <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Subtotal:</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>{Math.round(Number(viewDialog.po.subtotal || viewDialog.po.totalAmount || 0)).toLocaleString()}</Typography>
                         </Box>
                         {Number(viewDialog.po.taxAmount) > 0 && (
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography component="span" fontWeight={600}>Tax:</Typography>
-                            <Typography component="span">{Math.round(Number(viewDialog.po.taxAmount)).toLocaleString()}</Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.15 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Tax:</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Math.round(Number(viewDialog.po.taxAmount)).toLocaleString()}</Typography>
                           </Box>
                         )}
                         {Number(viewDialog.po.shippingCost) > 0 && (
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography component="span" fontWeight={600}>Freight Charges:</Typography>
-                            <Typography component="span">{Math.round(Number(viewDialog.po.shippingCost)).toLocaleString()}</Typography>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.15 }}>
+                            <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Freight Charges:</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{Math.round(Number(viewDialog.po.shippingCost)).toLocaleString()}</Typography>
                           </Box>
                         )}
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                          <Typography component="span" fontWeight={600}>Total Amount:</Typography>
-                          <Typography component="span" fontWeight={700}>{Math.round(Number(viewDialog.po.totalAmount || 0)).toLocaleString()}</Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.15 }}>
+                          <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Total Amount:</Typography>
+                          <Typography component="span" fontWeight={700} sx={{ fontSize: 'inherit' }}>{Math.round(Number(viewDialog.po.totalAmount || 0)).toLocaleString()}</Typography>
                         </Box>
-                        <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, fontStyle: 'italic', mt: 1 }}>
+                        <Typography sx={{ fontSize: '0.62rem', fontWeight: 600, fontStyle: 'italic', mt: 0.2, '@media print': { fontSize: '0.58rem' } }}>
                           Rupees {numberToWords(Math.round(Number(viewDialog.po.totalAmount || 0)))}
                         </Typography>
                       </Box>
                     </Box>
 
-                    {/* Terms & Conditions */}
-                    <Box sx={{ mb: 3, border: '1px solid #ccc', p: 2, fontSize: '0.9rem' }}>
-                      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, textDecoration: 'underline' }}>
-                        TERMS & CONDITIONS
+                    <Box sx={{ mb: 0.6, border: '1px solid #ccc', p: 0.6, fontSize: '0.65rem', '@media print': { p: 0.4, mb: 0.4, fontSize: '0.6rem' } }}>
+                      <Typography fontWeight={700} sx={{ mb: 0.2, textDecoration: 'underline', fontSize: '0.7rem', '@media print': { fontSize: '0.62rem' } }}>
+                        TERMS &amp; CONDITIONS
                       </Typography>
-                      <Box sx={{ lineHeight: 1.8 }}>
-                        <Typography sx={{ mb: 1, fontWeight: 600 }}>Main Terms & Conditions</Typography>
-                        <Box sx={{ mb: 1 }}>
-                          <Typography component="span" fontWeight={600}>Payment Terms:</Typography>
-                          <Typography component="span" sx={{ ml: 1 }}>
-                            {viewDialog.po.paymentTerms || '100% Advance Payment'}
+                      <Box sx={{ lineHeight: 1.25 }}>
+                        <Box sx={{ mb: 0.1 }}>
+                          <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Payment Terms:</Typography>
+                          <Typography component="span" sx={{ ml: 0.5, fontSize: 'inherit' }}>{viewDialog.po.paymentTerms || '100% Advance Payment'}</Typography>
+                        </Box>
+                        <Box sx={{ mb: 0.1 }}>
+                          <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Delivery Terms:</Typography>
+                          <Typography component="span" sx={{ ml: 0.5, fontSize: 'inherit' }}>At-Site Delivery</Typography>
+                        </Box>
+                        <Box sx={{ mb: 0.1 }}>
+                          <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Delivery Time.</Typography>
+                          <Typography component="span" sx={{ ml: 0.5, fontSize: 'inherit' }}>
+                            Delivery within: {viewDialog.po.quotation?.deliveryTime || '03 days'} of confirmed PO &amp; Payment
                           </Typography>
                         </Box>
-                        <Box sx={{ mb: 1 }}>
-                          <Typography component="span" fontWeight={600}>Delivery Terms:</Typography>
-                          <Typography component="span" sx={{ ml: 1 }}>
-                            At-Site Delivery
-                          </Typography>
-                        </Box>
-                        <Box sx={{ mb: 1 }}>
-                          <Typography component="span" fontWeight={600}>Delivery Time.</Typography>
-                          <Typography component="span" sx={{ ml: 1 }}>
-                            Delivery within: {viewDialog.po.quotation?.deliveryTime || '03 days'} of confirmed PO & Payment
-                          </Typography>
-                        </Box>
-                        {viewDialog.po.vendor?.cnic && (
-                          <Typography sx={{ mb: 1 }}>
-                            CNIC {viewDialog.po.vendor.cnic}
-                          </Typography>
-                        )}
-                        {viewDialog.po.vendor?.payeeName && (
-                          <Typography>
-                            Payee Name: {viewDialog.po.vendor.payeeName}
+                        {(viewDialog.po.vendor?.cnic || viewDialog.po.vendor?.payeeName) && (
+                          <Typography sx={{ fontSize: 'inherit' }}>
+                            {[viewDialog.po.vendor?.cnic ? `CNIC ${viewDialog.po.vendor.cnic}` : '', viewDialog.po.vendor?.payeeName ? `Payee: ${viewDialog.po.vendor.payeeName}` : ''].filter(Boolean).join(' | ')}
                           </Typography>
                         )}
                       </Box>
                     </Box>
 
-                    <Divider sx={{ my: 3 }} />
-
-                    {/* Approval Authorities Table */}
-                    <Typography variant="subtitle1" fontWeight={700} mb={1.5} sx={{ textAlign: 'center' }}>
-                      APPROVAL AUTHORITIES
+                    <Typography fontWeight={800} sx={{ mb: 0.3, fontSize: '0.7rem', color: '#1e293b', '@media print': { fontSize: '10px', mb: 0.2 } }}>
+                      Finance Document Approval Authority
                     </Typography>
-                    <TableContainer component={Box} sx={{ border: '1px solid #ccc', mb: 2 }}>
-                      <Table size="small">
+                    <TableContainer component={Box} sx={{ border: '1.5px solid #334155', mb: 0, '@media print': { pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                      <Table
+                        size="small"
+                        sx={{
+                          '& th': {
+                            bgcolor: '#f1f5f9',
+                            fontWeight: 800,
+                            fontSize: '0.68rem',
+                            border: '1px solid #cbd5e1',
+                            py: 0.3,
+                            px: 0.55,
+                            '@media print': { py: 0.2, px: 0.45, fontSize: '9.5px' }
+                          },
+                          '& td': {
+                            fontSize: '0.65rem',
+                            border: '1px solid #cbd5e1',
+                            py: 0.25,
+                            px: 0.55,
+                            verticalAlign: 'middle',
+                            '@media print': { py: 0.15, px: 0.45, fontSize: '9.5px' }
+                          }
+                        }}
+                      >
                         <TableHead>
-                          <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Authority</TableCell>
-                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Name</TableCell>
-                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700, textAlign: 'center' }}>Digital Signature</TableCell>
-                            <TableCell sx={{ border: '1px solid #ccc', fontWeight: 700 }}>Date & Time</TableCell>
+                          <TableRow>
+                            <TableCell sx={{ width: '25%' }}>Authority</TableCell>
+                            <TableCell sx={{ width: '25%' }}>Name</TableCell>
+                            <TableCell sx={{ width: '25%' }} align="center">Digital Signature</TableCell>
+                            <TableCell sx={{ width: '25%' }}>Date &amp; Time</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -2226,18 +2210,18 @@ const VendorAdvance = () => {
 
                               return (
                                 <TableRow key={row.key}>
-                                  <TableCell sx={{ border: '1px solid #ccc', fontWeight: 600 }}>{row.label}</TableCell>
-                                  <TableCell sx={{ border: '1px solid #ccc' }}>{displayAuthorityName}</TableCell>
-                                  <TableCell sx={{ border: '1px solid #ccc', textAlign: 'center' }}>
+                                  <TableCell sx={{ fontWeight: 800 }}>{row.label}</TableCell>
+                                  <TableCell>{displayAuthorityName}</TableCell>
+                                  <TableCell align="center">
                                     {authorityUser?.digitalSignature ? (
-                                      <DigitalSignatureImage userOrPath={authorityUser} alt={`${row.label} signature`} />
+                                      <Box sx={{ maxHeight: 22, display: 'flex', justifyContent: 'center', alignItems: 'center', '& img': { maxHeight: 22, width: 'auto', objectFit: 'contain' }, '@media print': { maxHeight: 18, '& img': { maxHeight: 18 } } }}>
+                                        <DigitalSignatureImage userOrPath={authorityUser} alt={`${row.label} signature`} sx={{ maxHeight: 22, maxWidth: 85, '@media print': { maxHeight: 18, maxWidth: 75 } }} />
+                                      </Box>
                                     ) : (
-                                      <Typography variant="caption" color="text.secondary">—</Typography>
+                                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6rem', '@media print': { fontSize: '9px' } }}>—</Typography>
                                     )}
                                   </TableCell>
-                                  <TableCell sx={{ border: '1px solid #ccc' }}>
-                                    {actionDate ? formatDateForPrint(actionDate) : '—'}
-                                  </TableCell>
+                                  <TableCell>{actionDate ? formatDateForPrint(actionDate) : '—'}</TableCell>
                                 </TableRow>
                               );
                             });
@@ -2601,6 +2585,50 @@ const VendorAdvance = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 6mm 8mm;
+        }
+        @media print {
+          html, body {
+            background: #fff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          body * {
+            visibility: hidden;
+          }
+          .print-content,
+          .print-content *,
+          .vendor-advance-po-print,
+          .vendor-advance-po-print *,
+          .finance-po-print-page,
+          .finance-po-print-page * {
+            visibility: visible;
+          }
+          .print-content {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .finance-po-print-page {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          .finance-po-items-table th,
+          .finance-po-items-table td {
+            padding: 2px 3px !important;
+            font-size: 9.5px !important;
+            line-height: 1.15 !important;
+          }
+        }
+      `}</style>
     </Box>
   );
 };
