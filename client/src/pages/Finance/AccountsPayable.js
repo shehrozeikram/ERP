@@ -65,7 +65,12 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
-import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
+import {
+  fetchPayFromAccounts,
+  fetchRelatedPartyPayFromAccounts,
+  formatPayFromAccountLabel,
+  isIntercompanyPayingMode
+} from '../../utils/payFromAccounts';
 import toast from 'react-hot-toast';
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
@@ -340,10 +345,13 @@ const AccountsPayable = () => {
     reference: '',
     narration: '',
     paymentDate: new Date().toISOString().split('T')[0],
-    costCenter: ''
+    costCenter: '',
+    bankAccountId: '',
+    relatedPartyAccountId: ''
   });
   const [processingPayment, setProcessingPayment] = useState(false);
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [relatedPartyAccounts, setRelatedPartyAccounts] = useState([]);
   const [expenseAccounts, setExpenseAccounts] = useState([]);
   const [posForBilling, setPosForBilling] = useState([]);
   const [loadingPosForBilling, setLoadingPosForBilling] = useState(false);
@@ -564,6 +572,20 @@ const AccountsPayable = () => {
     return { fullText, words };
   }, []);
 
+  const billCompanyForPayment = useMemo(() => {
+    if (selectedCompanyId && String(selectedCompanyId).toLowerCase() !== 'all') {
+      return selectedCompanyId;
+    }
+    const payRows = selectedBill ? [selectedBill] : outstandingTransactions;
+    if (payRows?.length > 0) {
+      const c = payRows[0].companyId;
+      return typeof c === 'object' ? c?._id : c;
+    }
+    return selectedCompanyId;
+  }, [selectedCompanyId, selectedBill, outstandingTransactions]);
+
+  const isIcPayingMode = isIntercompanyPayingMode(payingCompanyId, billCompanyForPayment);
+
   const filteredBills = useMemo(() => {
     let list = bills;
 
@@ -627,24 +649,51 @@ const AccountsPayable = () => {
     return () => { cancelled = true; };
   }, [paymentDialogOpen]);
 
-  // Load bank/cash accounts and expense accounts from chart of accounts
+  // Pay From = banks of paying company; Related Party = original bill company (IC only)
   useEffect(() => {
-    let targetComp = payingCompanyId || selectedCompanyId;
-    if (!targetComp) {
-      const payRows = selectedBill
-        ? [selectedBill]
-        : outstandingTransactions;
+    let billCompanyId = selectedCompanyId;
+    if (!billCompanyId || String(billCompanyId).toLowerCase() === 'all') {
+      const payRows = selectedBill ? [selectedBill] : outstandingTransactions;
       if (payRows.length > 0) {
-        targetComp = typeof payRows[0].companyId === 'object' ? payRows[0].companyId?._id : payRows[0].companyId;
+        billCompanyId = typeof payRows[0].companyId === 'object' ? payRows[0].companyId?._id : payRows[0].companyId;
       }
     }
 
-    if (!targetComp) return;
-    fetchPayFromAccounts(api, { companyId: targetComp })
-      .then(setBankAccounts)
+    const payingComp = payingCompanyId || billCompanyId || selectedCompanyId;
+    if (!payingComp || String(payingComp).toLowerCase() === 'all') return;
+
+    const icMode = isIntercompanyPayingMode(payingCompanyId, billCompanyId);
+
+    fetchPayFromAccounts(api, { companyId: payingComp })
+      .then((accs) => {
+        setBankAccounts(accs);
+        setPaymentData((prev) => {
+          const stillValid = prev.bankAccountId
+            && accs.some((item) => String((item?.account || item)?._id) === String(prev.bankAccountId));
+          return { ...prev, bankAccountId: stillValid ? prev.bankAccountId : '' };
+        });
+      })
       .catch(() => setBankAccounts([]));
 
-    api.get('/finance/accounts', { params: { companyId: targetComp, limit: 500 } })
+    if (icMode && billCompanyId) {
+      fetchRelatedPartyPayFromAccounts(api, { companyId: billCompanyId })
+        .then((accs) => {
+          setRelatedPartyAccounts(accs);
+          setPaymentData((prev) => {
+            const stillValid = prev.relatedPartyAccountId
+              && accs.some((item) => String((item?.account || item)?._id) === String(prev.relatedPartyAccountId));
+            return { ...prev, relatedPartyAccountId: stillValid ? prev.relatedPartyAccountId : '' };
+          });
+        })
+        .catch(() => setRelatedPartyAccounts([]));
+    } else {
+      setRelatedPartyAccounts([]);
+      setPaymentData((prev) => (
+        prev.relatedPartyAccountId ? { ...prev, relatedPartyAccountId: '' } : prev
+      ));
+    }
+
+    api.get('/finance/accounts', { params: { companyId: payingComp, limit: 500 } })
       .then((res) => {
         const accs = res.data?.data?.accounts || res.data?.data || [];
         setExpenseAccounts(accs.filter((a) => String(a.type).toLowerCase().includes('expense')));
@@ -977,7 +1026,9 @@ const AccountsPayable = () => {
       reference: '',
       paymentDate: new Date().toISOString().split('T')[0],
       whtRate: 0,
-      costCenter: ''
+      costCenter: '',
+      bankAccountId: '',
+      relatedPartyAccountId: ''
     });
 
     let vendorId = '';
@@ -1168,6 +1219,14 @@ const AccountsPayable = () => {
       toast.error('Payment amount must be greater than zero');
       return;
     }
+    if (isIcPayingMode && !paymentData.bankAccountId) {
+      toast.error('Select Pay From Account (bank/cash on the Paying company).');
+      return;
+    }
+    if (isIcPayingMode && !paymentData.relatedPartyAccountId) {
+      toast.error('Select Related Party Account on the original (bill) company.');
+      return;
+    }
 
     const finAuthErr = validateFinanceAuthoritySelection(billPaymentFinAuth);
     if (finAuthErr) {
@@ -1202,6 +1261,7 @@ const AccountsPayable = () => {
           paymentDate: paymentData.paymentDate,
           whtRate: Number(paymentData.whtRate) || 0,
           bankAccountId: paymentData.bankAccountId || null,
+          relatedPartyAccountId: paymentData.relatedPartyAccountId || null,
         costCenter: paymentData.costCenter || null,
         payingCompanyId: payingCompanyId || selectedCompanyId || null,
         batchId: `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -3424,7 +3484,9 @@ const AccountsPayable = () => {
                 <Select value={paymentData.bankAccountId || ''}
                   onChange={(e) => setPaymentData({ ...paymentData, bankAccountId: e.target.value })}
                   label="Pay From Account">
-                  <MenuItem value="">— Auto (default bank) —</MenuItem>
+                  <MenuItem value="">
+                    {isIcPayingMode ? '— Select paying company bank —' : '— Auto (default bank) —'}
+                  </MenuItem>
                   {bankAccounts.map((item) => {
                     const account = item?.account || item;
                     const depth = item?.depth || 0;
@@ -3437,11 +3499,43 @@ const AccountsPayable = () => {
                 </Select>
                 {bankAccounts.length === 0 && (
                   <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
-                    No Cash and cash equivalents accounts found in the chart. Add accounts under that account type (or subaccounts under them) in Chart of Accounts.
+                    No Cash and cash equivalents accounts found for the Paying company.
                   </Typography>
                 )}
               </FormControl>
             </Grid>
+            {isIcPayingMode && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Related Party Account (Original Company)</InputLabel>
+                  <Select
+                    value={paymentData.relatedPartyAccountId || ''}
+                    onChange={(e) => setPaymentData({ ...paymentData, relatedPartyAccountId: e.target.value })}
+                    label="Related Party Account (Original Company)"
+                  >
+                    <MenuItem value="">— Select related party account —</MenuItem>
+                    {relatedPartyAccounts.map((item) => {
+                      const account = item?.account || item;
+                      const depth = item?.depth || 0;
+                      return (
+                        <MenuItem key={account._id} value={account._id}>
+                          {formatPayFromAccountLabel(account, depth)}
+                        </MenuItem>
+                      );
+                    })}
+                  </Select>
+                  {relatedPartyAccounts.length === 0 ? (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                      No Payable to Related Parties on the original (bill) company. Add it in Chart of Accounts.
+                    </Typography>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                      From the bill company COA — used with Pay From bank for intercompany posting.
+                    </Typography>
+                  )}
+                </FormControl>
+              </Grid>
+            )}
             <Grid item xs={12}>
               <FormControl fullWidth size="small">
                 <InputLabel>Cost Center (Optional)</InputLabel>
@@ -3500,6 +3594,7 @@ const AccountsPayable = () => {
               processingPayment
               || !billPaymentFinAuth.accountsManagerUser
               || !billPaymentFinAuth.financeControllerUser
+              || (isIcPayingMode && (!paymentData.bankAccountId || !paymentData.relatedPartyAccountId))
             }
           >
             {processingPayment ? 'Processing…' : 'Post Payment'}

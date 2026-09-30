@@ -134,6 +134,11 @@ const finalizeApplication = async (app, userId) => {
   const je = await JournalEntry.findById(app.journalEntryId);
   await postDraftJournal(je, userId);
 
+  if (app.payingJournalEntryId) {
+    const payingJe = await JournalEntry.findById(app.payingJournalEntryId);
+    await postDraftJournal(payingJe, userId);
+  }
+
   const meta = app.paymentMeta || {};
   const normalizedAllocations = Array.isArray(meta.allocations)
     ? meta.allocations
@@ -233,6 +238,14 @@ const rejectApplication = async (app, user, comments) => {
   if (je && je.status === 'draft') {
     je.status = 'cancelled';
     await je.save();
+  }
+
+  if (app.payingJournalEntryId) {
+    const payingJe = await JournalEntry.findById(app.payingJournalEntryId);
+    if (payingJe && payingJe.status === 'draft') {
+      payingJe.status = 'cancelled';
+      await payingJe.save();
+    }
   }
 
   return app;
@@ -420,6 +433,7 @@ const submitBatchSettlement = async ({
   financeApprovalAuthorities,
   authoritySourceDoc,
   journalPayload,
+  payingJournalPayload = null,
   vendorAdvanceId = null,
   cashApprovalId = null,
   paymentMeta = null
@@ -488,6 +502,41 @@ const submitBatchSettlement = async ({
     createdBy
   });
 
+  // Pin original/bill voucher to its companyId; clear payingCompanyId so it does not
+  // appear twice under the paying-company voucher filter (voucherCompanyQuery matches both).
+  const expectedBillCo = journalPayload.companyId;
+  if (expectedBillCo) {
+    let dirty = false;
+    if (!journalEntry.companyId || String(journalEntry.companyId) !== String(expectedBillCo)) {
+      journalEntry.companyId = expectedBillCo;
+      dirty = true;
+    }
+    if (journalEntry.payingCompanyId) {
+      journalEntry.payingCompanyId = undefined;
+      dirty = true;
+    }
+    if (dirty) await journalEntry.save();
+  }
+
+  let payingJournalEntry = null;
+  if (payingJournalPayload) {
+    payingJournalEntry = await FinanceHelper.createDraftJournalEntry({
+      ...payingJournalPayload,
+      date: payingJournalPayload.date || journalPayload.date || new Date(),
+      referenceId: bills[0].bill._id,
+      createdBy,
+      payingCompanyId: undefined
+    });
+    const expectedPayingCo = payingJournalPayload.companyId;
+    if (
+      expectedPayingCo
+      && (!payingJournalEntry.companyId || String(payingJournalEntry.companyId) !== String(expectedPayingCo))
+    ) {
+      payingJournalEntry.companyId = expectedPayingCo;
+      await payingJournalEntry.save();
+    }
+  }
+
   const app = await ApPaymentApplication.create({
     bills: billObjects,
     amount: totalAmount,
@@ -496,6 +545,7 @@ const submitBatchSettlement = async ({
     cashApprovalId: cashApprovalId || null,
     paymentMeta: paymentMeta || undefined,
     journalEntryId: journalEntry._id,
+    payingJournalEntryId: payingJournalEntry ? payingJournalEntry._id : null,
     workflowStatus: 'pending_authority',
     financeApprovalAuthorities: authorities,
     financeAuthorityApprovals: [preparerApproval(createdBy)],
@@ -506,7 +556,12 @@ const submitBatchSettlement = async ({
     await addBillPending(item.bill, round2(item.amount), sourceType);
   }
 
-  return { application: app, journalEntry, pendingAmount: totalAmount };
+  return {
+    application: app,
+    journalEntry,
+    payingJournalEntry,
+    pendingAmount: totalAmount
+  };
 };
 
 const getCaOpenForAp = async (ca) => {

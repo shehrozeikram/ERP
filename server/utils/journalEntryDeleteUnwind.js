@@ -26,8 +26,21 @@ const unwindApPaymentApplications = async (entryId) => {
   const CashApproval = require('../models/procurement/CashApproval');
   const VendorAdvance = require('../models/finance/VendorAdvance');
 
-  const apps = await ApPaymentApplication.find({ journalEntryId: entryId });
+  const apps = await ApPaymentApplication.find({
+    $or: [{ journalEntryId: entryId }, { payingJournalEntryId: entryId }]
+  });
   for (const app of apps) {
+    // If only the paying-company voucher is deleted, clear the link and keep the bill-company settlement
+    if (
+      app.payingJournalEntryId
+      && String(app.payingJournalEntryId) === String(entryId)
+      && String(app.journalEntryId) !== String(entryId)
+    ) {
+      app.payingJournalEntryId = null;
+      await app.save();
+      continue;
+    }
+
     const billsToProcess =
       app.bills?.length > 0
         ? app.bills
@@ -116,6 +129,19 @@ const unwindApPaymentApplications = async (entryId) => {
     }
 
     await ApPaymentApplication.findByIdAndDelete(app._id);
+
+    // Primary (bill-company) voucher deleted → also cancel the linked paying-company draft
+    if (
+      app.payingJournalEntryId
+      && String(app.payingJournalEntryId) !== String(entryId)
+    ) {
+      const JournalEntry = require('../models/finance/JournalEntry');
+      const payingJe = await JournalEntry.findById(app.payingJournalEntryId);
+      if (payingJe && payingJe.status === 'draft') {
+        payingJe.status = 'cancelled';
+        await payingJe.save();
+      }
+    }
   }
 };
 

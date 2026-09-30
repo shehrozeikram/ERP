@@ -1,34 +1,73 @@
 const mongoose = require('mongoose');
 
+const employeeLineSchema = new mongoose.Schema({
+  /** Full name (memo: Name) */
+  name: { type: String, trim: true, default: '' },
+  /** CNIC / Passport No. */
+  cnic: { type: String, trim: true, default: '' },
+  designation: { type: String, trim: true, default: '' },
+  /** Department / Subject */
+  departmentSubject: { type: String, trim: true, default: '' },
+  project: { type: String, trim: true, default: '' },
+  location: { type: String, trim: true, default: '' },
+  /** Current Package Monthly (PKR) */
+  currentPackageMonthly: { type: Number, default: 0 },
+  /** Tentative Date of Joining */
+  tentativeDoj: { type: Date, default: null },
+  remark: { type: String, trim: true, default: '' },
+
+  // Legacy fields kept optional so old documents still load without a new collection
+  firstName: { type: String, trim: true },
+  lastName: { type: String, trim: true },
+  phone: { type: String, trim: true },
+  address: { type: String, trim: true },
+  role: { type: String, trim: true },
+  expectedWages: { type: Number },
+  justification: { type: String, trim: true }
+}, { _id: false });
+
 const nonEmployeeRecordSchema = new mongoose.Schema({
   recordNumber: { type: String, unique: true },
-  employees: [{
-    firstName: { type: String, required: true },
-    lastName: { type: String },
-    cnic: { type: String, required: true },
-    phone: { type: String },
-    address: { type: String },
-    role: { type: String, required: true, default: 'Housemaid' }, // e.g. Housemaid, Security Guard
-    expectedWages: { type: Number, default: 0 },
-    justification: { type: String }
-  }],
-  
+  employees: {
+    type: [employeeLineSchema],
+    validate: {
+      validator: (v) => Array.isArray(v) && v.length > 0,
+      message: 'At least one candidate is required'
+    }
+  },
+
   // Workflow tracking
-  workflowStatus: { 
-    type: String, 
-    enum: ['Draft', 'Pending HOD HR', 'Pending AVP', 'Pending Chairman', 'Forwarded to CEO', 'Approved by CEO', 'Rejected by CEO', 'Returned'],
+  workflowStatus: {
+    type: String,
+    enum: [
+      'Draft',
+      'Pending HOD HR',
+      'Pending Sr Director',
+      'Pending AVP',
+      'Pending Chairman',
+      'Forwarded to CEO',
+      'Approved by CEO',
+      'Rejected by CEO',
+      'Returned'
+    ],
     default: 'Pending HOD HR'
   },
-  
+
   initiator: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   initiatedAt: { type: Date, default: Date.now },
   requesterSignature: { type: String },
   assignedHod: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  
+
   hodApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   hodApprovedAt: { type: Date },
   hodComments: { type: String },
   hodSignature: { type: String },
+
+  assignedSrDirector: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  srDirectorApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  srDirectorApprovedAt: { type: Date },
+  srDirectorComments: { type: String },
+  srDirectorSignature: { type: String },
 
   assignedAvp: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   avpApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -46,10 +85,10 @@ const nonEmployeeRecordSchema = new mongoose.Schema({
   ceoApprovedAt: { type: Date },
   ceoComments: { type: String },
   ceoSignature: { type: String },
-  
+
   rejectionComments: { type: String },
   returnComments: { type: String },
-  
+
   // Attachments (e.g. CNIC copy, photo)
   attachments: [{
     filename: String,
@@ -58,6 +97,40 @@ const nonEmployeeRecordSchema = new mongoose.Schema({
     uploadedAt: { type: Date, default: Date.now }
   }],
 }, { timestamps: true });
+
+/** Normalize legacy employee rows → memo columns (same collection, no new table). */
+nonEmployeeRecordSchema.statics.normalizeEmployeeLine = (raw = {}) => {
+  const name = String(raw.name || '').trim()
+    || [raw.firstName, raw.lastName].filter(Boolean).join(' ').trim();
+  const designation = String(raw.designation || raw.role || '').trim();
+  const packageVal = raw.currentPackageMonthly != null && raw.currentPackageMonthly !== ''
+    ? Number(raw.currentPackageMonthly)
+    : (raw.expectedWages != null && raw.expectedWages !== '' ? Number(raw.expectedWages) : 0);
+  let tentativeDoj = raw.tentativeDoj || null;
+  if (tentativeDoj && !(tentativeDoj instanceof Date)) {
+    const d = new Date(tentativeDoj);
+    tentativeDoj = Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  return {
+    name,
+    cnic: String(raw.cnic || raw.cnicPassport || '').trim(),
+    designation,
+    departmentSubject: String(raw.departmentSubject || raw.department || '').trim(),
+    project: String(raw.project || '').trim(),
+    location: String(raw.location || '').trim(),
+    currentPackageMonthly: Number.isFinite(packageVal) ? packageVal : 0,
+    tentativeDoj,
+    remark: String(raw.remark || raw.justification || '').trim()
+  };
+};
+
+nonEmployeeRecordSchema.pre('validate', function (next) {
+  if (Array.isArray(this.employees)) {
+    this.employees = this.employees.map((e) => this.constructor.normalizeEmployeeLine(e));
+  }
+  next();
+});
 
 // Auto-generate recordNumber before saving
 nonEmployeeRecordSchema.pre('save', async function (next) {

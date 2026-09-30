@@ -169,7 +169,12 @@ const attachBillPaymentDetails = async (entries) => {
 
   // 4. Match ApPaymentApplication (batch or single bill payments)
   const ApPaymentApplication = require('../models/finance/ApPaymentApplication');
-  const matchedApApps = await ApPaymentApplication.find({ journalEntryId: { $in: entryIds } })
+  const matchedApApps = await ApPaymentApplication.find({
+    $or: [
+      { journalEntryId: { $in: entryIds } },
+      { payingJournalEntryId: { $in: entryIds } }
+    ]
+  })
     .populate({
       path: 'accountsPayableId',
       select: 'vendor vendorName payeeEmployee',
@@ -181,7 +186,11 @@ const attachBillPaymentDetails = async (entries) => {
       populate: [{ path: 'payeeEmployee', select: 'firstName lastName employeeId' }]
     })
     .lean();
-  const apAppByJe = new Map(matchedApApps.map((a) => [String(a.journalEntryId), a]));
+  const apAppByJe = new Map();
+  matchedApApps.forEach((a) => {
+    if (a.journalEntryId) apAppByJe.set(String(a.journalEntryId), a);
+    if (a.payingJournalEntryId) apAppByJe.set(String(a.payingJournalEntryId), a);
+  });
 
   return docs.map((e) => {
     const bill = billByRef.get(String(e.referenceId)) || billByVoucher.get(String(e._id));
@@ -1885,7 +1894,7 @@ router.get('/general-ledger',
 router.get('/general-ledger/account/:id', 
   authorize('super_admin', 'admin', 'finance_manager'), 
   asyncHandler(async (req, res) => {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, companyId: queryCompanyId } = req.query;
     // Match trial-balance-v2: full local calendar day for from/to (date-only query strings).
     let start = null;
     let end = null;
@@ -1900,7 +1909,17 @@ router.get('/general-ledger/account/:id',
       else end = null;
     }
 
-    const entries = await GeneralLedger.getAccountLedger(req.params.id, start, end);
+    let companyId = queryCompanyId || null;
+    if (!companyId) {
+      try {
+        const company = await requireCompanyFromRequest(req);
+        companyId = company?._id || null;
+      } catch (_) {
+        companyId = null;
+      }
+    }
+
+    const entries = await GeneralLedger.getAccountLedger(req.params.id, start, end, companyId);
 
     res.json({
       success: true,
@@ -3227,7 +3246,12 @@ const populateApPaymentApplication = (query) => ApPaymentHelper.populateApplicat
 router.get('/ap-payment-applications/by-journal-entry/:journalEntryId',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const doc = await populateApPaymentApplication({ journalEntryId: req.params.journalEntryId });
+    const doc = await populateApPaymentApplication({
+      $or: [
+        { journalEntryId: req.params.journalEntryId },
+        { payingJournalEntryId: req.params.journalEntryId }
+      ]
+    });
     if (!doc) {
       return res.status(404).json({ success: false, message: 'AP settlement not found for this voucher' });
     }
@@ -3248,7 +3272,9 @@ router.put('/ap-payment-applications/:id/finance-approve',
     );
     const fresh = await populateApPaymentApplication({ _id: app._id });
     const message = finalized
-      ? 'All finance authorities approved. Voucher posted and bill settlement finalized.'
+      ? (app.payingJournalEntryId
+        ? 'All finance authorities approved. Both vouchers posted (original company + paying company) and bill settlement finalized.'
+        : 'All finance authorities approved. Voucher posted and bill settlement finalized.')
       : `Finance authority recorded. ${remaining} approval(s) remaining.`;
     res.json({ success: true, message, data: fresh?.toObject ? fresh.toObject() : fresh });
   })
@@ -3480,13 +3506,16 @@ router.get('/accounts-payable/:id/pending-voucher',
         { 'bills.billId': req.params.id }
       ],
       workflowStatus: { $ne: 'fully_approved' }
-    }).select('journalEntryId');
+    }).select('journalEntryId payingJournalEntryId');
 
     if (!apApp || !apApp.journalEntryId) {
       return res.status(404).json({ message: 'No pending voucher found for this bill' });
     }
 
-    res.json({ journalEntryId: apApp.journalEntryId });
+    res.json({
+      journalEntryId: apApp.journalEntryId,
+      payingJournalEntryId: apApp.payingJournalEntryId || null
+    });
   })
 );
 
@@ -5428,6 +5457,9 @@ router.get('/reports/trial-balance-v2',
     res.json({
       success: true,
       data: {
+        company: company
+          ? { _id: company._id, name: company.name, companyCode: company.companyCode }
+          : null,
         fromDate: from,
         asOfDate: asOf,
         rows,
@@ -9858,7 +9890,9 @@ router.post('/accounts-payable/batch-payment',
 
     res.json({
       success: true,
-      message: 'Batch payment successfully processed and pending authorization',
+      message: result.payingJournalEntryId
+        ? 'Intercompany batch payment created: original-company voucher + paying-company voucher (both pending finance signatures)'
+        : 'Batch payment successfully processed and pending authorization',
       data: result
     });
   })

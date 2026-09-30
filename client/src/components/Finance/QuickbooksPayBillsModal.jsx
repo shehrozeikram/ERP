@@ -24,7 +24,12 @@ import {
   buildFinanceApprovalAuthoritiesPayload,
   validateFinanceAuthoritySelection
 } from '../../services/financeApprovalAuthorityService';
-import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
+import {
+  fetchPayFromAccounts,
+  fetchRelatedPartyPayFromAccounts,
+  formatPayFromAccountLabel,
+  isIntercompanyPayingMode
+} from '../../utils/payFromAccounts';
 
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 
@@ -72,6 +77,7 @@ export default function QuickbooksPayBillsModal({
   const [loadingAdvances, setLoadingAdvances] = useState(false);
   
   const [bankAccounts, setBankAccounts] = useState([]);
+  const [relatedPartyAccounts, setRelatedPartyAccounts] = useState([]);
   const [financeAuthorityCandidates, setFinanceAuthorityCandidates] = useState([]);
   
   const [finAuth, setFinAuth] = useState({
@@ -83,6 +89,7 @@ export default function QuickbooksPayBillsModal({
     paymentDate: new Date().toISOString().split('T')[0],
     paymentMethod: 'bank_transfer',
     bankAccountId: '',
+    relatedPartyAccountId: '',
     reference: '',
     narration: '',
     whtRate: 0
@@ -129,20 +136,43 @@ export default function QuickbooksPayBillsModal({
     });
   }, [open]);
 
-  // Load Bank Accounts for the chosen Paying Company
+  // Pay From = paying company banks; Related Party = original bill company (IC only)
   useEffect(() => {
     if (!open) return;
-    const targetComp = payingCompanyId || selectedCompanyId;
-    if (!targetComp) return;
-    fetchPayFromAccounts(api, { companyId: targetComp })
+    const billCompanyId = selectedCompanyId;
+    const payingComp = payingCompanyId || selectedCompanyId;
+    if (!payingComp) return;
+
+    const icMode = isIntercompanyPayingMode(payingCompanyId, billCompanyId);
+
+    fetchPayFromAccounts(api, { companyId: payingComp })
       .then((accs) => {
         setBankAccounts(accs);
-        // Reset bank selection if current account doesn't belong to newly fetched list
-        if (paymentForm.bankAccountId && !accs.some((a) => String((a.account || a)._id) === String(paymentForm.bankAccountId))) {
-          setPaymentForm((f) => ({ ...f, bankAccountId: '' }));
-        }
+        setPaymentForm((f) => {
+          const stillValid = f.bankAccountId
+            && accs.some((a) => String((a.account || a)._id) === String(f.bankAccountId));
+          return { ...f, bankAccountId: stillValid ? f.bankAccountId : '' };
+        });
       })
       .catch(() => setBankAccounts([]));
+
+    if (icMode && billCompanyId) {
+      fetchRelatedPartyPayFromAccounts(api, { companyId: billCompanyId })
+        .then((accs) => {
+          setRelatedPartyAccounts(accs);
+          setPaymentForm((f) => {
+            const stillValid = f.relatedPartyAccountId
+              && accs.some((a) => String((a.account || a)._id) === String(f.relatedPartyAccountId));
+            return { ...f, relatedPartyAccountId: stillValid ? f.relatedPartyAccountId : '' };
+          });
+        })
+        .catch(() => setRelatedPartyAccounts([]));
+    } else {
+      setRelatedPartyAccounts([]);
+      setPaymentForm((f) => (
+        f.relatedPartyAccountId ? { ...f, relatedPartyAccountId: '' } : f
+      ));
+    }
   }, [open, payingCompanyId, selectedCompanyId]);
 
   // Load Finance Authorities
@@ -331,6 +361,8 @@ export default function QuickbooksPayBillsModal({
     return round2(Math.max(0, totalSelectedPayAmount - whtAmount));
   }, [totalSelectedPayAmount, whtAmount]);
 
+  const isIcPayingMode = isIntercompanyPayingMode(payingCompanyId, selectedCompanyId);
+
   // Submit Multi-Bill Payment
   const handlePostPayments = async () => {
     if (selectedBills.length === 0) {
@@ -340,6 +372,15 @@ export default function QuickbooksPayBillsModal({
 
     if (totalSelectedPayAmount <= 0) {
       toast.error('Total payment amount must be greater than zero');
+      return;
+    }
+
+    if (isIcPayingMode && !paymentForm.bankAccountId) {
+      toast.error('Select Pay From Account (bank/cash on the Paying company).');
+      return;
+    }
+    if (isIcPayingMode && !paymentForm.relatedPartyAccountId) {
+      toast.error('Select Related Party Account on the original (bill) company.');
       return;
     }
 
@@ -368,6 +409,7 @@ export default function QuickbooksPayBillsModal({
         paymentDate: paymentForm.paymentDate,
         whtRate: Number(paymentForm.whtRate) || 0,
         bankAccountId: paymentForm.bankAccountId || null,
+        relatedPartyAccountId: paymentForm.relatedPartyAccountId || null,
         payingCompanyId: payingCompanyId || selectedCompanyId || null,
         financeApprovalAuthorities,
         batchId
@@ -590,7 +632,9 @@ export default function QuickbooksPayBillsModal({
                   label="Pay-From Account"
                   onChange={(e) => setPaymentForm({ ...paymentForm, bankAccountId: e.target.value })}
                 >
-                  <MenuItem value="">-- Default Bank Account --</MenuItem>
+                  <MenuItem value="">
+                    {isIcPayingMode ? '— Select paying company bank —' : '-- Default Bank Account --'}
+                  </MenuItem>
                   {bankAccounts.map((item) => {
                     const acc = item?.account || item;
                     const depth = item?.depth || 0;
@@ -601,8 +645,46 @@ export default function QuickbooksPayBillsModal({
                     );
                   })}
                 </Select>
+                {bankAccounts.length === 0 && (
+                  <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                    No cash/bank accounts found for the Paying company.
+                  </Typography>
+                )}
               </FormControl>
             </Grid>
+
+            {isIcPayingMode && (
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Related Party Account (Original Company)</InputLabel>
+                  <Select
+                    value={paymentForm.relatedPartyAccountId || ''}
+                    label="Related Party Account (Original Company)"
+                    onChange={(e) => setPaymentForm({ ...paymentForm, relatedPartyAccountId: e.target.value })}
+                  >
+                    <MenuItem value="">— Select related party account —</MenuItem>
+                    {relatedPartyAccounts.map((item) => {
+                      const acc = item?.account || item;
+                      const depth = item?.depth || 0;
+                      return (
+                        <MenuItem key={acc._id} value={acc._id}>
+                          {formatPayFromAccountLabel(acc, depth)}
+                        </MenuItem>
+                      );
+                    })}
+                  </Select>
+                  {relatedPartyAccounts.length === 0 ? (
+                    <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                      No Payable to Related Parties on the original (bill) company.
+                    </Typography>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                      From the bill company COA — used with Pay From bank for intercompany posting.
+                    </Typography>
+                  )}
+                </FormControl>
+              </Grid>
+            )}
 
             <Grid item xs={12} sm={6}>
               <TextField

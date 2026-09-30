@@ -178,14 +178,18 @@ generalLedgerSchema.virtual('formattedBalance').get(function() {
 /**
  * When GeneralLedger rows are missing (legacy flows, failed insert, etc.), build the
  * account ledger from posted JournalEntry lines — same economic source as trial-balance-v2.
+ * Optional companyId keeps the ledger aligned with company-filtered Trial Balance.
  */
-generalLedgerSchema.statics.buildLedgerRowsFromJournalEntries = async function(accountId, startDate, endDate) {
+generalLedgerSchema.statics.buildLedgerRowsFromJournalEntries = async function(accountId, startDate, endDate, companyId = null) {
   const JournalEntry = require('./JournalEntry');
   const accOid = mongoose.Types.ObjectId.isValid(String(accountId))
     ? new mongoose.Types.ObjectId(String(accountId))
     : accountId;
 
   const jeMatch = { status: 'posted' };
+  if (companyId && mongoose.Types.ObjectId.isValid(String(companyId))) {
+    jeMatch.companyId = new mongoose.Types.ObjectId(String(companyId));
+  }
   if (startDate || endDate) {
     jeMatch.date = {};
     if (startDate) jeMatch.date.$gte = startDate;
@@ -237,7 +241,7 @@ generalLedgerSchema.statics.buildLedgerRowsFromJournalEntries = async function(a
 };
 
 // Static methods for ledger operations
-generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDate, endDate) {
+generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDate, endDate, companyId = null) {
   const accOid = mongoose.Types.ObjectId.isValid(String(accountId))
     ? new mongoose.Types.ObjectId(String(accountId))
     : accountId;
@@ -246,6 +250,9 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
     account: accOid,
     status: 'posted'
   };
+  if (companyId && mongoose.Types.ObjectId.isValid(String(companyId))) {
+    query.companyId = new mongoose.Types.ObjectId(String(companyId));
+  }
 
   if (startDate || endDate) {
     query.date = {};
@@ -254,7 +261,7 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
   }
 
   let entries = await this.find(query)
-    .populate('journalEntry', 'entryNumber reference description project department')
+    .populate('journalEntry', 'entryNumber reference description project department companyId')
     .populate('account', 'accountNumber name type')
     .populate('createdBy', 'firstName lastName')
     .sort({ date: 1, entryNumber: 1 })
@@ -266,8 +273,18 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
     (row) => row.journalEntry && typeof row.journalEntry === 'object' && row.journalEntry._id
   );
 
+  // If company scoped, keep only rows whose JE belongs to that company
+  if (companyId) {
+    const cid = String(companyId);
+    entries = entries.filter((row) => {
+      const jeCo = row.journalEntry?.companyId;
+      const rowCo = row.companyId;
+      return String(jeCo || rowCo || '') === cid;
+    });
+  }
+
   if (!entries.length) {
-    entries = await this.buildLedgerRowsFromJournalEntries(accOid, startDate, endDate);
+    entries = await this.buildLedgerRowsFromJournalEntries(accOid, startDate, endDate, companyId);
   } else {
     // Carry project from JE when GL row has none; resolve party/dept labels
     for (const row of entries) {

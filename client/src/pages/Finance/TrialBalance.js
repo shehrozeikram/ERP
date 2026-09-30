@@ -34,7 +34,7 @@ const formatCellText = (val) => {
 };
 
 export default function TrialBalance() {
-  const { selectedCompanyId } = useFinanceCompany();
+  const { selectedCompanyId, selectedCompany } = useFinanceCompany();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
@@ -79,7 +79,8 @@ export default function TrialBalance() {
         accounts,
         totals: payload.totals,
         fromDate: payload.fromDate,
-        asOfDate: payload.asOfDate
+        asOfDate: payload.asOfDate,
+        company: payload.company || null
       });
       setPage(0);
       setSelectedAccount(null);
@@ -103,7 +104,11 @@ export default function TrialBalance() {
     setLedgerPage(0);
     try {
       const res = await api.get(`/finance/general-ledger/account/${account._id}`, {
-        params: { startDate: fromDate, endDate: asOfDate }
+        params: {
+          startDate: fromDate,
+          endDate: asOfDate,
+          ...(selectedCompanyId ? { companyId: selectedCompanyId } : {})
+        }
       });
       setLedgerRows(res.data?.data || []);
     } catch (e) {
@@ -112,7 +117,7 @@ export default function TrialBalance() {
     } finally {
       setLedgerLoading(false);
     }
-  }, [fromDate, asOfDate]);
+  }, [fromDate, asOfDate, selectedCompanyId]);
 
   const loadVoucher = useCallback(async (ledgerRow) => {
     const jeId = ledgerRow?.journalEntry?._id;
@@ -154,6 +159,11 @@ export default function TrialBalance() {
   const pageStart = accounts.length === 0 ? 0 : page * rowsPerPage + 1;
   const pageEnd = Math.min((page + 1) * rowsPerPage, accounts.length);
 
+  const companyTitle =
+    data?.company?.name
+    || selectedCompany?.name
+    || 'Selected company';
+
   return (
     <Box sx={{ p: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1.5} className="print-hide-toolbar" flexWrap="wrap" gap={1}>
@@ -181,7 +191,7 @@ export default function TrialBalance() {
 
       {!data && !loading && (
         <Paper variant="outlined" sx={{ p: 6, textAlign: 'center' }}>
-          <Typography color="text.secondary">Select a date and click Generate to view the Trial Balance.</Typography>
+          <Typography color="text.secondary">Select a company and date range, then click Generate to view the Trial Balance.</Typography>
         </Paper>
       )}
 
@@ -190,7 +200,7 @@ export default function TrialBalance() {
           <Paper variant="outlined" sx={{ p: 1.5, mb: 1 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" flexWrap="wrap" gap={1}>
               <Box>
-                <Typography fontWeight={700} sx={{ fontSize: 18 }}>Sardar Group of Companies</Typography>
+                <Typography fontWeight={700} sx={{ fontSize: 18 }}>{companyTitle}</Typography>
                 <Typography variant="body2" fontWeight={700}>Trial Balance</Typography>
                 <Typography variant="body2" color="text.secondary">
                   Period {new Date(fromDate).toLocaleDateString('en-PK')} to {new Date(asOfDate).toLocaleDateString('en-PK')}

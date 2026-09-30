@@ -2,9 +2,16 @@ const NonEmployeeRecord = require('../../models/hr/NonEmployeeRecord');
 const { validationResult } = require('express-validator');
 const mongoose = require('mongoose');
 
+const optionalUserId = (value) => {
+  if (value === undefined || value === null || value === '' || value === 'null' || value === 'undefined') {
+    return undefined;
+  }
+  return value;
+};
+
 exports.createRecord = async (req, res) => {
   try {
-    const { employees, assignedHod, assignedAvp, assignedChairman } = req.body;
+    const { employees, assignedHod, assignedSrDirector, assignedAvp, assignedChairman } = req.body;
     
     // Support legacy client sending a stringified employees array in FormData
     let parsedEmployees = employees;
@@ -18,12 +25,23 @@ exports.createRecord = async (req, res) => {
 
     const autoSignature = req.body.requesterSignature || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
 
+    const normalizedEmployees = (Array.isArray(parsedEmployees) ? parsedEmployees : [])
+      .map((e) => NonEmployeeRecord.normalizeEmployeeLine(e));
+
+    if (normalizedEmployees.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Add at least one candidate row.'
+      });
+    }
+
     const record = new NonEmployeeRecord({
-      employees: parsedEmployees || [],
+      employees: normalizedEmployees,
       requesterSignature: autoSignature,
-      assignedHod,
-      assignedAvp,
-      assignedChairman,
+      assignedHod: optionalUserId(assignedHod),
+      assignedSrDirector: optionalUserId(assignedSrDirector),
+      assignedAvp: optionalUserId(assignedAvp),
+      assignedChairman: optionalUserId(assignedChairman),
       workflowStatus: 'Pending HOD HR',
       initiator: req.user.id,
     });
@@ -58,7 +76,7 @@ exports.updateRecord = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Cannot update a completed record' });
     }
 
-    const { employees, assignedHod, assignedAvp, assignedChairman } = req.body;
+    const { employees, assignedHod, assignedSrDirector, assignedAvp, assignedChairman } = req.body;
     
     let parsedEmployees = employees;
     if (typeof employees === 'string') {
@@ -69,10 +87,21 @@ exports.updateRecord = async (req, res) => {
       }
     }
 
-    if (parsedEmployees) record.employees = parsedEmployees;
-    if (assignedHod) record.assignedHod = assignedHod;
-    if (assignedAvp) record.assignedAvp = assignedAvp;
-    if (assignedChairman) record.assignedChairman = assignedChairman;
+    if (parsedEmployees) {
+      const normalizedEmployees = (Array.isArray(parsedEmployees) ? parsedEmployees : [])
+        .map((e) => NonEmployeeRecord.normalizeEmployeeLine(e));
+      if (normalizedEmployees.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Add at least one candidate row.'
+        });
+      }
+      record.employees = normalizedEmployees;
+    }
+    if (assignedHod !== undefined) record.assignedHod = optionalUserId(assignedHod) || null;
+    if (assignedSrDirector !== undefined) record.assignedSrDirector = optionalUserId(assignedSrDirector) || null;
+    if (assignedAvp !== undefined) record.assignedAvp = optionalUserId(assignedAvp) || null;
+    if (assignedChairman !== undefined) record.assignedChairman = optionalUserId(assignedChairman) || null;
 
     // Reset status to pending HOD if it was returned and updated by initiator
     if (record.workflowStatus === 'Returned') {
@@ -111,9 +140,11 @@ exports.getRecords = async (req, res) => {
     const records = await NonEmployeeRecord.find()
       .populate('initiator', 'firstName lastName email')
       .populate('assignedHod', 'firstName lastName email')
+      .populate('assignedSrDirector', 'firstName lastName email')
       .populate('assignedAvp', 'firstName lastName email')
       .populate('assignedChairman', 'firstName lastName email')
       .populate('hodApprovedBy', 'firstName lastName email')
+      .populate('srDirectorApprovedBy', 'firstName lastName email')
       .populate('avpApprovedBy', 'firstName lastName email')
       .populate('chairmanApprovedBy', 'firstName lastName email')
       .populate('ceoApprovedBy', 'firstName lastName email')
@@ -130,9 +161,11 @@ exports.getRecordById = async (req, res) => {
     const record = await NonEmployeeRecord.findById(req.params.id)
       .populate('initiator', 'firstName lastName email')
       .populate('assignedHod', 'firstName lastName email')
+      .populate('assignedSrDirector', 'firstName lastName email')
       .populate('assignedAvp', 'firstName lastName email')
       .populate('assignedChairman', 'firstName lastName email')
       .populate('hodApprovedBy', 'firstName lastName email')
+      .populate('srDirectorApprovedBy', 'firstName lastName email')
       .populate('avpApprovedBy', 'firstName lastName email')
       .populate('chairmanApprovedBy', 'firstName lastName email')
       .populate('ceoApprovedBy', 'firstName lastName email');
@@ -207,6 +240,76 @@ exports.rejectByHOD = async (req, res) => {
     res.status(200).json({ success: true, data: record });
   } catch (error) {
     console.error('Error in HOD rejection:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+exports.approveBySrDirector = async (req, res) => {
+  try {
+    const record = await NonEmployeeRecord.findById(req.params.id);
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'Record not found' });
+    }
+
+    if (record.workflowStatus !== 'Pending Sr Director') {
+      return res.status(400).json({ success: false, error: `Invalid status: ${record.workflowStatus}` });
+    }
+
+    if (record.assignedSrDirector) {
+      const assignedId = record.assignedSrDirector._id
+        ? record.assignedSrDirector._id.toString()
+        : record.assignedSrDirector.toString();
+      if (assignedId !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'You are not the assigned Sr Director for this record' });
+      }
+    }
+
+    record.workflowStatus = 'Forwarded to CEO';
+    record.srDirectorApprovedBy = req.user.id;
+    record.srDirectorApprovedAt = Date.now();
+    record.srDirectorComments = req.body.comments || '';
+    record.srDirectorSignature = req.body.signature
+      || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
+
+    await record.save();
+    res.status(200).json({ success: true, data: record });
+  } catch (error) {
+    console.error('Error in Sr Director approval:', error);
+    res.status(500).json({ success: false, error: 'Server Error' });
+  }
+};
+
+exports.rejectBySrDirector = async (req, res) => {
+  try {
+    const record = await NonEmployeeRecord.findById(req.params.id);
+    if (!record) {
+      return res.status(404).json({ success: false, error: 'Record not found' });
+    }
+
+    if (record.workflowStatus !== 'Pending Sr Director') {
+      return res.status(400).json({ success: false, error: `Invalid status: ${record.workflowStatus}` });
+    }
+
+    if (record.assignedSrDirector) {
+      const assignedId = record.assignedSrDirector._id
+        ? record.assignedSrDirector._id.toString()
+        : record.assignedSrDirector.toString();
+      if (assignedId !== req.user.id) {
+        return res.status(403).json({ success: false, error: 'You are not the assigned Sr Director for this record' });
+      }
+    }
+
+    record.workflowStatus = 'Returned';
+    record.srDirectorApprovedBy = req.user.id;
+    record.srDirectorApprovedAt = Date.now();
+    record.srDirectorComments = req.body.comments || '';
+    record.srDirectorSignature = req.body.signature
+      || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
+
+    await record.save();
+    res.status(200).json({ success: true, data: record });
+  } catch (error) {
+    console.error('Error in Sr Director rejection:', error);
     res.status(500).json({ success: false, error: 'Server Error' });
   }
 };
@@ -293,7 +396,7 @@ exports.approveByChairman = async (req, res) => {
       }
     }
 
-    record.workflowStatus = 'Forwarded to CEO';
+    record.workflowStatus = 'Pending Sr Director';
     record.chairmanApprovedBy = req.user.id;
     record.chairmanApprovedAt = Date.now();
     record.chairmanComments = req.body.comments || '';

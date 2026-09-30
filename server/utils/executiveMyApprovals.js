@@ -306,7 +306,8 @@ async function fetchOnboardingForUser(user) {
   const or = [
     { workflowStatus: 'Pending AVP', assignedAvp: uid },
     { workflowStatus: 'Pending Chairman', assignedChairman: uid },
-    { workflowStatus: 'Pending HOD HR', assignedHod: uid }
+    { workflowStatus: 'Pending HOD HR', assignedHod: uid },
+    { workflowStatus: 'Pending Sr Director', assignedSrDirector: uid }
   ];
   if (isCeo) or.push({ workflowStatus: 'Forwarded to CEO' });
 
@@ -314,24 +315,34 @@ async function fetchOnboardingForUser(user) {
     .populate('assignedAvp', 'firstName lastName')
     .populate('assignedChairman', 'firstName lastName')
     .populate('assignedHod', 'firstName lastName')
+    .populate('assignedSrDirector', 'firstName lastName')
     .sort({ updatedAt: -1 })
     .limit(100)
     .lean();
 
-  return docs.map((r) => card({
-    id: r._id,
-    type: 'onboarding',
-    itemType: 'Onboarding',
-    number: r.recordNumber || r.cnic || String(r._id),
-    status: r.workflowStatus,
-    date: r.updatedAt || r.createdAt,
-    amount: null,
-    party: r.employeeName || [r.firstName, r.lastName].filter(Boolean).join(' ') || '—',
-    subtitle: 'Non-employee onboarding',
-    department: 'HR',
-    path: `/hr/non-employee-onboarding`,
-    raw: r
-  }));
+  return docs.map((r) => {
+    const first = Array.isArray(r.employees) && r.employees[0] ? r.employees[0] : null;
+    const party = first
+      ? (first.name || [first.firstName, first.lastName].filter(Boolean).join(' ').trim())
+      : (r.employeeName || [r.firstName, r.lastName].filter(Boolean).join(' ') || '—');
+    const extra = Array.isArray(r.employees) && r.employees.length > 1
+      ? ` (+${r.employees.length - 1} more)`
+      : '';
+    return card({
+      id: r._id,
+      type: 'onboarding',
+      itemType: 'Onboarding',
+      number: r.recordNumber || first?.cnic || String(r._id),
+      status: r.workflowStatus,
+      date: r.updatedAt || r.createdAt,
+      amount: null,
+      party: `${party || '—'}${extra}`,
+      subtitle: 'Non-employee onboarding',
+      department: 'HR',
+      path: `/hr/non-employee-onboarding`,
+      raw: r
+    });
+  });
 }
 
 async function fetchIndentsForUser(user) {

@@ -146,3 +146,103 @@ export const fetchAllPaymentAccounts = async (apiClient, { companyId } = {}) => 
 
   return flattenAccountsHierarchy(eligibleAccounts);
 };
+
+const RELATED_PARTY_PAYABLE_NAME = /payable\s+to\s+related\s+part(?:y|ies)/i;
+
+export const isRelatedPartyPayableRoot = (account) => {
+  if (!account || account.isActive === false) return false;
+  if (account.type && String(account.type).toLowerCase() !== 'liability') return false;
+  return RELATED_PARTY_PAYABLE_NAME.test(account.name || '');
+};
+
+/** Payable to Related Parties parent + all descendant subaccounts (paying-company IC mode). */
+export const buildRelatedPartyPayFromOptions = (allAccounts) => {
+  const accounts = (allAccounts || []).filter(
+    (account) => account && getAccountId(account) && (account.name || account.accountNumber)
+  );
+
+  const rootIds = new Set(accounts.filter(isRelatedPartyPayableRoot).map(getAccountId));
+  if (rootIds.size === 0) return [];
+
+  const eligibleIds = new Set(rootIds);
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const account of accounts) {
+      const accountId = getAccountId(account);
+      const parentId = getParentAccountId(account);
+      if (parentId && eligibleIds.has(parentId) && !eligibleIds.has(accountId)) {
+        eligibleIds.add(accountId);
+        expanded = true;
+      }
+    }
+  }
+
+  const eligibleAccounts = accounts.filter((account) => eligibleIds.has(getAccountId(account)));
+  return flattenAccountsHierarchy(eligibleAccounts);
+};
+
+export const fetchRelatedPartyPayFromAccounts = async (apiClient, { companyId } = {}) => {
+  const response = await apiClient.get('/finance/accounts', {
+    params: {
+      type: 'Liability',
+      limit: 2000,
+      page: 1,
+      ...(companyId ? { companyId } : {})
+    }
+  });
+
+  const payload = response.data?.data;
+  const accounts = Array.isArray(payload?.accounts)
+    ? payload.accounts
+    : Array.isArray(payload)
+      ? payload
+      : Array.isArray(response.data?.accounts)
+        ? response.data.accounts
+        : [];
+
+  return buildRelatedPartyPayFromOptions(accounts);
+};
+
+/**
+ * IC paying mode Pay From list:
+ * - Bank/cash of the Paying company
+ * - Payable to Related Parties (+ subaccounts) of the Original (bill) company
+ */
+export const fetchIntercompanyPayFromAccounts = async (
+  apiClient,
+  { payingCompanyId, billCompanyId } = {}
+) => {
+  const [bankOptions, relatedOptions] = await Promise.all([
+    payingCompanyId
+      ? fetchPayFromAccounts(apiClient, { companyId: payingCompanyId })
+      : Promise.resolve([]),
+    billCompanyId
+      ? fetchRelatedPartyPayFromAccounts(apiClient, { companyId: billCompanyId })
+      : Promise.resolve([])
+  ]);
+
+  const tagged = [];
+  bankOptions.forEach((item) => {
+    tagged.push({
+      ...item,
+      group: 'paying_bank',
+      groupLabel: 'Paying company — Bank / Cash'
+    });
+  });
+  relatedOptions.forEach((item) => {
+    tagged.push({
+      ...item,
+      group: 'bill_related_party',
+      groupLabel: 'Original company — Payable to Related Parties'
+    });
+  });
+  return tagged;
+};
+
+/** True when paying company is set and differs from the bill / filter company. */
+export const isIntercompanyPayingMode = (payingCompanyId, billCompanyId) => {
+  const paying = payingCompanyId && String(payingCompanyId).toLowerCase() !== 'all' ? String(payingCompanyId) : '';
+  const bill = billCompanyId && String(billCompanyId).toLowerCase() !== 'all' ? String(billCompanyId) : '';
+  return Boolean(paying && bill && paying !== bill);
+};

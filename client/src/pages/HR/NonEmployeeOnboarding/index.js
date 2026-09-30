@@ -90,6 +90,11 @@ const NonEmployeeOnboarding = () => {
           comments: approvalComments,
           signature: approvalSignature.trim()
         });
+      } else if (approvalType === 'SrDirector') {
+        await nonEmployeeService.approveBySrDirector(item._id, {
+          comments: approvalComments,
+          signature: approvalSignature.trim()
+        });
       } else if (approvalType === 'Chairman') {
         await nonEmployeeService.approveByChairman(item._id, {
           comments: approvalComments,
@@ -125,6 +130,11 @@ const NonEmployeeOnboarding = () => {
     try {
       if (approvalType === 'HOD') {
         await nonEmployeeService.rejectByHOD(item._id, {
+          comments: approvalComments,
+          signature: approvalSignature.trim()
+        });
+      } else if (approvalType === 'SrDirector') {
+        await nonEmployeeService.rejectBySrDirector(item._id, {
           comments: approvalComments,
           signature: approvalSignature.trim()
         });
@@ -191,8 +201,12 @@ const NonEmployeeOnboarding = () => {
             <TableRow>
               <TableCell>Record #</TableCell>
               <TableCell>Name</TableCell>
-              <TableCell>Role</TableCell>
-              <TableCell>CNIC</TableCell>
+              <TableCell>CNIC/Passport No.</TableCell>
+              <TableCell>Designation</TableCell>
+              <TableCell>Department/Subject</TableCell>
+              <TableCell>Project</TableCell>
+              <TableCell>Location</TableCell>
+              <TableCell align="right">Current Package Monthly</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Approval Authority</TableCell>
               <TableCell>Actions</TableCell>
@@ -204,6 +218,7 @@ const NonEmployeeOnboarding = () => {
                 'Pending HOD HR': 'HOD HR',
                 'Pending AVP': 'AVP (Taj Fahad Farid)',
                 'Pending Chairman': 'Chairman Steering Committee',
+                'Pending Sr Director': 'Sr Director (Hamza Tanveer)',
                 'Forwarded to CEO': 'CEO Secretariat',
                 'Approved by CEO': 'Approved',
                 'Rejected by CEO': 'Rejected',
@@ -215,8 +230,18 @@ const NonEmployeeOnboarding = () => {
               const isPendingHOD = record.workflowStatus === 'Pending HOD HR' && (userId === record.assignedHod?._id || userId === record.assignedHod);
               const isPendingAVP = record.workflowStatus === 'Pending AVP' && (userId === record.assignedAvp?._id || userId === record.assignedAvp);
               const isPendingChairman = record.workflowStatus === 'Pending Chairman' && (userId === record.assignedChairman?._id || userId === record.assignedChairman);
-              const isPendingAuthority = isPendingHOD || isPendingAVP || isPendingChairman;
-              const currentPendingType = isPendingHOD ? 'HOD' : isPendingAVP ? 'AVP' : 'Chairman';
+              const isPendingSrDirector = record.workflowStatus === 'Pending Sr Director' && (userId === record.assignedSrDirector?._id || userId === record.assignedSrDirector);
+              const isPendingAuthority = isPendingHOD || isPendingAVP || isPendingChairman || isPendingSrDirector;
+              const currentPendingType = isPendingHOD
+                ? 'HOD'
+                : isPendingAVP
+                  ? 'AVP'
+                  : isPendingChairman
+                    ? 'Chairman'
+                    : isPendingSrDirector
+                      ? 'SrDirector'
+                      : null;
+              const currentPendingLabel = currentPendingType === 'SrDirector' ? 'Sr Director' : currentPendingType;
               
               const isDeveloper = user?.email === 'developer@tovus.net';
               const isInitiatorEditable = ['Pending HOD HR', 'Draft', 'Returned'].includes(record.workflowStatus) && (userId === record.initiator?._id || userId === record.initiator);
@@ -224,22 +249,47 @@ const NonEmployeeOnboarding = () => {
               const canDelete = isInitiatorEditable; // Maintain existing delete logic
 
               const numEmployees = record.employees?.length || 0;
-              const displayName = numEmployees > 0 
-                ? record.employees.map(e => `${e.firstName} ${e.lastName || ''}`.trim()).join(', ')
+              const empName = (e) =>
+                e?.name
+                || [e?.firstName, e?.lastName].filter(Boolean).join(' ').trim()
+                || '—';
+              const empDesignation = (e) => e?.designation || e?.role || '—';
+              const empPackage = (e) => e?.currentPackageMonthly ?? e?.expectedWages;
+              const displayName = numEmployees > 0
+                ? record.employees.map(empName).join(', ')
                 : 'N/A';
-              const displayRole = numEmployees > 0 
-                ? record.employees.map(e => e.role).join(', ')
+              const displayDesignation = numEmployees > 0
+                ? record.employees.map(empDesignation).join(', ')
                 : 'N/A';
-              const displayCnic = numEmployees > 0 
-                ? record.employees.map(e => e.cnic).join(', ')
+              const displayCnic = numEmployees > 0
+                ? record.employees.map((e) => e.cnic).join(', ')
+                : 'N/A';
+              const displayDept = numEmployees > 0
+                ? record.employees.map((e) => e.departmentSubject || '—').join(', ')
+                : 'N/A';
+              const displayProject = numEmployees > 0
+                ? record.employees.map((e) => e.project || '—').join(', ')
+                : 'N/A';
+              const displayLocation = numEmployees > 0
+                ? record.employees.map((e) => e.location || '—').join(', ')
+                : 'N/A';
+              const displayPackage = numEmployees > 0
+                ? record.employees.map((e) => {
+                    const n = Number(empPackage(e) || 0);
+                    return n ? n.toLocaleString('en-PK') : '—';
+                  }).join(', ')
                 : 'N/A';
 
               return (
                 <TableRow key={record._id}>
                   <TableCell>{record.recordNumber}</TableCell>
                   <TableCell>{displayName}</TableCell>
-                  <TableCell>{displayRole}</TableCell>
                   <TableCell>{displayCnic}</TableCell>
+                  <TableCell>{displayDesignation}</TableCell>
+                  <TableCell>{displayDept}</TableCell>
+                  <TableCell>{displayProject}</TableCell>
+                  <TableCell>{displayLocation}</TableCell>
+                  <TableCell align="right">{displayPackage}</TableCell>
                   <TableCell>
                   <Chip 
                     label={record.workflowStatus} 
@@ -273,7 +323,7 @@ const NonEmployeeOnboarding = () => {
                           size="small" 
                           onClick={() => openApproveDialog(record, currentPendingType)}
                         >
-                          Approve ({currentPendingType})
+                          Approve ({currentPendingLabel})
                         </Button>
                         <Button 
                           variant="contained" 
@@ -322,7 +372,7 @@ const NonEmployeeOnboarding = () => {
           })}
             {records.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} align="center">
+                <TableCell colSpan={11} align="center">
                   {loading ? 'Loading...' : 'No records found.'}
                 </TableCell>
               </TableRow>
@@ -438,64 +488,64 @@ const NonEmployeeOnboarding = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={viewDialog.open} onClose={() => setViewDialog({ open: false, record: null })} maxWidth="md" fullWidth>
+      <Dialog open={viewDialog.open} onClose={() => setViewDialog({ open: false, record: null })} maxWidth="xl" fullWidth>
         <DialogTitle sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05), borderBottom: '1px solid', borderColor: 'divider', fontWeight: 700 }}>
           Non-Employee Batch Record Details - {viewDialog.record?.recordNumber}
         </DialogTitle>
-        <DialogContent sx={{ p: { xs: 2, md: 4 } }}>
+        <DialogContent sx={{ p: { xs: 2, md: 3 } }}>
           <Box mb={4}>
-            <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
-              Employees Included ({viewDialog.record?.employees?.length || 0})
+            <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1.5 }}>
+              Candidates recommended for hiring ({viewDialog.record?.employees?.length || 0})
             </Typography>
-            {viewDialog.record?.employees?.map((emp, index) => (
-              <Paper key={index} variant="outlined" sx={{ p: 2.5, borderRadius: 2, mb: 2 }}>
-                <Typography variant="subtitle2" color="primary" gutterBottom>
-                  Record #{index + 1}
-                </Typography>
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={6}>
-                    <Box display="flex" flexDirection="column" gap={2}>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Full Name</Typography>
-                        <Typography variant="body1" fontWeight={600}>{emp.firstName} {emp.lastName}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">CNIC</Typography>
-                        <Typography variant="body1">{emp.cnic}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Role / Designation</Typography>
-                        <Typography variant="body1">{emp.role}</Typography>
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Box display="flex" flexDirection="column" gap={2}>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Phone</Typography>
-                        <Typography variant="body1">{emp.phone || 'N/A'}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Address</Typography>
-                        <Typography variant="body1">{emp.address || 'N/A'}</Typography>
-                      </Box>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">Expected Wages</Typography>
-                        <Typography variant="body1" color="success.main" fontWeight={700}>
-                          {emp.expectedWages ? `${Number(emp.expectedWages).toLocaleString()} PKR` : '0 PKR'}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Box p={1.5} bgcolor={alpha(theme.palette.info.main, 0.05)} borderRadius={1} border={`1px solid ${alpha(theme.palette.info.main, 0.2)}`}>
-                      <Typography variant="caption" color="text.secondary" display="block" mb={0.5}>Justification / Remarks</Typography>
-                      <Typography variant="body2">{emp.justification || 'No justification provided.'}</Typography>
-                    </Box>
-                  </Grid>
-                </Grid>
-              </Paper>
-            ))}
+            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 1000 }}>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                    <TableCell><b>Name</b></TableCell>
+                    <TableCell><b>CNIC/Passport No.</b></TableCell>
+                    <TableCell><b>Designation</b></TableCell>
+                    <TableCell><b>Department/Subject</b></TableCell>
+                    <TableCell><b>Project</b></TableCell>
+                    <TableCell><b>Location</b></TableCell>
+                    <TableCell align="right"><b>Current Package Monthly</b></TableCell>
+                    <TableCell><b>Tentative DOJ</b></TableCell>
+                    <TableCell><b>Remark</b></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {(viewDialog.record?.employees || []).map((emp, index) => {
+                    const name = emp.name || [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || '—';
+                    const designation = emp.designation || emp.role || '—';
+                    const pkg = emp.currentPackageMonthly ?? emp.expectedWages;
+                    const doj = emp.tentativeDoj
+                      ? new Date(emp.tentativeDoj).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                      : '—';
+                    return (
+                      <TableRow key={index}>
+                        <TableCell>{name}</TableCell>
+                        <TableCell>{emp.cnic || '—'}</TableCell>
+                        <TableCell>{designation}</TableCell>
+                        <TableCell>{emp.departmentSubject || '—'}</TableCell>
+                        <TableCell>{emp.project || '—'}</TableCell>
+                        <TableCell>{emp.location || '—'}</TableCell>
+                        <TableCell align="right">
+                          {pkg != null && Number(pkg) !== 0
+                            ? `${Number(pkg).toLocaleString('en-PK')} PKR`
+                            : '—'}
+                        </TableCell>
+                        <TableCell>{doj}</TableCell>
+                        <TableCell>{emp.remark || emp.justification || '—'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {(!viewDialog.record?.employees || viewDialog.record.employees.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={9} align="center">No candidates</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
           </Box>
 
 
@@ -506,7 +556,7 @@ const NonEmployeeOnboarding = () => {
               </Typography>
               <Grid container spacing={4}>
                 {/* HOD HR Approval */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>HOD HR</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -530,7 +580,7 @@ const NonEmployeeOnboarding = () => {
                 </Grid>
 
                 {/* AVP Approval */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>AVP (Taj Fahad Farid)</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -554,7 +604,7 @@ const NonEmployeeOnboarding = () => {
                 </Grid>
 
                 {/* Chairman Approval */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>Chairman Steering Committee</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -577,8 +627,32 @@ const NonEmployeeOnboarding = () => {
                   </Box>
                 </Grid>
 
+                {/* Sr Director Approval */}
+                <Grid item xs={12} sm={6} md={4}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>Sr Director (Hamza Tanveer)</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                      {viewDialog.record?.srDirectorApprovedBy ? `${viewDialog.record.srDirectorApprovedBy.firstName || ''} ${viewDialog.record.srDirectorApprovedBy.lastName || ''}`.trim() || viewDialog.record.srDirectorApprovedBy.email || 'Approved' : 'Pending'}
+                    </Typography>
+                    {viewDialog.record?.srDirectorApprovedAt && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        {formatDateTime(viewDialog.record.srDirectorApprovedAt)}
+                      </Typography>
+                    )}
+                    {viewDialog.record?.srDirectorSignature ? (
+                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
+                        <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.record.srDirectorSignature }} alt="Sr Director Signature" />
+                      </Box>
+                    ) : (
+                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
+                        <Typography variant="caption" color="text.disabled">No Signature</Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Grid>
+
                 {/* CEO Approval */}
-                <Grid item xs={12} sm={6} md={3}>
+                <Grid item xs={12} sm={6} md={4}>
                   <Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>CEO Secretariat</Typography>
                     <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>

@@ -37,6 +37,14 @@ const nonEmployeeService = {
     return api.put(`/hr/non-employees/${id}/reject-hod`, payload);
   },
 
+  approveBySrDirector: async (id, payload = {}) => {
+    return api.put(`/hr/non-employees/${id}/approve-sr-director`, payload);
+  },
+
+  rejectBySrDirector: async (id, payload = {}) => {
+    return api.put(`/hr/non-employees/${id}/reject-sr-director`, payload);
+  },
+
   approveByAVP: async (id, payload = {}) => {
     return api.put(`/hr/non-employees/${id}/approve-avp`, payload);
   },

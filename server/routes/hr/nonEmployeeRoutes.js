@@ -40,6 +40,10 @@ router.put('/:id/return-ceo', nonEmployeeController.returnByCEO);
 router.put('/:id/approve-hod', nonEmployeeController.approveByHOD);
 router.put('/:id/reject-hod', nonEmployeeController.rejectByHOD);
 
+// Sr Director Approval
+router.put('/:id/approve-sr-director', nonEmployeeController.approveBySrDirector);
+router.put('/:id/reject-sr-director', nonEmployeeController.rejectBySrDirector);
+
 // AVP Approval
 router.put('/:id/approve-avp', nonEmployeeController.approveByAVP);
 router.put('/:id/reject-avp', nonEmployeeController.rejectByAVP);

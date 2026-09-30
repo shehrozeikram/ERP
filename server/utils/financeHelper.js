@@ -293,7 +293,7 @@ const FinanceHelper = {
         const resolvedDeptString = await FinanceHelper.resolveDepartmentStringFromId(rawDept);
 
         ledgerEntries.push({
-          companyId: currentAccount.companyId || entry.companyId || null,
+          companyId: entry.companyId || currentAccount.companyId || null,
           journalEntry: entry._id,
           account: accountRef,
           date: entry.date,
@@ -1326,6 +1326,7 @@ const FinanceHelper = {
         createdBy,
         whtRate = 0,
         bankAccountId,
+        relatedPartyAccountId = null,
         payingCompanyId: optsPayingCompanyId = null,
         financeApprovalAuthorities,
         batchId,
@@ -1410,21 +1411,199 @@ const FinanceHelper = {
       const A_paying = acct(payingCompanyId);
 
       const apAccount = await A_target.resolve(FinanceHelper.ACCOUNTS.PAYABLE);
-      let bankAccount = bankAccountId ? await A_paying.map(bankAccountId) : null;
-      if (!bankAccount) {
+
+      // Bank/cash always from Paying company (exact id — no cross-company remap by number)
+      let bankAccount = null;
+      if (bankAccountId) {
+        bankAccount = await Account.findById(bankAccountId).lean();
+        if (!bankAccount) throw new Error('Selected Pay From (bank/cash) account was not found.');
+        if (bankAccount.companyId && String(bankAccount.companyId) !== String(payingCompanyId)) {
+          throw new Error('Pay From Account must be a bank/cash account on the Paying company.');
+        }
+      } else if (!isIntercompany) {
         bankAccount = await A_paying.resolve(
           paymentMethod === 'cash' ? FinanceHelper.ACCOUNTS.CASH : FinanceHelper.ACCOUNTS.BANK
         );
+      }
+
+      // Related party always from original (bill) company when IC
+      let relatedPartyAccount = null;
+      if (relatedPartyAccountId) {
+        relatedPartyAccount = await Account.findById(relatedPartyAccountId).lean();
+        if (!relatedPartyAccount) {
+          throw new Error('Selected Related Party Account was not found.');
+        }
+      }
+
+      const { isRelatedPartyPayFromAccount, findExistingRelatedPartyAccount } = require('./financePosting');
+
+      if (isIntercompany) {
+        if (!bankAccountId || !bankAccount) {
+          throw new Error('Select Pay From Account (bank/cash on the Paying company).');
+        }
+        if (!relatedPartyAccountId || !relatedPartyAccount) {
+          throw new Error('Select Related Party Account on the original (bill) company.');
+        }
+        if (String(relatedPartyAccount.companyId) !== String(companyId)) {
+          throw new Error('Related Party Account must belong to the original (bill) company.');
+        }
+        if (!(await isRelatedPartyPayFromAccount(relatedPartyAccount))) {
+          throw new Error('Related Party Account must be under Payable to Related Parties on the original company.');
+        }
       }
 
       if (!apAccount || !bankAccount) {
         const missing = [];
         if (!apAccount) missing.push('AP account (2001)');
         if (!bankAccount) {
-          if (bankAccountId) missing.push(`Bank/Cash account (ID: ${bankAccountId})`);
+          if (bankAccountId) missing.push(`Pay From account (ID: ${bankAccountId})`);
           else missing.push(`Bank/Cash account (${paymentMethod === 'cash' ? '1001' : '1002'})`);
         }
         throw new Error(`${missing.join(' and ')} not found. Please ensure these accounts exist in the Chart of Accounts.`);
+      }
+
+      if (isIntercompany) {
+        // Dual vouchers (no auto-create COA):
+        // 1) Original/bill company JV: DR AP · CR Related Party (user-selected)
+        // 2) Paying company BPV/CPV: DR Related Party (existing for bill co) · CR Bank
+        const PlacementCompany = mongoose.model('PlacementCompany');
+        const [billCoDoc, payingCoDoc] = await Promise.all([
+          PlacementCompany.findById(companyId).select('name').lean(),
+          PlacementCompany.findById(payingCompanyId).select('name').lean()
+        ]);
+        const billName = billCoDoc?.name || 'Bill company';
+        const payingName = payingCoDoc?.name || 'Paying company';
+
+        const payingRelatedParty = await findExistingRelatedPartyAccount(
+          payingCompanyId,
+          billName
+        );
+        if (!payingRelatedParty) {
+          throw new Error(
+            'Paying company needs an existing Payable to Related Parties account for the bill company. Set it up in Chart of Accounts — nothing is auto-created.'
+          );
+        }
+
+        const billCompanyLines = [];
+        for (const item of billObjects) {
+          billCompanyLines.push({
+            account: apAccount._id,
+            description: `Payment to ${item.bill.vendor?.name || 'Vendor'} – ${item.bill.billNumber}`,
+            debit: item.amount,
+            department: item.bill.department
+          });
+        }
+        billCompanyLines.push({
+          account: relatedPartyAccount._id,
+          description: `Due to ${payingName} — intercompany bill settlement for ${vendorName}`,
+          credit: totalAmount,
+          department: departmentId
+        });
+
+        const payingCompanyLines = [
+          {
+            account: payingRelatedParty._id,
+            description: `Due from ${billName} — bill payment paid on their behalf for ${vendorName}`,
+            debit: totalAmount,
+            department: departmentId
+          },
+          {
+            account: bankAccount._id,
+            description: `Bank payment – intercompany for ${billName} / ${vendorName}`,
+            credit: netBankAmount,
+            department: departmentId
+          }
+        ];
+
+        if (whtAmount > 0) {
+          const whtAccount = await A_paying.resolve('2004') || await A_target.resolve('2004');
+          if (whtAccount) {
+            payingCompanyLines.push({
+              account: whtAccount._id,
+              description: `WHT @ ${whtRate}% on ${vendorName}`,
+              credit: whtAmount,
+              department: departmentId
+            });
+          } else {
+            payingCompanyLines[payingCompanyLines.length - 1].credit = totalAmount;
+          }
+        }
+
+        const authorities = await ApPayment.resolvePaymentFinanceAuthorities(
+          billObjects[0].bill,
+          financeApprovalAuthorities,
+          createdBy
+        );
+
+        const narrationText = narration || `Batch Payment – ${vendorName} (Intercompany Settlement)`;
+
+        const { application, journalEntry, payingJournalEntry } = await ApPayment.submitBatchSettlement({
+          bills: billObjects,
+          sourceType: 'bank_payment',
+          createdBy,
+          financeApprovalAuthorities: authorities,
+          // Voucher 1 — ONLY original/bill company (do not set payingCompanyId or it appears under paying co. list)
+          journalPayload: withVoucherNarration({
+            companyId,
+            date: date || new Date(),
+            reference: reference || '',
+            description: `${narrationText} — original company (paid by ${payingName})`,
+            department: departmentId,
+            costCenter: costCenter || null,
+            module: billObjects[0].bill.module,
+            referenceType: 'payment',
+            journalCode: 'BANK',
+            voucherSeries: 'JV',
+            lines: billCompanyLines
+          }, narrationText),
+          // Voucher 2 — ONLY paying company
+          payingJournalPayload: withVoucherNarration({
+            companyId: payingCompanyId,
+            date: date || new Date(),
+            reference: reference || '',
+            description: `${narrationText} — paying company for ${billName}`,
+            department: departmentId,
+            costCenter: costCenter || null,
+            module: billObjects[0].bill.module,
+            referenceType: 'payment',
+            journalCode: 'BANK',
+            voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
+            lines: payingCompanyLines
+          }, narrationText),
+          paymentMeta: {
+            paymentMethod,
+            reference: reference || '',
+            batchId: batchId || null,
+            whtRate,
+            bankAccountId: bankAccount._id,
+            relatedPartyAccountId: relatedPartyAccount._id,
+            payingCompanyId
+          }
+        });
+
+        // Hard-pin each voucher to its company (never let both land on paying company)
+        if (!journalEntry.companyId || String(journalEntry.companyId) !== String(companyId)) {
+          journalEntry.companyId = companyId;
+          journalEntry.payingCompanyId = undefined;
+          await journalEntry.save();
+        } else if (journalEntry.payingCompanyId) {
+          journalEntry.payingCompanyId = undefined;
+          await journalEntry.save();
+        }
+        if (
+          payingJournalEntry
+          && (!payingJournalEntry.companyId || String(payingJournalEntry.companyId) !== String(payingCompanyId))
+        ) {
+          payingJournalEntry.companyId = payingCompanyId;
+          await payingJournalEntry.save();
+        }
+
+        return {
+          success: true,
+          applicationId: application._id,
+          journalEntryId: journalEntry._id,
+          payingJournalEntryId: payingJournalEntry?._id || null
+        };
       }
 
       const lines = [];
@@ -1438,61 +1617,20 @@ const FinanceHelper = {
         });
       }
 
-      if (isIntercompany) {
-        const { resolveIntercompanyAccounts } = require('./financePosting');
-        const { icTargetAcc, icPayingAcc } = await resolveIntercompanyAccounts({
-          targetCompanyId: companyId,
-          payingCompanyId,
-          createdBy
-        });
+      // Standard Same-Company Payment
+      lines.push({
+        account: bankAccount._id,
+        description: `Bank payment – Batch Payment (pending signatures)`,
+        credit: netBankAmount,
+        department: departmentId
+      });
 
-        // Credit Intercompany Clearing on Target company ledger to balance the AP Debit
-        lines.push({
-          account: icTargetAcc._id,
-          description: `Intercompany Settlement via paying bank account`,
-          credit: totalAmount,
-          department: departmentId
-        });
-
-        // Credit Paying Bank Account on Paying company ledger
-        lines.push({
-          account: bankAccount._id,
-          description: `Bank payment – Batch Payment (intercompany for ${vendorName})`,
-          credit: netBankAmount,
-          department: departmentId
-        });
-
-        if (whtAmount > 0) {
-          const whtAccount = await A_paying.resolve('2004') || await A_target.resolve('2004');
-          if (whtAccount) {
-            lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${vendorName}`, credit: whtAmount, department: departmentId });
-          } else {
-            lines[lines.length - 1].credit = totalAmount;
-          }
-        }
-
-        lines.push({
-          account: icPayingAcc._id,
-          description: `Intercompany Receivable for bill payment paid on behalf of company`,
-          debit: totalAmount,
-          department: departmentId
-        });
-      } else {
-        // Standard Same-Company Payment
-        lines.push({
-          account: bankAccount._id,
-          description: `Bank payment – Batch Payment (pending signatures)`,
-          credit: netBankAmount,
-          department: departmentId
-        });
-
-        if (whtAmount > 0) {
-          const whtAccount = await A_target.resolve('2004');
-          if (whtAccount) {
-            lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${vendorName}`, credit: whtAmount, department: departmentId });
-          } else {
-            lines[lines.length - 1].credit = totalAmount;
-          }
+      if (whtAmount > 0) {
+        const whtAccount = await A_target.resolve('2004');
+        if (whtAccount) {
+          lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${vendorName}`, credit: whtAmount, department: departmentId });
+        } else {
+          lines[lines.length - 1].credit = totalAmount;
         }
       }
 
@@ -1510,7 +1648,7 @@ const FinanceHelper = {
         journalPayload: withVoucherNarration(withCompany({
           date: date || new Date(),
           reference: reference || '',
-          description: narration || `Batch Payment – ${vendorName}${isIntercompany ? ' (Intercompany Settlement)' : ''} (pending finance signatures)`,
+          description: narration || `Batch Payment – ${vendorName} (pending finance signatures)`,
           department: departmentId,
           costCenter: costCenter || null,
           module: billObjects[0].bill.module,
@@ -1526,6 +1664,7 @@ const FinanceHelper = {
           batchId: batchId || null,
           whtRate,
           bankAccountId: bankAccount ? bankAccount._id : null,
+          relatedPartyAccountId: relatedPartyAccount ? relatedPartyAccount._id : null,
           payingCompanyId: payingCompanyId || null
         }
       });

@@ -27,9 +27,13 @@ const apPaymentApplicationSchema = new mongoose.Schema({
     batchId: { type: String, trim: true },
     whtRate: { type: Number, default: 0 },
     bankAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
+    relatedPartyAccountId: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
+    payingCompanyId: { type: mongoose.Schema.Types.ObjectId, ref: 'PlacementCompany' },
     allocations: [{ grnId: mongoose.Schema.Types.ObjectId, amount: Number }]
   },
   journalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry', required: true, index: true },
+  /** Paying-company bank voucher when intercompany (separate from journalEntryId on bill company) */
+  payingJournalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry', default: null, index: true },
   workflowStatus: {
     type: String,
     enum: ['pending_authority', 'fully_approved', 'rejected'],
