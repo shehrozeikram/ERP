@@ -1966,7 +1966,7 @@ const PurchaseOrders = () => {
                   fontFamily: 'Arial, sans-serif',
                   '@media print': {
                     boxShadow: 'none',
-                    p: 1.25,
+                    p: '5mm 7mm',
                     maxWidth: '100%',
                     backgroundColor: '#fff',
                     mx: 0,
@@ -1982,9 +1982,10 @@ const PurchaseOrders = () => {
                   align="center"
                   sx={{
                     textTransform: 'uppercase',
-                    mb: 3,
-                    fontSize: { xs: '1.8rem', print: '1.6rem' },
-                    letterSpacing: 1
+                    mb: 1.25,
+                    fontSize: { xs: '1.35rem', print: '1.1rem' },
+                    letterSpacing: 0.5,
+                    '@media print': { mb: 0.6 }
                   }}
                 >
                   Purchase Order
@@ -2298,7 +2299,7 @@ const PurchaseOrders = () => {
                 )}
 
                 {/* Signatures Section */}
-                <Box sx={{ mt: 4, pt: 2 }}>
+                <Box sx={{ mt: 1.5, pt: 0.5, '@media print': { mt: 0.75 } }}>
                   {(() => {
                     const approvals = viewDialog.data.indent?.comparativeStatementApprovals || {};
                     const rows = [
@@ -2363,14 +2364,39 @@ const PurchaseOrders = () => {
                     };
                     let legacyAuthorityApplied = false;
                     return (
-                      <TableContainer component={Box} sx={{ border: '1px solid', borderColor: 'divider' }}>
-                        <Table size="small">
+                      <>
+                      <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.35, fontSize: '0.72rem', color: '#1e293b', '@media print': { fontSize: '10px', mb: 0.25 } }}>
+                        Finance Document Approval Authority
+                      </Typography>
+                      <TableContainer component={Box} sx={{ border: '1.5px solid #334155' }}>
+                        <Table
+                          size="small"
+                          sx={{
+                            '& th': {
+                              bgcolor: '#f1f5f9',
+                              fontWeight: 800,
+                              fontSize: 12,
+                              border: '1px solid #cbd5e1',
+                              py: 0.4,
+                              px: 0.8,
+                              '@media print': { py: 0.25, px: 0.5, fontSize: '9.5px' }
+                            },
+                            '& td': {
+                              fontSize: 12,
+                              border: '1px solid #cbd5e1',
+                              py: 0.35,
+                              px: 0.8,
+                              verticalAlign: 'middle',
+                              '@media print': { py: 0.2, px: 0.5, fontSize: '9.5px' }
+                            }
+                          }}
+                        >
                           <TableHead>
-                            <TableRow sx={{ bgcolor: 'grey.100' }}>
-                              <TableCell sx={{ fontWeight: 700 }}>Authority</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Digital Signature</TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>Date & Time</TableCell>
+                            <TableRow>
+                              <TableCell>Authority</TableCell>
+                              <TableCell>Name</TableCell>
+                              <TableCell align="center">Digital Signature</TableCell>
+                              <TableCell>Date & Time</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
@@ -2386,15 +2412,17 @@ const PurchaseOrders = () => {
                               const actedAt = authorityApproval?.approvedAt || (isLegacyApproved ? authorityApprovedAt : null);
                               return (
                                 <TableRow key={row.key}>
-                                  <TableCell sx={{ fontWeight: 600 }}>{row.label}</TableCell>
+                                  <TableCell sx={{ fontWeight: 800 }}>{row.label}</TableCell>
                                   <TableCell>{row.fallback || (authorityUser ? approverLabel(authorityUser) : '—')}</TableCell>
                                   <TableCell align="center">
                                     {isApprovedRow && signatureUser?.digitalSignature ? (
-                                      <DigitalSignatureImage userOrPath={signatureUser} alt={`Signature ${row.label}`} />
+                                      <Box sx={{ maxHeight: 24, display: 'flex', justifyContent: 'center', '& img': { maxHeight: 24, width: 'auto', objectFit: 'contain' }, '@media print': { maxHeight: 20, '& img': { maxHeight: 20 } } }}>
+                                        <DigitalSignatureImage userOrPath={signatureUser} alt={`Signature ${row.label}`} sx={{ maxHeight: 24, maxWidth: 90, '@media print': { maxHeight: 20, maxWidth: 80 } }} />
+                                      </Box>
                                     ) : isApprovedRow ? (
-                                      <Typography variant="caption" color="text.secondary">Approved (no signature)</Typography>
+                                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', '@media print': { fontSize: '9px' } }}>Approved</Typography>
                                     ) : (
-                                      <Typography variant="caption" color="text.secondary">—</Typography>
+                                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', '@media print': { fontSize: '9px' } }}>—</Typography>
                                     )}
                                   </TableCell>
                                   <TableCell>{actedAt ? formatDateTime(actedAt) : '—'}</TableCell>
@@ -2404,6 +2432,7 @@ const PurchaseOrders = () => {
                           </TableBody>
                         </Table>
                       </TableContainer>
+                      </>
                     );
                   })()}
                   <ProcurementDigitalSignaturesRow purchaseOrder={viewDialog.data} />
@@ -2737,25 +2766,36 @@ const PurchaseOrders = () => {
               }
               .po-print-page table th,
               .po-print-page table td {
-                padding-top: 6px !important;
-                padding-bottom: 6px !important;
+                padding-top: 2px !important;
+                padding-bottom: 2px !important;
+                font-size: 9.5px !important;
+                line-height: 1.2 !important;
+              }
+              .finance-po-print-page,
+              .finance-po-print-page * {
+                font-size: inherit;
+              }
+              .finance-po-items-table th,
+              .finance-po-items-table td {
+                padding: 2px 3px !important;
+                font-size: 9.5px !important;
               }
               .comparative-table {
-                font-size: 0.7rem !important;
+                font-size: 0.65rem !important;
               }
               .comparative-table th,
               .comparative-table td {
-                padding: 4px 4px !important;
-                font-size: 0.7rem !important;
-                line-height: 1.2 !important;
+                padding: 2px 3px !important;
+                font-size: 0.65rem !important;
+                line-height: 1.15 !important;
               }
               .comparative-table thead th {
-                padding: 6px 4px !important;
+                padding: 3px 3px !important;
               }
               .terms-table th,
               .terms-table td {
-                padding: 4px 4px !important;
-                font-size: 0.7rem !important;
+                padding: 2px 3px !important;
+                font-size: 0.65rem !important;
               }
               .signature-cell {
                 padding: 10px 5px !important;

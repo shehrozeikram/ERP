@@ -456,6 +456,17 @@ const accountsPayableSchema = new mongoose.Schema({
     digitalSignature: String,
     stampPosition: String
   }],
+  /** Chart of Accounts / vendor bill finance approval chain (Sr Manager Finance, GM Finance, …) */
+  financeApprovalAuthorities: [{
+    levelKey: { type: String, trim: true },
+    levelName: { type: String, trim: true },
+    assignedUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    userName: { type: String, trim: true },
+    status: { type: String, trim: true, default: 'pending' },
+    actedAt: Date,
+    digitalSignature: String,
+    comments: String
+  }],
   observations: [{
     observation: String,
     severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },

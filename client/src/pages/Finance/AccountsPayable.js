@@ -2415,35 +2415,53 @@ const AccountsPayable = () => {
                     {!selectedBill?.poDetail?.po ? (
                       <Typography color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>No Purchase Order linked to this Vendor Bill.</Typography>
                     ) : (
-                      <Paper sx={{ p: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', fontFamily: 'Arial, sans-serif' }}>
-                        <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 3 }}>Purchase Order</Typography>
-                        <Box sx={{ mb: 2.5 }}>
-                          <Typography variant="h6" fontWeight={600} sx={{ mb: 1 }}>Residencia</Typography>
-                          <Typography variant="body2">1st Avenue 18 4 Islamabad</Typography>
-                          <Typography variant="body2">1. Het Sne 1-8. Islamabad.</Typography>
+                      <Paper
+                        className="finance-po-print-page"
+                        sx={{
+                          p: 2,
+                          maxWidth: '210mm',
+                          mx: 'auto',
+                          backgroundColor: '#fff',
+                          boxShadow: 'none',
+                          fontFamily: 'Arial, sans-serif',
+                          '@media print': { p: '5mm 7mm', pageBreakInside: 'avoid', breakInside: 'avoid' }
+                        }}
+                      >
+                        <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1, fontSize: { xs: '1.25rem', print: '1.05rem' }, '@media print': { mb: 0.5 } }}>Purchase Order</Typography>
+                        <Box sx={{ mb: 0.75, '@media print': { mb: 0.4 } }}>
+                          <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.9rem', '@media print': { fontSize: '0.78rem' } }}>Residencia</Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>1st Avenue 18 4 Islamabad</Typography>
+                          <Typography variant="body2" sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>1. Het Sne 1-8. Islamabad.</Typography>
                         </Box>
-                        <Divider sx={{ my: 2.5 }} />
-                        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 3, flexWrap: 'wrap' }}>
-                          <Box sx={{ width: { xs: '100%', md: '45%' }, fontSize: '0.9rem' }}>
-                            <Typography variant="h6" fontWeight={600} sx={{ mb: 1 }}>{selectedBill.poDetail.po.vendor?.name || 'Vendor Name'}</Typography>
-                            <Typography variant="body2" sx={{ mb: 2 }}>{typeof selectedBill.poDetail.po.vendor?.address === 'string' ? selectedBill.poDetail.po.vendor.address : (selectedBill.poDetail.po.vendor?.address ? Object.values(selectedBill.poDetail.po.vendor.address).filter(Boolean).join(', ') : 'Vendor Address')}</Typography>
+                        <Divider sx={{ my: 0.75, '@media print': { my: 0.4 } }} />
+                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap', '@media print': { mb: 0.6 } }}>
+                          <Box sx={{ width: { xs: '100%', md: '45%' }, fontSize: '0.78rem', '@media print': { fontSize: '0.68rem' } }}>
+                            <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.85rem', '@media print': { fontSize: '0.74rem' } }}>{selectedBill.poDetail.po.vendor?.name || 'Vendor Name'}</Typography>
+                            <Typography variant="body2" sx={{ mb: 0.75, fontSize: 'inherit', lineHeight: 1.3 }}>{typeof selectedBill.poDetail.po.vendor?.address === 'string' ? selectedBill.poDetail.po.vendor.address : (selectedBill.poDetail.po.vendor?.address ? Object.values(selectedBill.poDetail.po.vendor.address).filter(Boolean).join(', ') : 'Vendor Address')}</Typography>
                             <Box>
-                              <Typography component="span" fontWeight={600}>Indent Details: </Typography>
-                              <Typography component="span">Indent# {selectedBill.poDetail.po.indent?.indentNumber || selectedBill.poDetail.indent?.indentNumber || 'N/A'} Dated. {formatDateForPrint(selectedBill.poDetail.po.indent?.requestedDate || selectedBill.poDetail.indent?.requestedDate) || 'N/A'}.
+                              <Typography component="span" fontWeight={600} sx={{ fontSize: 'inherit' }}>Indent Details: </Typography>
+                              <Typography component="span" sx={{ fontSize: 'inherit' }}>Indent# {selectedBill.poDetail.po.indent?.indentNumber || selectedBill.poDetail.indent?.indentNumber || 'N/A'} Dated. {formatDateForPrint(selectedBill.poDetail.po.indent?.requestedDate || selectedBill.poDetail.indent?.requestedDate) || 'N/A'}.
                                 {selectedBill.poDetail.po.indent?.title && ` ${selectedBill.poDetail.po.indent.title}.`}
                                 {selectedBill.poDetail.indent?.requestedBy && ` End User. ${selectedBill.poDetail.indent.requestedBy.firstName || ''} ${selectedBill.poDetail.indent.requestedBy.lastName || selectedBill.poDetail.indent.requestedBy.name || ''}`}
                               </Typography>
                             </Box>
                           </Box>
-                          <Box sx={{ width: { xs: '100%', md: '50%' }, fontSize: '0.9rem' }}>
-                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>P.O No.:</Typography><Typography component="span">{selectedBill.poDetail.po.orderNumber || 'N/A'}</Typography></Box>
-                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>Date:</Typography><Typography component="span">{formatDateForPrint(selectedBill.poDetail.po.orderDate)}</Typography></Box>
-                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>Delivery Date:</Typography><Typography component="span">{formatDateForPrint(selectedBill.poDetail.po.expectedDeliveryDate) || '—'}</Typography></Box>
-                            <Box sx={{ display: 'flex', mb: 0.5 }}><Typography component="span" sx={{ minWidth: 140, fontWeight: 600 }}>Delivery Address:</Typography><Typography component="span">{selectedBill.poDetail.po.deliveryAddress || '—'}</Typography></Box>
+                          <Box sx={{ width: { xs: '100%', md: '50%' }, fontSize: '0.78rem', '@media print': { fontSize: '0.68rem' } }}>
+                            <Box sx={{ display: 'flex', mb: 0.15 }}><Typography component="span" sx={{ minWidth: 120, fontWeight: 600, fontSize: 'inherit' }}>P.O No.:</Typography><Typography component="span" sx={{ fontSize: 'inherit' }}>{selectedBill.poDetail.po.orderNumber || 'N/A'}</Typography></Box>
+                            <Box sx={{ display: 'flex', mb: 0.15 }}><Typography component="span" sx={{ minWidth: 120, fontWeight: 600, fontSize: 'inherit' }}>Date:</Typography><Typography component="span" sx={{ fontSize: 'inherit' }}>{formatDateForPrint(selectedBill.poDetail.po.orderDate)}</Typography></Box>
+                            <Box sx={{ display: 'flex', mb: 0.15 }}><Typography component="span" sx={{ minWidth: 120, fontWeight: 600, fontSize: 'inherit' }}>Delivery Date:</Typography><Typography component="span" sx={{ fontSize: 'inherit' }}>{formatDateForPrint(selectedBill.poDetail.po.expectedDeliveryDate) || '—'}</Typography></Box>
+                            <Box sx={{ display: 'flex', mb: 0.15 }}><Typography component="span" sx={{ minWidth: 120, fontWeight: 600, fontSize: 'inherit' }}>Delivery Address:</Typography><Typography component="span" sx={{ fontSize: 'inherit' }}>{selectedBill.poDetail.po.deliveryAddress || '—'}</Typography></Box>
                           </Box>
                         </Box>
-                        <TableContainer sx={{ mb: 3, border: '1px solid', borderColor: 'divider' }}>
-                          <Table size="small">
+                        <TableContainer sx={{ mb: 1, border: '1px solid', borderColor: 'divider', '@media print': { mb: 0.5 } }}>
+                          <Table size="small" sx={{
+                            '& th, & td': {
+                              fontSize: '0.7rem',
+                              py: 0.35,
+                              px: 0.5,
+                              '@media print': { fontSize: '9.5px', py: 0.2, px: 0.35 }
+                            }
+                          }}>
                             <TableHead>
                               <TableRow sx={{ bgcolor: 'grey.100' }}>
                                 <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Sr</TableCell>
@@ -2475,23 +2493,45 @@ const AccountsPayable = () => {
                             </TableBody>
                           </Table>
                         </TableContainer>
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
-                          <Typography variant="body1" fontWeight="bold">Total: {formatPKR(selectedBill.poDetail.po.totalAmount)}</Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.75, '@media print': { mb: 0.4 } }}>
+                          <Typography variant="body1" fontWeight="bold" sx={{ fontSize: '0.8rem', '@media print': { fontSize: '0.7rem' } }}>Total: {formatPKR(selectedBill.poDetail.po.totalAmount)}</Typography>
                         </Box>
-                        {/* Approval Authorities for PO */}
-                        <Box sx={{ mt: 3 }}>
-                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-                            Approval Authorities (Purchase Order)
+                        {/* Approval Authorities for PO — compact like vendor bill */}
+                        <Box sx={{ mt: 1, '@media print': { mt: 0.5, pageBreakInside: 'avoid', breakInside: 'avoid' } }}>
+                          <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.35, fontSize: '0.72rem', color: '#1e293b', '@media print': { fontSize: '10px', mb: 0.25 } }}>
+                            Finance Document Approval Authority
                           </Typography>
-                          <TableContainer component={Paper} variant="outlined">
-                            <Table size="small">
+                          <TableContainer>
+                            <Table
+                              size="small"
+                              sx={{
+                                border: '1.5px solid #334155',
+                                '& th': {
+                                  bgcolor: '#f1f5f9',
+                                  fontWeight: 800,
+                                  fontSize: 12,
+                                  border: '1px solid #cbd5e1',
+                                  py: 0.4,
+                                  px: 0.8,
+                                  '@media print': { py: 0.25, px: 0.5, fontSize: '9.5px' }
+                                },
+                                '& td': {
+                                  fontSize: 12,
+                                  border: '1px solid #cbd5e1',
+                                  py: 0.4,
+                                  px: 0.8,
+                                  verticalAlign: 'middle',
+                                  '@media print': { py: 0.2, px: 0.5, fontSize: '9.5px' }
+                                }
+                              }}
+                            >
                               <TableHead>
-                                <TableRow sx={{ bgcolor: 'grey.100' }}>
-                                  <TableCell sx={{ fontWeight: 800 }}>Authority</TableCell>
-                                  <TableCell sx={{ fontWeight: 800 }}>Name</TableCell>
-                                  <TableCell sx={{ fontWeight: 800 }}>Status</TableCell>
-                                  <TableCell sx={{ fontWeight: 800 }}>Date &amp; Time</TableCell>
-                                  <TableCell sx={{ fontWeight: 800 }} align="center">Digital Signature</TableCell>
+                                <TableRow>
+                                  <TableCell>Authority</TableCell>
+                                  <TableCell>Name</TableCell>
+                                  <TableCell>Status</TableCell>
+                                  <TableCell>Date &amp; Time</TableCell>
+                                  <TableCell align="center">Digital Signature</TableCell>
                                 </TableRow>
                               </TableHead>
                               <TableBody>
@@ -2512,15 +2552,15 @@ const AccountsPayable = () => {
 
                                   return rows.map((r, i) => (
                                     <TableRow key={i}>
-                                      <TableCell sx={{ fontWeight: 700 }}>{r.authority}</TableCell>
+                                      <TableCell sx={{ fontWeight: 800 }}>{r.authority}</TableCell>
                                       <TableCell>{r.name}</TableCell>
-                                      <TableCell>
-                                        <Chip size="small" label={r.status} color={r.status === 'Approved' || r.status === 'Created' ? 'success' : 'default'} variant="outlined" />
-                                      </TableCell>
+                                      <TableCell>{r.status}</TableCell>
                                       <TableCell>{r.dateTime}</TableCell>
                                       <TableCell align="center">
                                         {(r.stampPath || r.user?.digitalSignature) ? (
-                                          <DigitalSignatureImage userOrPath={r.stampPath || r.user} alt={`${r.authority} signature`} />
+                                          <Box sx={{ maxHeight: 24, display: 'flex', justifyContent: 'center', alignItems: 'center', '& img': { maxHeight: 24, width: 'auto', objectFit: 'contain' }, '@media print': { maxHeight: 20, '& img': { maxHeight: 20 } } }}>
+                                            <DigitalSignatureImage userOrPath={r.stampPath || r.user} alt={`${r.authority} signature`} sx={{ maxHeight: 24, maxWidth: 90, '@media print': { maxHeight: 20, maxWidth: 80 } }} />
+                                          </Box>
                                         ) : (
                                           '-'
                                         )}

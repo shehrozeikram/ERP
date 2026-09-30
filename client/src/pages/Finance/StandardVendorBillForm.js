@@ -56,6 +56,26 @@ import toast from 'react-hot-toast';
 import { formatPKR } from '../../utils/currency';
 import { useAuth } from '../../contexts/AuthContext';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+import {
+  fetchFinanceAuthorityCandidates,
+  userOptionLabel,
+  userOptionSecondary
+} from '../../services/financeApprovalAuthorityService';
+
+const SR_MANAGER_FINANCE_NAME = 'Muhammad Iftikhar Rashid';
+const GM_FINANCE_NAME = 'Faisal Farooq';
+
+const matchUserByName = (list, targetName) => {
+  const target = String(targetName || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!target) return null;
+  const targetParts = target.split(' ').filter(Boolean);
+  return (list || []).find((user) => {
+    const full = `${user.firstName || ''} ${user.lastName || ''}`.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (full === target) return true;
+    if (targetParts.every((part) => full.includes(part))) return true;
+    return false;
+  }) || null;
+};
 
 const vendorFilterOptions = createFilterOptions({
   stringify: (option) => `${option.name} ${option.phone || ''} ${option.email || ''} ${option.ntnCnic || ''} ${option.supplierId || ''}`.trim(),
@@ -208,6 +228,31 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
   // Form submitting
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [financeAuthorityCandidates, setFinanceAuthorityCandidates] = useState([]);
+  const [billFinAuth, setBillFinAuth] = useState({
+    srManagerFinance: null,
+    gmFinance: null
+  });
+
+  // Prefill Chart of Accounts bill authorities: Sr Manager Finance + GM Finance
+  useEffect(() => {
+    let cancelled = false;
+    fetchFinanceAuthorityCandidates()
+      .then((list) => {
+        if (cancelled) return;
+        setFinanceAuthorityCandidates(list);
+        const iftikhar = matchUserByName(list, SR_MANAGER_FINANCE_NAME);
+        const faisal = matchUserByName(list, GM_FINANCE_NAME);
+        setBillFinAuth((prev) => ({
+          srManagerFinance: prev.srManagerFinance || iftikhar || null,
+          gmFinance: prev.gmFinance || faisal || null
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) setFinanceAuthorityCandidates([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Auto-calculate Due Date based on Terms & Bill Date
   const updateDueDateFromTerms = useCallback((termsValue, bDate) => {
@@ -491,6 +536,10 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
       setError('Please add at least one line item with a positive amount.');
       return;
     }
+    if (!billFinAuth.srManagerFinance || !billFinAuth.gmFinance) {
+      setError('Select Sr Manager Finance and GM Finance approval authorities.');
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -524,7 +573,13 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
           ...l,
           company: l.company || compName,
           project: l.project || primaryProject
-        }))
+        })),
+        financeApprovalAuthorities: {
+          accountsManagerUser: billFinAuth.srManagerFinance?._id || billFinAuth.srManagerFinance,
+          financeControllerUser: billFinAuth.gmFinance?._id || billFinAuth.gmFinance,
+          srManagerFinance: billFinAuth.srManagerFinance?._id || billFinAuth.srManagerFinance,
+          gmFinance: billFinAuth.gmFinance?._id || billFinAuth.gmFinance
+        }
       };
 
       const res = await api.post('/finance/accounts-payable', payload);
@@ -1090,6 +1145,78 @@ const StandardVendorBillForm = ({ onSwitchToStoreBill }) => {
                   </Box>
                 </Stack>
               </Paper>
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+
+      {/* Approval Authorities — Chart of Accounts vendor bills */}
+      <Card sx={{ mb: 2, borderRadius: 2 }}>
+        <CardContent>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+            Approval Authorities
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+            Predefined for Chart of Accounts bills: Sr Manager Finance (Muhammad Iftikhar Rashid) and GM Finance (Faisal Farooq).
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <Autocomplete
+                options={financeAuthorityCandidates}
+                value={billFinAuth.srManagerFinance || null}
+                onChange={(_, v) => setBillFinAuth((prev) => ({ ...prev, srManagerFinance: v }))}
+                getOptionLabel={userOptionLabel}
+                isOptionEqualToValue={(a, b) => String(a?._id || a?.id) === String(b?._id || b?.id)}
+                noOptionsText={financeAuthorityCandidates.length ? 'No match' : 'Loading finance users…'}
+                renderOption={(props, option) => (
+                  <li {...props} key={option._id || option.id}>
+                    <Typography variant="body2">{userOptionLabel(option)}</Typography>
+                    {userOptionSecondary(option) ? (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {userOptionSecondary(option)}
+                      </Typography>
+                    ) : null}
+                  </li>
+                )}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Sr Manager Finance *"
+                    size="small"
+                    required
+                    helperText={billFinAuth.srManagerFinance ? 'Pre-selected' : 'Select Muhammad Iftikhar Rashid'}
+                  />
+                )}
+              />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Autocomplete
+                options={financeAuthorityCandidates}
+                value={billFinAuth.gmFinance || null}
+                onChange={(_, v) => setBillFinAuth((prev) => ({ ...prev, gmFinance: v }))}
+                getOptionLabel={userOptionLabel}
+                isOptionEqualToValue={(a, b) => String(a?._id || a?.id) === String(b?._id || b?.id)}
+                noOptionsText={financeAuthorityCandidates.length ? 'No match' : 'Loading finance users…'}
+                renderOption={(props, option) => (
+                  <li {...props} key={option._id || option.id}>
+                    <Typography variant="body2">{userOptionLabel(option)}</Typography>
+                    {userOptionSecondary(option) ? (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {userOptionSecondary(option)}
+                      </Typography>
+                    ) : null}
+                  </li>
+                )}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="GM Finance *"
+                    size="small"
+                    required
+                    helperText={billFinAuth.gmFinance ? 'Pre-selected' : 'Select Faisal Farooq'}
+                  />
+                )}
+              />
             </Grid>
           </Grid>
         </CardContent>
