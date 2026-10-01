@@ -3524,6 +3524,7 @@ router.get('/accounts-payable/:id',
   asyncHandler(async (req, res) => {
     const { q, companyId, company } = await financeScope(req);
     let bill = await AccountsPayable.findOne(q({ _id: req.params.id }))
+      .populate('companyId', 'name companyCode contactInfo')
       .populate('createdBy', 'firstName lastName email digitalSignature')
       .populate('lastModifiedBy', 'firstName lastName email')
       .populate('payeeEmployee', 'firstName lastName employeeId')

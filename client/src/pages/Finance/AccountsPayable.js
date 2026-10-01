@@ -78,6 +78,11 @@ import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/Centra
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import NarrationTableCell from '../../components/common/NarrationTableCell';
 import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
+import {
+  getBillCompany,
+  getBillProject,
+  getBillInvoiceLocation
+} from '../../utils/centralizedStoreBillDisplay';
 import { useAuth } from '../../contexts/AuthContext';
 import FinanceApprovalAuthorityPicker from '../../components/Finance/FinanceApprovalAuthorityPicker';
 import {
@@ -448,19 +453,6 @@ const AccountsPayable = () => {
     );
   };
 
-  const getBillCompany = (bill) => {
-    if (bill.companyId && typeof bill.companyId === 'object' && bill.companyId.name) return bill.companyId.name;
-    if (bill.customCompany && typeof bill.customCompany === 'string' && bill.customCompany.trim()) return bill.customCompany;
-    if (bill.companyName && typeof bill.companyName === 'string') return bill.companyName;
-    if (bill.company?.name && typeof bill.company.name === 'string') return bill.company.name;
-    if (bill.company && typeof bill.company === 'string' && bill.company.trim()) return bill.company;
-    if (bill.lineItems && Array.isArray(bill.lineItems)) {
-      const lineWithComp = bill.lineItems.find((l) => l.company && typeof l.company === 'string' && l.company.trim());
-      if (lineWithComp) return lineWithComp.company;
-    }
-    return '—';
-  };
-
   const getBillDepartment = (bill) => {
     if (bill.department && typeof bill.department === 'string' && bill.department.trim()) return bill.department;
     if (bill.department?.name && typeof bill.department.name === 'string') return bill.department.name;
@@ -468,15 +460,6 @@ const AccountsPayable = () => {
     if (bill.lineItems && Array.isArray(bill.lineItems)) {
       const lineWithDept = bill.lineItems.find((l) => l.department && typeof l.department === 'string' && l.department.trim());
       if (lineWithDept) return lineWithDept.department;
-    }
-    return '—';
-  };
-
-  const getBillProject = (bill) => {
-    if (bill.project && typeof bill.project === 'string' && bill.project.trim()) return bill.project;
-    if (bill.lineItems && Array.isArray(bill.lineItems)) {
-      const lineWithProj = bill.lineItems.find((l) => l.project && typeof l.project === 'string' && l.project.trim());
-      if (lineWithProj) return lineWithProj.project;
     }
     return '—';
   };
@@ -2101,7 +2084,7 @@ const AccountsPayable = () => {
                         billDate: selectedBill.billDate,
                         createdAt: selectedBill.createdAt || selectedBill.billDate,
                         provider: selectedBill.vendorName || selectedBill.vendor?.name,
-                        location: getBillCompany(selectedBill) !== '—' ? `${getBillCompany(selectedBill)}${getBillProject(selectedBill) !== '—' ? ` — ${getBillProject(selectedBill)}` : ''}` : (selectedBill.vendor?.address?.city || selectedBill.department || 'N/A'),
+                        location: getBillInvoiceLocation(selectedBill),
                         notes: selectedBill.notes || selectedBill.internalNotes || getBillNarrationDisplay(selectedBill),
                         forWhat: selectedBill.forWhat || getBillNarrationDisplay(selectedBill),
                         billLines: (selectedBill.lineItems && selectedBill.lineItems.length > 0)
@@ -3910,7 +3893,7 @@ const AccountsPayable = () => {
                   createdAt: selectedBill.createdAt || selectedBill.billDate,
                   totalAmount: editData.totalAmount ?? selectedBill.totalAmount,
                   provider: selectedBill.vendorName || selectedBill.vendor?.name,
-                  location: selectedBill.vendor?.address?.city || selectedBill.department || 'N/A',
+                  location: getBillInvoiceLocation(selectedBill),
                   notes: selectedBill.notes || selectedBill.internalNotes,
                   billLines: (editData.lineItems || []).map((line, idx) => ({
                     ...line,

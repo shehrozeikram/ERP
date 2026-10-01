@@ -117,3 +117,48 @@ export const getStoreInvoiceNarration = (bill) => getBillNarrationDisplay(bill);
 
 export const getStoreInvoiceLinesTotal = (bill) =>
   (bill?.billLines || []).reduce((s, l) => s + (Number(l?.amount) || 0), 0) || Number(bill?.amount) || 0;
+
+/** Same company resolution used on AP bill detail + print. */
+export const getBillCompany = (bill) => {
+  if (!bill) return '—';
+  if (bill.companyId && typeof bill.companyId === 'object' && bill.companyId.name) return bill.companyId.name;
+  if (bill.customCompany && typeof bill.customCompany === 'string' && bill.customCompany.trim()) {
+    return bill.customCompany.trim();
+  }
+  if (bill.companyName && typeof bill.companyName === 'string' && bill.companyName.trim()) {
+    return bill.companyName.trim();
+  }
+  if (bill.company?.name && typeof bill.company.name === 'string') return bill.company.name;
+  if (bill.company && typeof bill.company === 'string' && bill.company.trim()) return bill.company.trim();
+  if (Array.isArray(bill.lineItems)) {
+    const lineWithComp = bill.lineItems.find(
+      (l) => l.company && typeof l.company === 'string' && l.company.trim()
+    );
+    if (lineWithComp) return lineWithComp.company.trim();
+  }
+  return '—';
+};
+
+export const getBillProject = (bill) => {
+  if (!bill) return '—';
+  if (bill.project && typeof bill.project === 'string' && bill.project.trim()) return bill.project.trim();
+  if (Array.isArray(bill.lineItems)) {
+    const lineWithProj = bill.lineItems.find(
+      (l) => l.project && typeof l.project === 'string' && l.project.trim()
+    );
+    if (lineWithProj) return lineWithProj.project.trim();
+  }
+  return '—';
+};
+
+/** Address / location line shown on vendor bill invoice body (detail + print). */
+export const getBillInvoiceLocation = (bill) => {
+  const company = getBillCompany(bill);
+  if (company !== '—') {
+    const project = getBillProject(bill);
+    return project !== '—' ? `${company} — ${project}` : company;
+  }
+  const vendorCity =
+    typeof bill?.vendor?.address === 'object' ? bill?.vendor?.address?.city : null;
+  return vendorCity || bill?.department || 'N/A';
+};

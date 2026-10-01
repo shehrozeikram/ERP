@@ -9,6 +9,10 @@ import api from '../../services/api';
 import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
 import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
+import {
+  getBillCompany,
+  getBillInvoiceLocation
+} from '../../utils/centralizedStoreBillDisplay';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
 import jsPDF from 'jspdf';
@@ -28,19 +32,14 @@ export default function BillPrint() {
   const navigate = useNavigate();
 
   const [bill, setBill] = useState(null);
-  const [company, setCompany] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     (async () => {
       try {
-        const [billRes, cpRes] = await Promise.all([
-          api.get(`/finance/accounts-payable/${id}`),
-          api.get('/finance/company-profile').catch(() => ({ data: { data: {} } }))
-        ]);
+        const billRes = await api.get(`/finance/accounts-payable/${id}`);
         setBill(billRes.data.data || billRes.data);
-        setCompany(cpRes.data.data || {});
       } catch (e) {
         setError(e.response?.data?.message || 'Bill not found');
       } finally {
@@ -54,7 +53,12 @@ export default function BillPrint() {
   if (!bill) return null;
 
   const vendorName = bill?.vendorName || bill?.vendor?.name || (typeof bill?.vendor === 'string' ? bill?.vendor : '—');
-  const companyName = bill?.companyId?.name || bill?.company?.name || company?.name || 'SGC International';
+  // Same company / address as Bill Details view (not global company-profile fallback)
+  const companyName = getBillCompany(bill);
+  const invoiceLocation = getBillInvoiceLocation(bill);
+  const companyAddress =
+    (bill?.companyId && typeof bill.companyId === 'object' && bill.companyId.contactInfo?.address) ||
+    '';
 
   const normalizedBill = {
     ...bill,
@@ -62,7 +66,7 @@ export default function BillPrint() {
     billDate: bill.billDate,
     createdAt: bill.createdAt || bill.billDate,
     provider: vendorName,
-    location: companyName,
+    location: invoiceLocation,
     notes: bill.notes || bill.internalNotes || getBillNarrationDisplay(bill),
     forWhat: bill.forWhat || getBillNarrationDisplay(bill),
     billLines: (bill.lineItems && bill.lineItems.length > 0)
@@ -213,7 +217,7 @@ export default function BillPrint() {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text(companyName, 14, 12);
+    doc.text(companyName !== '—' ? companyName : 'Vendor Bill', 14, 12);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
     doc.text('VENDOR BILL INVOICE', 14, 20);
@@ -324,16 +328,16 @@ export default function BillPrint() {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, pb: 2, borderBottom: '2px solid #1e293b' }}>
           <Box>
             <Typography fontWeight={900} sx={{ fontSize: '1.5rem', color: '#1e293b' }}>
-              {companyName}
+              {companyName !== '—' ? companyName : 'Vendor Bill'}
             </Typography>
             <Typography fontWeight={800} color="primary" sx={{ fontSize: '1.15rem', textTransform: 'uppercase', mt: 0.5 }}>
               VENDOR BILL INVOICE
             </Typography>
-            {company.ntn && (
-              <Typography variant="body2" color="text.secondary">
-                <strong>NTN:</strong> {company.ntn} {company.strn ? ` | STRN: ${company.strn}` : ''}
+            {companyAddress ? (
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                {companyAddress}
               </Typography>
-            )}
+            ) : null}
           </Box>
           <Box sx={{ textAlign: 'right' }}>
             <Typography variant="h6" fontWeight={800} color="primary.main">
