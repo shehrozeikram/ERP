@@ -411,6 +411,11 @@ router.get('/monthly',
             'locationData.name': 1,
             'projectData.name': 1,
             'companyData.name': 1,
+            // Attendance / proration (for EOBI contribution report)
+            presentDays: 1,
+            totalWorkingDays: 1,
+            absentDays: 1,
+            proration: 1,
             // Calculated fields
             project: 1,
             company: 1,
@@ -489,7 +494,10 @@ router.get('/monthly',
           vehicleLoanDeduction: employee.vehicleLoanDeduction || 0,
           companyLoanDeduction: employee.loanDeductions || employee.companyLoanDeduction || 0,
           attendanceDeduction: employee.attendanceDeduction || 0,
-          otherDeductions: employee.otherDeductions || 0
+          otherDeductions: employee.otherDeductions || 0,
+          presentDays: employee.presentDays ?? null,
+          totalWorkingDays: employee.totalWorkingDays ?? null,
+          proration: employee.proration || null
         };
         return applyAttendanceExclusion(base, excludeAttendance);
       });

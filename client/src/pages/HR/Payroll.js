@@ -51,7 +51,8 @@ import {
   Download as DownloadIcon,
   CompareArrows as CompareArrowsIcon,
   LocalGasStation as FuelIcon,
-  PictureAsPdf as PictureAsPdfIcon
+  PictureAsPdf as PictureAsPdfIcon,
+  AccountBalanceWallet as EobiIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
@@ -64,6 +65,10 @@ import { getPayrollStatusColor, getPayrollStatusLabel } from '../../utils/payrol
 import PayrollProrationBadge from '../../components/HR/PayrollProrationBadge';
 import SalaryAdvanceManagement from '../../components/HR/SalaryAdvanceManagement';
 import ManualSalarySheet from '../../components/HR/ManualSalarySheet';
+import {
+  generateEobiContributionPdf,
+  resolveEobiReportScopeLabel
+} from '../../utils/eobiContributionReport';
 import { Tabs, Tab } from '@mui/material';
 
 // Months array moved outside component to prevent recreation on every render
@@ -692,6 +697,62 @@ const Payroll = () => {
     } catch (exportError) {
       console.error('Error exporting month payroll to PDF:', exportError);
       setError(exportError.response?.data?.message || 'Failed to export payroll PDF for this month.');
+    } finally {
+      setExportLoadingKey(null);
+    }
+  };
+
+  const exportEobiContributionReport = async (month, year, periodLabel) => {
+    const key = `eobi-${month}-${year}`;
+    const monthNum = Number(month);
+    const yearNum = Number(year);
+    if (!monthNum || monthNum < 1 || monthNum > 12 || !yearNum) {
+      setError('Select a valid month and year to export EOBI contribution.');
+      return;
+    }
+
+    try {
+      setExportLoadingKey(key);
+      setError(null);
+
+      const response = await api.get('/hr/reports/payroll/monthly', {
+        params: {
+          month: monthNum,
+          year: yearNum,
+          ...(monthlyFilters.department ? { department: monthlyFilters.department } : {}),
+          ...(monthlyFilters.project ? { project: monthlyFilters.project } : {}),
+          format: 'json'
+        },
+        timeout: 120000
+      });
+
+      const reportData = response.data?.data || response.data;
+      if (!reportData || !reportData.data || !reportData.data.length) {
+        setError('No payroll data found for this period.');
+        return;
+      }
+
+      const scopeLabel = resolveEobiReportScopeLabel(
+        reportData.data,
+        monthlyFilters,
+        projects || [],
+        departments || []
+      );
+
+      const result = await generateEobiContributionPdf({
+        reportData,
+        month: monthNum,
+        year: yearNum,
+        periodLabel,
+        scopeLabel
+      });
+
+      if (!result.saved) {
+        setError('No EOBI contributions found for this payroll period (employees with EOBI deduction).');
+      }
+    } catch (exportError) {
+      console.error('Error exporting EOBI contribution report:', exportError);
+      setError(exportError.response?.data?.message || 'Failed to export EOBI contribution report.');
     } finally {
       setExportLoadingKey(null);
     }
@@ -2291,6 +2352,25 @@ Do you want to:
                       >
                         Export month (PDF)
                       </Button>
+                      <Button
+                        variant="contained"
+                        color="success"
+                        size="small"
+                        startIcon={
+                          exportLoadingKey === `eobi-${exportMonth}-${exportYear}` ? (
+                            <CircularProgress size={16} color="inherit" />
+                          ) : (
+                            <EobiIcon />
+                          )
+                        }
+                        disabled={!!exportLoadingKey}
+                        onClick={() => {
+                          const label = months.find((m) => String(parseInt(m.value, 10)) === String(exportMonth))?.label;
+                          exportEobiContributionReport(exportMonth, exportYear, `${label || exportMonth} ${exportYear}`);
+                        }}
+                      >
+                        EOBI Contribution
+                      </Button>
 
                       <Button
                         variant="outlined"
@@ -2447,6 +2527,26 @@ Do you want to:
                                     </IconButton>
                                   </span>
                                 </Tooltip>
+                                <Tooltip title="EOBI Contribution report (PDF)">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color="success"
+                                      disabled={exportLoadingKey === `eobi-${monthKey}` || !monthly.totalEmployees}
+                                      onClick={() => exportEobiContributionReport(
+                                        monthly.month,
+                                        monthly.year,
+                                        `${monthly.monthName} ${monthly.year}`
+                                      )}
+                                    >
+                                      {exportLoadingKey === `eobi-${monthKey}` ? (
+                                        <CircularProgress size={18} />
+                                      ) : (
+                                        <EobiIcon fontSize="small" />
+                                      )}
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
                                 <Tooltip title={isExpanded ? "Hide Details" : "View Details"}>
                                   <IconButton
                                     size="small"
@@ -2516,6 +2616,24 @@ Do you want to:
                                         onClick={() => exportMonthPayrollCsv(monthly.month, monthly.year, `${monthly.monthName}-${monthly.year}`)}
                                       >
                                         Export {monthly.monthName} {monthly.year}
+                                      </Button>
+                                      <Button
+                                        size="small"
+                                        variant="outlined"
+                                        color="success"
+                                        startIcon={
+                                          exportLoadingKey === `eobi-${monthKey}`
+                                            ? <CircularProgress size={14} />
+                                            : <EobiIcon fontSize="small" />
+                                        }
+                                        disabled={!!exportLoadingKey || !monthly.totalEmployees}
+                                        onClick={() => exportEobiContributionReport(
+                                          monthly.month,
+                                          monthly.year,
+                                          `${monthly.monthName} ${monthly.year}`
+                                        )}
+                                      >
+                                        EOBI Contribution
                                       </Button>
                                     </Stack>
                                   </Box>
