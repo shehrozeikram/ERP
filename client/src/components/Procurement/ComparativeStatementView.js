@@ -162,28 +162,77 @@ const ComparativeStatementView = ({
   };
 
   const getQuoteItemForIndentItem = (quote, item, itemIndex) => {
-    let quoteItem = null;
-    if (quote.items?.length) {
-      const indentDesc = (item.itemName || item.description || '').trim().toLowerCase();
-      const match = quote.items.find((qi) => {
-        const qDesc = (qi?.description || '').trim().toLowerCase();
-        return indentDesc && qDesc && qDesc === indentDesc;
+    if (!quote?.items?.length) return null;
+
+    const normalize = (value) =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/['′’]/g, "'")
+        .replace(/[″""]/g, '"')
+        .replace(/\s+/g, ' ');
+
+    const isBlankQuoteItem = (qi) =>
+      (Number(qi?.quantity) || 0) === 0 && (Number(qi?.unitPrice) || 0) === 0;
+
+    const indentName = normalize(item?.itemName);
+    const indentSpec = normalize(item?.description);
+    const indentLabel = indentName || indentSpec;
+
+    // 1) Prefer exact pot/spec match (description or quotation specification)
+    if (indentSpec) {
+      const bySpec = quote.items.find((qi) => {
+        const qDesc = normalize(qi?.description);
+        const qSpec = normalize(qi?.specification);
+        return (qDesc && qDesc === indentSpec) || (qSpec && qSpec === indentSpec);
       });
-      if (match) {
-        quoteItem = match;
-      } else if (itemIndex != null && itemIndex < quote.items.length) {
-        // Fallback by index only if descriptions are both empty or match
-        const indexedItem = quote.items[itemIndex];
-        const qDesc = (indexedItem?.description || '').trim().toLowerCase();
-        if (!indentDesc || !qDesc || indentDesc === qDesc) {
-          quoteItem = indexedItem;
+      if (bySpec && !isBlankQuoteItem(bySpec)) return bySpec;
+    }
+
+    // 2) Match by item name against quotation description/spec.
+    //    When several quote lines share the same name (e.g. two "Money Plant"),
+    //    use the same row index so each indent line maps to its own quote line.
+    if (indentLabel) {
+      const matches = quote.items
+        .map((qi, idx) => ({ qi, idx }))
+        .filter(({ qi }) => {
+          const qDesc = normalize(qi?.description);
+          const qSpec = normalize(qi?.specification);
+          return (
+            (qDesc && (qDesc === indentLabel || (indentName && qDesc === indentName))) ||
+            (qSpec && (qSpec === indentLabel || (indentName && qSpec === indentName)))
+          );
+        });
+
+      if (matches.length === 1 && !isBlankQuoteItem(matches[0].qi)) {
+        return matches[0].qi;
+      }
+
+      if (matches.length > 1 && itemIndex != null) {
+        const atSameIndex = matches.find((m) => m.idx === itemIndex);
+        if (atSameIndex && !isBlankQuoteItem(atSameIndex.qi)) return atSameIndex.qi;
+
+        // Same-name duplicates: align by indent row order among matching quote lines
+        const sameNameIndentOrdinal = (selectedRequisition?.items || [])
+          .slice(0, itemIndex + 1)
+          .filter((it) => {
+            const n = normalize(it?.itemName) || normalize(it?.description);
+            return n && (n === indentLabel || (indentName && n === indentName));
+          }).length - 1;
+        if (sameNameIndentOrdinal >= 0 && sameNameIndentOrdinal < matches.length) {
+          const ordinalMatch = matches[sameNameIndentOrdinal].qi;
+          if (!isBlankQuoteItem(ordinalMatch)) return ordinalMatch;
         }
       }
     }
-    if (quoteItem && ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)) {
-      return null;
+
+    // 3) Final fallback: same index as indent row
+    if (itemIndex != null && itemIndex < quote.items.length) {
+      const indexedItem = quote.items[itemIndex];
+      if (indexedItem && !isBlankQuoteItem(indexedItem)) return indexedItem;
     }
-    return quoteItem;
+
+    return null;
   };
 
   return (
