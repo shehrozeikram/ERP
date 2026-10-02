@@ -55,8 +55,7 @@ export function ProcurementDigitalSignaturesRow({ purchaseOrder }) {
       user: po.ceoApprovedBy,
       date: po.ceoApprovedAt,
       typedFallback: po.ceoDigitalSignature
-    },
-    { label: 'Finance', user: po.financeApprovedBy, date: po.financeApprovedAt, typedFallback: null }
+    }
   ];
 
   const hasAny = slots.some(
