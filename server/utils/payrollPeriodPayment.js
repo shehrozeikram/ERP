@@ -91,9 +91,6 @@ const filterPayrollsByCompany = (payrolls, companyName) => {
   });
 };
 
-const sumPendingNet = (payrolls) =>
-  round2(payrolls.reduce((sum, row) => sum + (Number(row.netSalary) || 0), 0));
-
 const ensurePayrollPaymentAccounts = async (companyId) => {
   const { ensurePayrollFinanceAccounts } = require('./payrollAccrual');
   await ensurePayrollFinanceAccounts(companyId);
@@ -311,8 +308,9 @@ const buildPayrollPaymentContext = async (month, year, options = {}) => {
     throw err;
   }
 
-  const amount = sumPendingNet(payrolls);
   const paymentBreakdown = aggregatePayrollBreakdown(payrolls);
+  // Keep payment amount identical to BPV bank+cash credits and bank letter total
+  const amount = paymentBreakdown.netPayable;
   if (paymentBreakdown.grossSalary <= 0) {
     const err = new Error('Payroll gross salary must be greater than zero');
     err.statusCode = 400;

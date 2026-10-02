@@ -159,8 +159,8 @@ const listFinancePayrollQueue = async () => {
       $group: {
         _id: { month: '$month', year: '$year' },
         employeeCount: { $sum: 1 },
-        totalNetSalary: { $sum: { $ifNull: ['$netSalary', 0] } },
-        totalGrossSalary: { $sum: { $ifNull: ['$grossSalary', 0] } },
+        totalNetSalary: { $sum: { $round: [{ $ifNull: ['$netSalary', 0] }, 0] } },
+        totalGrossSalary: { $sum: { $round: [{ $ifNull: ['$grossSalary', 0] }, 0] } },
         pendingCount: {
           $sum: {
             $cond: [{ $in: ['$status', PAYROLL_FINAL_APPROVED_STATUSES] }, 1, 0]
@@ -260,8 +260,8 @@ const getFinancePayrollPeriodDetail = async (month, year) => {
   const summary = payrolls.reduce(
     (acc, row) => {
       acc.employeeCount += 1;
-      acc.totalGrossSalary += Number(row.grossSalary) || 0;
-      acc.totalNetSalary += Number(row.netSalary) || 0;
+      acc.totalGrossSalary += Math.round(Number(row.grossSalary) || 0);
+      acc.totalNetSalary += Math.round(Number(row.netSalary) || 0);
       if (PAYROLL_FINAL_APPROVED_STATUSES.includes(row.status)) acc.pendingCount += 1;
       if (row.status === 'Paid') acc.paidCount += 1;
       return acc;

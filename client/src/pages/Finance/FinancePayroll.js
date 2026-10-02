@@ -301,11 +301,13 @@ export default function FinancePayroll() {
       setPaymentDialogOpen(true);
       return;
     }
-    const pendingAmount = Math.round(
-      companyPendingPayrolls.reduce((sum, row) => sum + (Number(row.netSalary) || 0), 0)
+    const pendingAmount = companyPendingPayrolls.reduce(
+      (sum, row) => sum + Math.round(Number(row.netSalary) || 0),
+      0
     );
-    const pendingGross = Math.round(
-      companyPendingPayrolls.reduce((sum, row) => sum + (Number(row.grossSalary) || 0), 0)
+    const pendingGross = companyPendingPayrolls.reduce(
+      (sum, row) => sum + Math.round(Number(row.grossSalary) || 0),
+      0
     );
     setPaymentFinAuth({ financeControllerUser: null });
     setPaymentData({
@@ -455,8 +457,14 @@ export default function FinancePayroll() {
   }, [detail, companyFilter, projectFilter]);
 
   const filteredSummary = useMemo(() => {
-    const totalNetSalary = filteredPayrolls.reduce((sum, row) => sum + (Number(row.netSalary) || 0), 0);
-    const totalGrossSalary = filteredPayrolls.reduce((sum, row) => sum + (Number(row.grossSalary) || 0), 0);
+    const totalNetSalary = filteredPayrolls.reduce(
+      (sum, row) => sum + Math.round(Number(row.netSalary) || 0),
+      0
+    );
+    const totalGrossSalary = filteredPayrolls.reduce(
+      (sum, row) => sum + Math.round(Number(row.grossSalary) || 0),
+      0
+    );
     return {
       employeeCount: filteredPayrolls.length,
       totalNetSalary,

@@ -109,9 +109,9 @@ export const aggregatePayrollBreakdownFromRows = (payrollRows = []) => {
       } else {
         val = row[col.key] ?? 0;
       }
-      totals[col.key] += Number(val) || 0;
+      totals[col.key] += roundAmount(val);
     });
-    totals.netPayable += Number(row.netPayable ?? row.netSalary) || 0;
+    totals.netPayable += roundAmount(row.netPayable ?? row.netSalary);
   });
 
   PROJECT_SUMMARY_AMOUNT_COLUMNS.forEach((col) => {
@@ -179,9 +179,9 @@ const createCompanySummaryRow = (company) => ({
 const addPayrollToCompanySummary = (entry, payroll) => {
   entry.employeeCount += 1;
   PROJECT_SUMMARY_AMOUNT_COLUMNS.forEach((col) => {
-    entry[col.key] += Number(payroll[col.key]) || 0;
+    entry[col.key] += roundAmount(payroll[col.key]);
   });
-  entry.netPayable += Number(payroll.netPayable ?? payroll.netSalary) || 0;
+  entry.netPayable += roundAmount(payroll.netPayable ?? payroll.netSalary);
 };
 
 const roundCompanySummaryRow = (row) => {

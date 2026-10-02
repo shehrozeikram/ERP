@@ -5,6 +5,8 @@ const {
 } = require('./allowanceHelpers');
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+/** Whole rupees — used for payroll net / bank letter / BPV bank line so all three match. */
+const roundRupee = (n) => Math.round(Number(n) || 0);
 
 /** EOBI employer share — equal to employee deduction (50/50 total contribution). */
 const resolveEobiEmployerContribution = (employeeDeduction) =>
@@ -172,7 +174,7 @@ const extractPayrollBreakdown = (payroll = {}) => {
   const healthInsurance = Math.round(Number(payroll.healthInsurance) || 0);
   const attendanceDeduction = Math.round(Number(payroll.attendanceDeduction) || 0);
   const leaveDeduction = resolveLeaveDeduction(payroll);
-  const netPayable = Math.round(Number(payroll.netSalary) || 0);
+  const netPayable = roundRupee(payroll.netSalary);
   const knownCredits =
     incomeTax +
     companyLoan +
@@ -227,14 +229,14 @@ const aggregatePayrollBreakdown = (payrolls = []) => {
   });
 
   keysWithoutOther.forEach((key) => {
-    totals[key] = Math.round(totals[key] || 0);
+    totals[key] = roundRupee(totals[key] || 0);
   });
 
   totals.eobiEmployerExpense = totals.eobiEmployer;
 
   totals.otherDeductions = Math.max(
     0,
-    Math.round(
+    roundRupee(
       totals.grossSalary -
         totals.incomeTax -
         totals.companyLoan -
@@ -250,6 +252,10 @@ const aggregatePayrollBreakdown = (payrolls = []) => {
 
   return totals;
 };
+
+/** Sum of whole-rupee nets — must match bank letter + BPV bank/cash credits. */
+const sumPayrollNetWholeRupees = (payrolls = []) =>
+  payrolls.reduce((sum, row) => sum + roundRupee(row?.netSalary), 0);
 
 const validatePayrollAccrualTotals = (totals) => {
   const debit = (totals.grossSalary || 0) + (totals.eobiEmployerExpense || 0);
@@ -350,6 +356,8 @@ module.exports = {
   PAYROLL_ACCRUAL_DEBIT_SLOTS,
   PAYROLL_BREAKDOWN_TOTAL_KEYS,
   resolveEobiEmployerContribution,
+  roundRupee,
+  sumPayrollNetWholeRupees,
   extractPayrollBreakdown,
   aggregatePayrollBreakdown,
   validatePayrollAccrualTotals,
