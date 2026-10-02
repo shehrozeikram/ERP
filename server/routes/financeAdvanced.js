@@ -3578,6 +3578,7 @@ router.get('/accounts-payable/:id',
         .populate('indent')
         .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
         .populate('auditReturnedBy', 'firstName lastName email')
+        .populate('authorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
         .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
         .lean();
       if (po) {

@@ -2630,8 +2630,35 @@ const AccountsPayable = () => {
                                   const preAuditEntry = history.find(e => e.toStatus === 'Forwarded to Audit Director' || e.toStatus === 'initial audit approval' || e.toStatus?.includes('Pre-Audit'));
                                   const directorEntry = history.find(e => e.toStatus === 'approved' || e.toStatus === 'Approved' || e.toStatus?.includes('Audit Director'));
 
+                                  const authText = po.approvalAuthorities || {};
+                                  const approvalByKey = new Map(
+                                    (Array.isArray(po.authorityApprovals) ? po.authorityApprovals : [])
+                                      .filter((a) => a?.authorityKey)
+                                      .map((a) => [String(a.authorityKey), a])
+                                  );
+                                  const poAuthorityRows = [
+                                    { key: 'managerProcurement', label: 'Manager Procurement', value: authText.managerProcurement },
+                                    { key: 'srManagerProcurement', label: 'Sr Manager Procurement', value: authText.srManagerProcurement },
+                                    { key: 'chiefOperatingOfficer', label: 'Chief operating officer', value: authText.chiefOperatingOfficer || authText.verifiedBy },
+                                    { key: 'avpTaj', label: 'AVP Taj', value: authText.avpTaj || authText.authorisedRep },
+                                    { key: 'technicalDepartment', label: 'Technical Department', value: authText.technicalDepartment }
+                                  ]
+                                    .filter((a) => a.value && String(a.value).trim())
+                                    .map((a) => {
+                                      const approval = approvalByKey.get(a.key);
+                                      const approver = approval?.approver && typeof approval.approver === 'object' ? approval.approver : null;
+                                      return {
+                                        authority: a.label,
+                                        name: approver ? userNm(approver) : String(a.value).trim(),
+                                        status: approval ? 'Approved' : 'Pending',
+                                        dateTime: formatDt(approval?.approvedAt),
+                                        user: approver
+                                      };
+                                    });
+
                                   const rows = [
                                     { authority: 'Prepared By (Procurement)', name: userNm(po.createdBy), status: 'Created', dateTime: formatDt(po.createdAt || po.orderDate), user: po.createdBy },
+                                    ...poAuthorityRows,
                                     { authority: 'Pre-Audit Authority', name: userNm(preAuditEntry?.changedBy), status: preAuditEntry ? 'Approved' : 'Pending', dateTime: formatDt(preAuditEntry?.changedAt), user: preAuditEntry?.changedBy },
                                     { authority: 'Audit Director', name: userNm(po.auditApprovedBy || directorEntry?.changedBy), status: (po.auditApprovedBy || directorEntry) ? 'Approved' : 'Pending', dateTime: formatDt(po.auditApprovedAt || directorEntry?.changedAt), user: po.auditApprovedBy || directorEntry?.changedBy, stampPath: directorEntry?.stampUsed && directorEntry?.stampImage ? directorEntry.stampImage : '' }
                                   ];

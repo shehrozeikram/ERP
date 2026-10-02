@@ -233,6 +233,7 @@ const purchaseOrderSchema = new mongoose.Schema({
   approvalAuthorities: {
     preparedBy: { type: String, trim: true, default: '' },
     managerProcurement: { type: String, trim: true, default: '' },
+    srManagerProcurement: { type: String, trim: true, default: '' },
     chiefOperatingOfficer: { type: String, trim: true, default: '' },
     avpTaj: { type: String, trim: true, default: '' },
     technicalDepartment: { type: String, trim: true, default: '' },

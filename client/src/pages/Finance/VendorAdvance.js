@@ -2175,6 +2175,7 @@ const VendorAdvance = () => {
                             const authorityRows = [
                               { key: 'preparedBy', label: 'Prepared By', user: csa.preparedByUser, fallback: authorityText.preparedBy || csa.preparedBy || '' },
                               { key: 'managerProcurement', label: 'Manager Procurement', user: csa.managerProcurementUser, fallback: authorityText.managerProcurement || csa.managerProcurement || '' },
+                              { key: 'srManagerProcurement', label: 'Sr Manager Procurement', user: null, fallback: authorityText.srManagerProcurement || '' },
                               { key: 'chiefOperatingOfficer', label: 'Chief operating officer', user: null, fallback: authorityText.chiefOperatingOfficer || authorityText.verifiedBy || csa.verifiedBy || '' },
                               { key: 'avpTaj', label: 'AVP Taj', user: null, fallback: authorityText.avpTaj || authorityText.authorisedRep || csa.authorisedRep || '' },
                               ...(authorityText.technicalDepartment || csa.technicalDepartment ? [

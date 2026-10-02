@@ -24,10 +24,11 @@ const getPOHolder = (po) => {
   if (status === 'Pending Approval') {
     // Check which authority is next
     if (approvalAuthorities) {
-      // The order is typically: preparedBy -> managerProcurement -> chiefOperatingOfficer -> verifiedBy -> technicalDepartment -> avpTaj -> authorisedRep -> financeRep
+      // The order is typically: preparedBy -> managerProcurement -> srManagerProcurement -> chiefOperatingOfficer -> verifiedBy -> technicalDepartment -> avpTaj -> authorisedRep -> financeRep
       const requiredKeys = [
         'preparedBy',
         'managerProcurement',
+        'srManagerProcurement',
         'chiefOperatingOfficer',
         'verifiedBy',
         'technicalDepartment',

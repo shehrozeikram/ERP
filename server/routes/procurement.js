@@ -288,6 +288,7 @@ const buildAuthorityTextConditions = (tokens = []) => {
 const AUTHORITY_SLOT_CONFIG = [
   { key: 'preparedBy', label: 'Prepared By', indentUserField: 'preparedByUser' },
   { key: 'managerProcurement', label: 'Manager Procurement', indentUserField: 'managerProcurementUser' },
+  { key: 'srManagerProcurement', label: 'Sr Manager Procurement', indentUserField: '' },
   { key: 'chiefOperatingOfficer', label: 'Chief operating officer', indentUserField: '' },
   { key: 'avpTaj', label: 'AVP Taj', indentUserField: '' },
   { key: 'technicalDepartment', label: 'Technical Department', indentUserField: '' },
@@ -308,6 +309,7 @@ const isAssignedByAuthorityText = (approvalAuthorities, user) => {
   const assignedTexts = [
     authorities.preparedBy,
     authorities.managerProcurement,
+    authorities.srManagerProcurement,
     authorities.chiefOperatingOfficer || authorities.verifiedBy,
     authorities.avpTaj || authorities.authorisedRep,
     authorities.technicalDepartment,
@@ -1424,6 +1426,7 @@ router.post('/purchase-orders', [
     purchaseOrder.approvalAuthorities = {
       preparedBy: req.body.approvalAuthorities.preparedBy || preparedByName,
       managerProcurement: req.body.approvalAuthorities.managerProcurement || '',
+      srManagerProcurement: req.body.approvalAuthorities.srManagerProcurement || '',
       chiefOperatingOfficer: req.body.approvalAuthorities.chiefOperatingOfficer || req.body.approvalAuthorities.verifiedBy || '',
       avpTaj: req.body.approvalAuthorities.avpTaj || req.body.approvalAuthorities.authorisedRep || '',
       technicalDepartment: req.body.approvalAuthorities.technicalDepartment || '',
@@ -1435,6 +1438,7 @@ router.post('/purchase-orders', [
     purchaseOrder.approvalAuthorities = {
       preparedBy: preparedByName,
       managerProcurement: '',
+      srManagerProcurement: '',
       chiefOperatingOfficer: '',
       avpTaj: '',
       technicalDepartment: '',

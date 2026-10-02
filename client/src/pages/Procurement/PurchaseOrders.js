@@ -65,6 +65,7 @@ import { getCurrentHolder } from '../../utils/documentTracker';
 const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'preparedBy', label: 'Prepared By' },
   { key: 'managerProcurement', label: 'Manager Procurement' },
+  { key: 'srManagerProcurement', label: 'Sr Manager Procurement' },
   { key: 'chiefOperatingOfficer', label: 'Chief operating officer' },
   { key: 'avpTaj', label: 'AVP Taj' },
   { key: 'technicalDepartment', label: 'Technical Department' }
@@ -197,7 +198,8 @@ const PurchaseOrders = () => {
     verifiedBy: '',
     authorisedRep: '',
     financeRep: '',
-    managerProcurement: ''
+    managerProcurement: '',
+    srManagerProcurement: ''
   });
 
   const authoritySearchDebounceRef = useRef(null);
@@ -338,6 +340,7 @@ const PurchaseOrders = () => {
         setApprovalAuthority({
           preparedBy: approvals.preparedBy || approverLabel(user) || '',
           managerProcurement: approvals.managerProcurement || '',
+          srManagerProcurement: approvals.srManagerProcurement || '',
           chiefOperatingOfficer: approvals.chiefOperatingOfficer || approvals.verifiedBy || '',
           avpTaj: approvals.avpTaj || approvals.authorisedRep || '',
           technicalDepartment: approvals.technicalDepartment || ''
@@ -437,6 +440,7 @@ const PurchaseOrders = () => {
     setApprovalAuthority({
       preparedBy: approverLabel(user) || '',
       managerProcurement: '',
+      srManagerProcurement: '',
       chiefOperatingOfficer: '',
       avpTaj: '',
       technicalDepartment: ''
@@ -478,6 +482,7 @@ const PurchaseOrders = () => {
       setApprovalAuthority({
         preparedBy: approvals.preparedBy || '',
         managerProcurement: approvals.managerProcurement || '',
+        srManagerProcurement: approvals.srManagerProcurement || '',
         chiefOperatingOfficer: approvals.chiefOperatingOfficer || approvals.verifiedBy || '',
         avpTaj: approvals.avpTaj || approvals.authorisedRep || '',
         technicalDepartment: approvals.technicalDepartment || ''
@@ -517,6 +522,7 @@ const PurchaseOrders = () => {
       setApprovalAuthority({
         preparedBy: approvals.preparedBy || '',
         managerProcurement: approvals.managerProcurement || '',
+        srManagerProcurement: approvals.srManagerProcurement || '',
         chiefOperatingOfficer: approvals.chiefOperatingOfficer || approvals.verifiedBy || '',
         avpTaj: approvals.avpTaj || approvals.authorisedRep || '',
         technicalDepartment: approvals.technicalDepartment || ''
@@ -899,6 +905,7 @@ const PurchaseOrders = () => {
     const textAssigned = [
       csaText.preparedBy,
       csaText.managerProcurement,
+      csaText.srManagerProcurement,
       csaText.chiefOperatingOfficer || csaText.verifiedBy,
       csaText.avpTaj || csaText.authorisedRep,
       csaText.technicalDepartment,
@@ -2311,6 +2318,12 @@ const PurchaseOrders = () => {
                         label: 'Manager Procurement',
                         user: approvals.managerProcurementUser || null,
                         fallback: viewDialog.data.approvalAuthorities?.managerProcurement || approvals.managerProcurement || ''
+                      },
+                      {
+                        key: 'srManagerProcurement',
+                        label: 'Sr Manager Procurement',
+                        user: null,
+                        fallback: viewDialog.data.approvalAuthorities?.srManagerProcurement || ''
                       },
                       {
                         key: 'chiefOperatingOfficer',

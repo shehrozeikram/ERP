@@ -390,6 +390,12 @@ const IndentsDashboard = () => {
           fallback: po?.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || ''
         },
         {
+          key: 'srManagerProcurement',
+          label: 'Sr Manager Procurement',
+          user: null,
+          fallback: po?.approvalAuthorities?.srManagerProcurement || auth.srManagerProcurement || ''
+        },
+        {
           key: 'preAuditInitial',
           label: 'Pre-Audit Initial Approval',
           directApproval: true,

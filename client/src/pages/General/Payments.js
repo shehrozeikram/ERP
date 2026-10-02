@@ -1288,6 +1288,12 @@ const Payments = () => {
                 fallback: poData.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || ''
               },
               {
+                key: 'srManagerProcurement',
+                label: 'Sr Manager Procurement',
+                user: null,
+                fallback: poData.approvalAuthorities?.srManagerProcurement || auth.srManagerProcurement || ''
+              },
+              {
                 key: 'chiefOperatingOfficer',
                 label: 'Chief operating officer',
                 user: null,

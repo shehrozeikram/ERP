@@ -59,6 +59,7 @@ const isAssignedByAuthorityText = (approvalAuthorities, user) => {
     authorities.authorisedRep,
     authorities.financeRep,
     authorities.managerProcurement,
+    authorities.srManagerProcurement,
     authorities.ceoApproval,
     authorities.avp,
     authorities.chairman
