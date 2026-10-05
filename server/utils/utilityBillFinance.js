@@ -60,6 +60,7 @@ const buildUtilityBillLineItems = (bill) => {
         description: `${label}${codePart}${loc ? ` — ${loc}` : ''}${line.meterNumber ? ` (Meter ${line.meterNumber})` : ''}`.trim(),
         quantity: 1,
         unitPrice: amt,
+        duePaymentAmount: round2(line.duePaymentAmount),
         expenseAccount: line.expenseAccount,
         expenseAccountNumber: line.expenseAccountNumber,
         company: line.site || '',
@@ -77,7 +78,8 @@ const buildUtilityBillLineItems = (bill) => {
       return {
         description: `${type}${site ? ` — ${site}` : ''}${provider ? ` (${provider})` : ''}`.trim() || `Line ${idx + 1}`,
         quantity: 1,
-        unitPrice: amt
+        unitPrice: amt,
+        duePaymentAmount: round2(line.duePaymentAmount)
       };
     }).filter((li) => li.unitPrice > 0);
   }
@@ -88,7 +90,8 @@ const buildUtilityBillLineItems = (bill) => {
   return [{
     description: `${type}${site ? ` — ${site}` : ''} (${bill.provider || 'Provider'})`.trim(),
     quantity: 1,
-    unitPrice: amt
+    unitPrice: amt,
+    duePaymentAmount: round2(bill.duePaymentAmount)
   }];
 };
 
@@ -405,6 +408,7 @@ const postUtilityBillToFinance = async (bill, createdByUserId) => {
       billDate,
       dueDate,
       amount,
+      duePaymentAmount: Math.round((Number(bill.duePaymentAmount) || lineItems.reduce((s, li) => s + (Number(li.duePaymentAmount) || 0), 0)) * 100) / 100,
       department: (bill.department ? String(bill.department).trim().toLowerCase() : 'admin'),
       module: (bill.department ? String(bill.department).trim().toLowerCase() : 'admin'),
       referenceId: bill._id,

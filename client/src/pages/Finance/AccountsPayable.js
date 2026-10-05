@@ -83,7 +83,9 @@ import {
   getBillProject,
   getBillInvoiceLocation,
   getCentralizedStoreDocumentTypeLabel,
-  getStoreInvoiceOrgTitle
+  getStoreInvoiceOrgTitle,
+  getDuePaymentAmountFromBill,
+  getLineDuePaymentAmount
 } from '../../utils/centralizedStoreBillDisplay';
 import { useAuth } from '../../contexts/AuthContext';
 import FinanceApprovalAuthorityPicker from '../../components/Finance/FinanceApprovalAuthorityPicker';
@@ -574,15 +576,7 @@ const AccountsPayable = () => {
   const filteredBills = useMemo(() => {
     let list = bills;
 
-    if (filters.billType) {
-      list = list.filter((b) => {
-        if (filters.billType === 'store') return b.referenceType === 'utility_bill' || b.module === 'taj_utilities';
-        if (filters.billType === 'category') return b.referenceType === 'manual' || b.module === 'finance' || (!b.referenceType && b.lineItems?.length > 0);
-        if (filters.billType === 'po') return b.referenceType === 'purchase_order' || b.referenceType === 'grn';
-        return true;
-      });
-    }
-
+    // billType is filtered server-side; keep only client fuzzy search refinement
     const query = (searchInput || '').trim().toLowerCase();
     if (!query) return list;
 
@@ -593,7 +587,7 @@ const AccountsPayable = () => {
       const { fullText, words } = getBillSearchCorpus(bill);
       return tokens.every((token) => matchesFuzzyToken(token, fullText, words));
     });
-  }, [bills, filters.billType, searchInput, getBillSearchCorpus]);
+  }, [bills, searchInput, getBillSearchCorpus]);
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
@@ -604,8 +598,12 @@ const AccountsPayable = () => {
     totalOutstanding: 0,
     totalOverdue: 0,
     totalPaid: 0,
-    totalBills: 0
+    totalBills: 0,
+    pendingUtilityBills: 0,
+    dueUtilityWarningCount: 0,
+    dueUtilityWarnings: []
   });
+  const [utilityDueWarningOpen, setUtilityDueWarningOpen] = useState(false);
 
   useEffect(() => {
     if (!paymentDialogOpen) return;
@@ -739,6 +737,7 @@ const AccountsPayable = () => {
       if (filters.startDate) params.append('startDate', filters.startDate);
       if (filters.endDate) params.append('endDate', filters.endDate);
       if (filters.search) params.append('search', filters.search);
+      if (filters.billType) params.append('billType', filters.billType);
       params.append('page', pagination.currentPage);
       params.append('limit', pagination.limit);
       params.append('companyId', selectedCompanyId);
@@ -759,7 +758,10 @@ const AccountsPayable = () => {
           totalOutstanding: 0,
           totalOverdue: 0,
           totalPaid: 0,
-          totalBills: 0
+          totalBills: 0,
+          pendingUtilityBills: 0,
+          dueUtilityWarningCount: 0,
+          dueUtilityWarnings: []
         });
       }
     } catch (error) {
@@ -779,6 +781,55 @@ const AccountsPayable = () => {
     }
     fetchAccountsPayable();
   }, [fetchAccountsPayable, selectedCompanyId]);
+
+  // Warning popup: unpaid utility bills due today or overdue (once per browser session until dismissed)
+  useEffect(() => {
+    const warnings = Array.isArray(summary.dueUtilityWarnings) ? summary.dueUtilityWarnings : [];
+    const dismissKey = `sgc_ap_utility_due_warn_${selectedCompanyId || 'none'}`;
+    if (!warnings.length || !selectedCompanyId) {
+      try {
+        sessionStorage.removeItem(dismissKey);
+      } catch (_) {
+        /* ignore */
+      }
+      setUtilityDueWarningOpen(false);
+      return;
+    }
+    try {
+      if (sessionStorage.getItem(dismissKey) === '1') {
+        setUtilityDueWarningOpen(false);
+        return;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    setUtilityDueWarningOpen(true);
+  }, [summary.dueUtilityWarnings, selectedCompanyId]);
+
+  const dismissUtilityDueWarning = () => {
+    if (selectedCompanyId) {
+      try {
+        sessionStorage.setItem(`sgc_ap_utility_due_warn_${selectedCompanyId}`, '1');
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    setUtilityDueWarningOpen(false);
+  };
+
+  const viewUtilityDueWarningBills = () => {
+    dismissUtilityDueWarning();
+    setFilters((prev) => ({
+      ...prev,
+      status: 'unpaid',
+      billType: 'store',
+      startDate: '',
+      endDate: '',
+      search: ''
+    }));
+    setSearchInput('');
+    setPagination((prev) => ({ ...prev, currentPage: 1 }));
+  };
 
   const handleFilterChange = (field) => (event) => {
     setFilters(prev => ({
@@ -1702,6 +1753,142 @@ const AccountsPayable = () => {
         </Alert>
       )}
 
+      {/* Utility due today / overdue warning */}
+      <Dialog
+        open={utilityDueWarningOpen}
+        onClose={dismissUtilityDueWarning}
+        maxWidth="md"
+        fullWidth
+        aria-labelledby="utility-due-warning-title"
+      >
+        <DialogTitle id="utility-due-warning-title" sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pr: 6, position: 'relative' }}>
+          <Avatar sx={{ bgcolor: 'warning.main' }}>
+            <WarningIcon />
+          </Avatar>
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+              Utility Bills Due Today / Overdue
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {(summary.dueUtilityWarnings || []).length} unpaid Centralized Store bill
+              {(summary.dueUtilityWarnings || []).length === 1 ? '' : 's'} need attention
+            </Typography>
+          </Box>
+          <IconButton
+            aria-label="close"
+            onClick={dismissUtilityDueWarning}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            These utility bills are due today or already past due. This warning will keep appearing when you open Vendor Bills until they are paid.
+          </Alert>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700 }}>Bill #</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Vendor</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Due Date</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Bill Amount</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>After Due Date</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700 }}>Outstanding</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(summary.dueUtilityWarnings || []).map((row) => (
+                  <TableRow key={row._id || row.billNumber} hover>
+                    <TableCell sx={{ fontWeight: 700 }}>{row.billNumber}</TableCell>
+                    <TableCell>{row.vendorName || '—'}</TableCell>
+                    <TableCell>{row.dueDate ? formatDate(row.dueDate) : '—'}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        label={row.urgency === 'overdue' ? 'Overdue' : 'Due Today'}
+                        color={row.urgency === 'overdue' ? 'error' : 'warning'}
+                        sx={{ fontWeight: 700 }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">{formatPKR(row.totalAmount)}</TableCell>
+                    <TableCell align="right">
+                      {Number(row.duePaymentAmount) > 0 ? formatPKR(row.duePaymentAmount) : '—'}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700, color: 'error.main' }}>
+                      {formatPKR(row.outstandingAmount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={dismissUtilityDueWarning} color="inherit">
+            Dismiss for now
+          </Button>
+          <Button variant="contained" color="warning" onClick={viewUtilityDueWarningBills} startIcon={<ViewIcon />}>
+            View utility bills
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Pending Utility Bills — full company count (all pages) */}
+      <Card
+        sx={{
+          mb: 3,
+          cursor: 'pointer',
+          border: '1px solid',
+          borderColor: (summary.pendingUtilityBills || 0) > 0 ? 'warning.main' : 'divider',
+          bgcolor: (summary.pendingUtilityBills || 0) > 0
+            ? alpha(theme.palette.warning.main, 0.08)
+            : 'background.paper',
+          transition: 'box-shadow 0.2s',
+          '&:hover': { boxShadow: 3 }
+        }}
+        onClick={() => {
+          setFilters((prev) => ({
+            ...prev,
+            status: 'unpaid',
+            billType: 'store',
+            startDate: '',
+            endDate: '',
+            search: ''
+          }));
+          setSearchInput('');
+          setPagination((prev) => ({ ...prev, currentPage: 1 }));
+        }}
+      >
+        <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
+            <Box>
+              <Typography color="textSecondary" variant="body2" sx={{ fontWeight: 600 }}>
+                Pending Utility Bills
+              </Typography>
+              <Typography
+                variant="h4"
+                sx={{
+                  fontWeight: 800,
+                  color: (summary.pendingUtilityBills || 0) > 0 ? 'warning.dark' : 'text.primary',
+                  lineHeight: 1.2
+                }}
+              >
+                {summary.pendingUtilityBills || 0}
+              </Typography>
+              <Typography variant="caption" color="textSecondary">
+                Unpaid Centralized Store / utility bills across all pages — click to filter
+              </Typography>
+            </Box>
+            <Avatar sx={{ bgcolor: 'warning.main', width: 48, height: 48 }}>
+              <WarningIcon />
+            </Avatar>
+          </Box>
+        </CardContent>
+      </Card>
+
       {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} md={3}>
@@ -2124,6 +2311,7 @@ const AccountsPayable = () => {
                         location: getBillInvoiceLocation(selectedBill),
                         notes: selectedBill.notes || selectedBill.internalNotes || getBillNarrationDisplay(selectedBill),
                         forWhat: selectedBill.forWhat || getBillNarrationDisplay(selectedBill),
+                        duePaymentAmount: getDuePaymentAmountFromBill(selectedBill),
                         billLines: (selectedBill.lineItems && selectedBill.lineItems.length > 0)
                           ? selectedBill.lineItems.map((line, idx) => {
                             let code = (line.itemCode && line.itemCode !== '—') ? line.itemCode : '';
@@ -2141,6 +2329,7 @@ const AccountsPayable = () => {
                               description: line.description || line.itemName || '',
                               itemCode: code || line.accountNumber || '—',
                               amount: line.amount || (line.quantity * line.unitPrice),
+                              duePaymentAmount: getLineDuePaymentAmount(selectedBill, line, idx),
                               attachments: idx === 0 && selectedBill.attachments?.length ? selectedBill.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
                             };
                           })
@@ -3959,11 +4148,13 @@ const AccountsPayable = () => {
                   provider: selectedBill.vendorName || selectedBill.vendor?.name,
                   location: getBillInvoiceLocation(selectedBill),
                   notes: selectedBill.notes || selectedBill.internalNotes,
+                  duePaymentAmount: getDuePaymentAmountFromBill(selectedBill),
                   billLines: (editData.lineItems || []).map((line, idx) => ({
                     ...line,
                     itemName: line.description,
                     itemCode: line.itemCode || 'N/A',
-                    amount: line.amount || (line.quantity * line.unitPrice)
+                    amount: line.amount || (line.quantity * line.unitPrice),
+                    duePaymentAmount: getLineDuePaymentAmount(selectedBill, line, idx)
                   }))
                 }}
                 showChargesSummary={true}

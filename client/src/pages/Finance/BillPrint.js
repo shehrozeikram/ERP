@@ -13,7 +13,9 @@ import {
   getBillCompany,
   getBillInvoiceLocation,
   getCentralizedStoreDocumentTypeLabel,
-  getStoreInvoiceOrgTitle
+  getStoreInvoiceOrgTitle,
+  getDuePaymentAmountFromBill,
+  getLineDuePaymentAmount
 } from '../../utils/centralizedStoreBillDisplay';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
@@ -80,6 +82,7 @@ export default function BillPrint() {
     location: invoiceLocation,
     notes: bill.notes || bill.internalNotes || getBillNarrationDisplay(bill),
     forWhat: bill.forWhat || getBillNarrationDisplay(bill),
+    duePaymentAmount: getDuePaymentAmountFromBill(bill),
     billLines: (bill.lineItems && bill.lineItems.length > 0)
       ? bill.lineItems.map((line, idx) => {
           let code = (line.itemCode && line.itemCode !== '—') ? line.itemCode : '';
@@ -96,7 +99,8 @@ export default function BillPrint() {
             itemName: line.itemName || line.description || (line.accountNumber ? `Account ${line.accountNumber}` : 'Item'),
             description: line.description || line.itemName || '',
             itemCode: code || line.accountNumber || '—',
-            amount: line.amount || (line.quantity * line.unitPrice) || 0
+            amount: line.amount || (line.quantity * line.unitPrice) || 0,
+            duePaymentAmount: getLineDuePaymentAmount(bill, line, idx)
           };
         })
       : (bill.billLines || [])

@@ -116,6 +116,21 @@ const accountsPayableSchema = new mongoose.Schema({
       return Math.round(val * 100) / 100;
     }
   },
+  /**
+   * Scheduled payment after due date (from Centralized Store / Utility bills).
+   * Independent of totalAmount — display / overdue only; does not change AP total.
+   */
+  duePaymentAmount: {
+    type: Number,
+    min: 0,
+    default: 0,
+    get: function(val) {
+      return Math.round((Number(val) || 0) * 100) / 100;
+    },
+    set: function(val) {
+      return Math.round((Number(val) || 0) * 100) / 100;
+    }
+  },
   amountPaid: {
     type: Number,
     default: 0,
@@ -245,6 +260,18 @@ const accountsPayableSchema = new mongoose.Schema({
       type: Number,
       get: function() {
         return Math.round((this.quantity * this.unitPrice) * 100) / 100;
+      }
+    },
+    /** Scheduled payment after due date for this line (utility / store bills). */
+    duePaymentAmount: {
+      type: Number,
+      min: 0,
+      default: 0,
+      get: function(val) {
+        return Math.round((Number(val) || 0) * 100) / 100;
+      },
+      set: function(val) {
+        return Math.round((Number(val) || 0) * 100) / 100;
       }
     },
     taxRate: {

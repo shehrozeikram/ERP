@@ -694,7 +694,8 @@ const FinanceHelper = {
         status: statusOverride = null,
         approvalStatus = null,
         approvalChain = null,
-        workflowHistory = null
+        workflowHistory = null,
+        duePaymentAmount = 0
       } = options;
       const companyId = co(options);
       const A = acct(companyId);
@@ -721,6 +722,7 @@ const FinanceHelper = {
         dueDate,
         totalAmount: amount,
         subtotal: amount,
+        duePaymentAmount: Math.round((Number(duePaymentAmount) || lineItems.reduce((s, li) => s + (Number(li.duePaymentAmount) || 0), 0)) * 100) / 100,
         status: statusOverride || 'approved',
         department,
         module,

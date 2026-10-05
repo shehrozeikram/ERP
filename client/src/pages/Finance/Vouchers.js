@@ -53,6 +53,10 @@ import ComparativeStatementView from '../../components/Procurement/ComparativeSt
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import {
+  getDuePaymentAmountFromBill,
+  getLineDuePaymentAmount
+} from '../../utils/centralizedStoreBillDisplay';
 import { numberToWords } from '../../utils/numberToWords';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -2108,6 +2112,7 @@ const Vouchers = () => {
                           location: billCompanyName,
                           notes: b.notes || b.internalNotes,
                           forWhat: b.forWhat || b.notes,
+                          duePaymentAmount: getDuePaymentAmountFromBill(b),
                           billLines: (b.lineItems && b.lineItems.length > 0)
                             ? b.lineItems.map((line, idx) => {
                                 let code = (line.itemCode && line.itemCode !== '—') ? line.itemCode : '';
@@ -2125,6 +2130,7 @@ const Vouchers = () => {
                                   description: line.description || line.itemName || '',
                                   itemCode: code || line.accountNumber || '—',
                                   amount: line.amount || (line.quantity * line.unitPrice) || 0,
+                                  duePaymentAmount: getLineDuePaymentAmount(b, line, idx),
                                   attachments: idx === 0 && b.attachments?.length ? b.attachments.map(a => ({ url: a.path || a.filename, originalName: a.originalName })) : undefined
                                 };
                               })

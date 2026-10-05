@@ -165,3 +165,29 @@ export const getBillInvoiceLocation = (bill) => {
     typeof bill?.vendor?.address === 'object' ? bill?.vendor?.address?.city : null;
   return vendorCity || bill?.department || 'N/A';
 };
+
+/**
+ * Amount after Due Date for Finance Vendor Bills.
+ * Prefers AP field, then linked Centralized Store / Utility bill.
+ */
+export const getDuePaymentAmountFromBill = (bill) => {
+  if (!bill) return 0;
+  const fromAp = Number(bill.duePaymentAmount);
+  if (fromAp > 0) return fromAp;
+  const src = bill.sourceUtilityBill;
+  const fromSrc = Number(src?.duePaymentAmount);
+  if (fromSrc > 0) return fromSrc;
+  const srcLines = Array.isArray(src?.billLines) ? src.billLines : [];
+  const fromSrcLines = srcLines.reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0);
+  if (fromSrcLines > 0) return fromSrcLines;
+  const apLines = Array.isArray(bill.lineItems) ? bill.lineItems : (bill.billLines || []);
+  return apLines.reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0);
+};
+
+/** Per-line Amount after Due Date (AP line or matching source utility line). */
+export const getLineDuePaymentAmount = (bill, line, idx = 0) => {
+  const fromLine = Number(line?.duePaymentAmount);
+  if (fromLine > 0) return fromLine;
+  const srcLine = bill?.sourceUtilityBill?.billLines?.[idx];
+  return Number(srcLine?.duePaymentAmount) || 0;
+};

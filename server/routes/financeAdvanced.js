@@ -4104,7 +4104,8 @@ router.get('/accounts-payable',
       employeeId,
       startDate,
       endDate,
-      search 
+      search,
+      billType
     } = req.query;
 
     const company = await resolveCompanyForFinanceRoute(req);
@@ -4130,6 +4131,40 @@ router.get('/accounts-payable',
       // By default in Finance AP, hide bills that are pending pre-audit / audit director approval
       // Keep draft COA bills visible so creators can track department approval
       baseFilters.status = { $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
+    }
+
+    // Bill type filter (server-side so counts/pages cover the full set)
+    if (billType === 'store') {
+      baseFilters.$and = [
+        ...(baseFilters.$and || []),
+        {
+          $or: [
+            { referenceType: 'utility_bill' },
+            { module: 'taj_utilities' }
+          ]
+        }
+      ];
+    } else if (billType === 'po') {
+      baseFilters.referenceType = { $in: ['purchase_order', 'grn'] };
+    } else if (billType === 'category') {
+      baseFilters.$and = [
+        ...(baseFilters.$and || []),
+        {
+          $and: [
+            {
+              $or: [
+                { referenceType: 'manual' },
+                { module: 'finance' },
+                { referenceType: { $exists: false } },
+                { referenceType: null },
+                { referenceType: '' }
+              ]
+            },
+            { referenceType: { $nin: ['utility_bill', 'purchase_order', 'grn'] } },
+            { module: { $ne: 'taj_utilities' } }
+          ]
+        }
+      ];
     }
     if (vendorId) baseFilters['vendor.vendorId'] = vendorId;
     else if (vendor) {
@@ -4244,15 +4279,61 @@ router.get('/accounts-payable',
     const filters = companyQuery(baseFilters, company);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Pending utility / centralized-store bills across ALL pages (not just current page)
+    const pendingUtilityFilters = companyQuery({
+      $or: [
+        { referenceType: 'utility_bill' },
+        { module: 'taj_utilities' }
+      ],
+      status: {
+        $nin: [
+          'paid',
+          'cancelled',
+          'Pending Audit',
+          'Forwarded to Audit Director',
+          'Returned from Audit'
+        ]
+      }
+    }, company);
+
+    // Unpaid utility bills due today or already overdue (for warning popup)
+    const warningDayStart = new Date();
+    warningDayStart.setHours(0, 0, 0, 0);
+    const warningDayEnd = new Date(warningDayStart);
+    warningDayEnd.setHours(23, 59, 59, 999);
+
+    const dueUtilityWarningFilters = companyQuery({
+      $or: [
+        { referenceType: 'utility_bill' },
+        { module: 'taj_utilities' }
+      ],
+      status: {
+        $nin: [
+          'paid',
+          'cancelled',
+          'Pending Audit',
+          'Forwarded to Audit Director',
+          'Returned from Audit'
+        ]
+      },
+      dueDate: { $ne: null, $lte: warningDayEnd }
+    }, company);
     
-    const [bills, totalCount] = await Promise.all([
+    const [bills, totalCount, pendingUtilityBills, dueUtilityWarningBills] = await Promise.all([
       AccountsPayable.find(filters)
         .populate('payeeEmployee', 'firstName lastName employeeId')
         .sort({ billDate: -1 })
         .skip(skip)
         .limit(parseInt(limit))
         .lean(),
-      AccountsPayable.countDocuments(filters)
+      AccountsPayable.countDocuments(filters),
+      AccountsPayable.countDocuments(pendingUtilityFilters),
+      AccountsPayable.find(dueUtilityWarningFilters)
+        .select('billNumber vendor dueDate totalAmount amountPaid advanceApplied advancePending paymentPending duePaymentAmount status company project')
+        .sort({ dueDate: 1, billNumber: 1 })
+        .limit(100)
+        .lean()
     ]);
 
     // Calculate summary using aggregation pipeline for better performance
@@ -4301,12 +4382,44 @@ router.get('/accounts-payable',
       }
     ]);
 
+    const dueUtilityWarnings = (dueUtilityWarningBills || [])
+      .map((bill) => {
+        const outstanding = Math.round(
+          ((bill.totalAmount || 0)
+            - (bill.amountPaid || 0)
+            - (bill.advanceApplied || 0)
+            - (bill.advancePending || 0)
+            - (bill.paymentPending || 0)) * 100
+        ) / 100;
+        if (outstanding <= 0) return null;
+        const due = bill.dueDate ? new Date(bill.dueDate) : null;
+        const isOverdue = due && due < warningDayStart;
+        const isDueToday = due && due >= warningDayStart && due <= warningDayEnd;
+        return {
+          _id: bill._id,
+          billNumber: bill.billNumber,
+          vendorName: bill.vendor?.name || 'Unknown Vendor',
+          dueDate: bill.dueDate,
+          totalAmount: bill.totalAmount || 0,
+          duePaymentAmount: bill.duePaymentAmount || 0,
+          outstandingAmount: outstanding,
+          status: bill.status,
+          company: bill.company || '',
+          project: bill.project || '',
+          urgency: isOverdue ? 'overdue' : (isDueToday ? 'due_today' : 'due')
+        };
+      })
+      .filter(Boolean);
+
     const summary = {
       totalOutstanding: 0,
       totalOverdue: 0,
       totalPaid: 0,
       totalBills: totalCount,
-      ...(summaryResult[0] || {})
+      ...(summaryResult[0] || {}),
+      pendingUtilityBills: pendingUtilityBills || 0,
+      dueUtilityWarningCount: dueUtilityWarnings.length,
+      dueUtilityWarnings
     };
 
     // Transform bills to match frontend expectations
