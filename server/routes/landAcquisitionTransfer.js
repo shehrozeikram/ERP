@@ -390,6 +390,7 @@ router.get('/transfers', asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const purchase = String(req.query.purchase || '').trim();
   const moza = String(req.query.moza || '').trim();
+  const dealer = String(req.query.dealer || '').trim();
   const purchaser = String(req.query.purchaser || '').trim();
   const missing = String(req.query.missing || '').trim();
   const page = Math.max(1, Number(req.query.page) || 1);
@@ -406,22 +407,46 @@ router.get('/transfers', asyncHandler(async (req, res) => {
     }
   }
 
+  // Dealer lives on the linked land purchase — resolve matching purchase IDs first
+  if (dealer && mongoose.Types.ObjectId.isValid(dealer)) {
+    const purchaseIds = await LandPurchase.find({
+      dealer: new mongoose.Types.ObjectId(dealer)
+    }).distinct('_id');
+    filter.landPurchase = purchase
+      ? (purchaseIds.some((id) => String(id) === String(purchase)) ? purchase : { $in: [] })
+      : { $in: purchaseIds };
+  }
+
   let transfers = await populateTransfer(LandTransfer.find(filter))
     .sort({ createdAt: -1 })
     .lean();
 
+  // Safety net if purchase was inactive but transfer still references it
+  if (dealer && mongoose.Types.ObjectId.isValid(dealer)) {
+    const dealerId = String(dealer);
+    transfers = transfers.filter((row) => {
+      const d = row.landPurchase?.dealer;
+      return String(d?._id || d || '') === dealerId;
+    });
+  }
   if (search) {
     const q = search.toLowerCase();
     transfers = transfers.filter((row) =>
       String(row.referenceNo || '').toLowerCase().includes(q)
       || String(row.transferNo || '').toLowerCase().includes(q)
       || String(row.purchaseNo || '').toLowerCase().includes(q)
+      || String(row.landPurchase?.purchaseNo || '').toLowerCase().includes(q)
       || String(row.dealNo || '').includes(q)
       || String(row.intiqalNo || '').toLowerCase().includes(q)
       || String(row.registryNo || '').toLowerCase().includes(q)
       || String(row.moza?.name || '').toLowerCase().includes(q)
       || String(row.sellerName || '').toLowerCase().includes(q)
       || String(row.purchaserName || '').toLowerCase().includes(q)
+      || String(row.seller?.name || '').toLowerCase().includes(q)
+      || String(row.purchaser?.name || '').toLowerCase().includes(q)
+      || String(row.seller?.cnic || '').toLowerCase().includes(q)
+      || String(row.purchaser?.cnic || '').toLowerCase().includes(q)
+      || String(row.landPurchase?.dealer?.name || '').toLowerCase().includes(q)
     );
   }
 

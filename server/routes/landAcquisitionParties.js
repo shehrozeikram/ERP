@@ -77,8 +77,15 @@ router.get('/parties', asyncHandler(async (req, res) => {
   const search = String(req.query.search || '').trim();
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(100000, Math.max(1, Number(req.query.limit) || 25));
+  const includeInactive =
+    req.query.includeInactive === 'true' ||
+    req.query.includeInactive === true ||
+    req.query.activeOnly === 'false';
 
-  const filter = { isActive: true };
+  const filter = {};
+  if (!includeInactive) {
+    filter.isActive = true;
+  }
   if (partyType) {
     filter.partyType = partyType;
   }
@@ -93,7 +100,7 @@ router.get('/parties', asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
   const [items, total] = await Promise.all([
     LandParty.find(filter)
-      .sort({ partyDate: -1, name: 1, createdAt: -1 })
+      .sort({ name: 1, partyDate: -1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean(),

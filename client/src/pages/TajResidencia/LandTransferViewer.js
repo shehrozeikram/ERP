@@ -34,6 +34,7 @@ import {
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
+import landAcquisitionPartyService from '../../services/landAcquisitionPartyService';
 import { getMozas } from '../../services/landAcquisitionMozaService';
 import { formatAreaReadable } from '../../utils/landAreaUnits';
 import { resolveUploadFileHref } from '../../utils/uploadPaths';
@@ -53,14 +54,15 @@ const formatDate = (value) => {
 const formatCurrency = (n) => new Intl.NumberFormat('en-PK', { style: 'currency', currency: 'PKR', maximumFractionDigits: 0 }).format(n || 0);
 
 export default function LandTransferViewer() {
-  const [rows, setRows] = useState([]);
+  const [allRows, setAllRows] = useState([]);
   const [mozas, setMozas] = useState([]);
-  const [total, setTotal] = useState(0);
+  const [dealers, setDealers] = useState([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [search, setSearch] = useState('');
   const [searchDebounced, setSearchDebounced] = useState('');
   const [mozaFilter, setMozaFilter] = useState('');
+  const [dealerFilter, setDealerFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
@@ -80,37 +82,86 @@ export default function LandTransferViewer() {
 
   useEffect(() => {
     setPage(0);
-  }, [searchDebounced, mozaFilter, purchaserParam, missingParam]);
+  }, [searchDebounced, mozaFilter, dealerFilter, purchaserParam, missingParam]);
 
   useEffect(() => {
     getMozas().then((res) => setMozas(res.data?.data || [])).catch(() => setMozas([]));
+    // Load every dealer (active + inactive) so the dropdown is complete
+    landAcquisitionPartyService
+      .getParties({ type: 'dealer', limit: 100000, page: 1, includeInactive: true })
+      .then((res) => {
+        const list = Array.isArray(res.data) ? res.data : [];
+        const byId = new Map();
+        list.forEach((d) => {
+          if (!d?._id) return;
+          byId.set(String(d._id), d);
+        });
+        const sorted = Array.from(byId.values()).sort((a, b) =>
+          String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
+        );
+        setDealers(sorted);
+      })
+      .catch(() => setDealers([]));
   }, []);
+
+  // Ensure any dealer present on loaded transfers also appears in the dropdown
+  useEffect(() => {
+    if (!allRows.length) return;
+    setDealers((prev) => {
+      const byId = new Map(prev.map((d) => [String(d._id), d]));
+      let changed = false;
+      allRows.forEach((row) => {
+        const d = row.landPurchase?.dealer;
+        if (!d) return;
+        const id = String(d._id || d);
+        if (!id || byId.has(id)) return;
+        byId.set(id, typeof d === 'object' ? d : { _id: id, name: String(d) });
+        changed = true;
+      });
+      if (!changed) return prev;
+      return Array.from(byId.values()).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
+      );
+    });
+  }, [allRows]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      // Always load the full filtered set, then paginate in the UI so Search / Moza /
+      // Dealer / purchaser / missing filters apply across every record — not only the current page.
       const res = await landAcquisitionTransferService.getTransfers({
-        page: page + 1,
-        limit: rowsPerPage,
+        page: 1,
+        limit: 'all',
         ...(searchDebounced && { search: searchDebounced }),
         ...(mozaFilter && { moza: mozaFilter }),
+        ...(dealerFilter && { dealer: dealerFilter }),
         ...(purchaserParam && { purchaser: purchaserParam }),
         ...(missingParam && { missing: missingParam })
       });
       const payload = res.data;
-      setRows(payload?.transfers || []);
-      setTotal(payload?.pagination?.total || 0);
+      setAllRows(payload?.transfers || []);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load land transfers');
+      setAllRows([]);
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, searchDebounced, mozaFilter, purchaserParam, missingParam]);
+  }, [searchDebounced, mozaFilter, dealerFilter, purchaserParam, missingParam]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const total = allRows.length;
+  const maxPage = Math.max(0, Math.ceil(total / rowsPerPage) - 1);
+  const safePage = Math.min(page, maxPage);
+  const rows = allRows.slice(safePage * rowsPerPage, safePage * rowsPerPage + rowsPerPage);
+
+  useEffect(() => {
+    if (page > maxPage) setPage(maxPage);
+  }, [page, maxPage]);
 
   const handleDelete = async (row) => {
     if (!window.confirm(`Delete transfer ${row.referenceNo}?`)) return;
@@ -141,18 +192,10 @@ export default function LandTransferViewer() {
   };
 
   const handleExport = async () => {
-    const toastId = toast.loading('Fetching all filtered records for export...');
+    const toastId = toast.loading('Preparing export...');
     try {
-      // Use same filters as the table (search, moza, purchaser, missing) and fetch ALL pages
-      const res = await landAcquisitionTransferService.getTransfers({
-        page: 1,
-        limit: 'all',
-        ...(searchDebounced && { search: searchDebounced }),
-        ...(mozaFilter && { moza: mozaFilter }),
-        ...(purchaserParam && { purchaser: purchaserParam }),
-        ...(missingParam && { missing: missingParam })
-      });
-      const allTransfers = res.data?.transfers || [];
+      // allRows is already the full filtered set (every matching record)
+      const allTransfers = allRows;
 
       if (allTransfers.length === 0) {
         toast.error('No records to export for the current filter', { id: toastId });
@@ -264,6 +307,22 @@ export default function LandTransferViewer() {
                 <MenuItem key={m._id} value={m._id}>{m.name}</MenuItem>
               ))}
             </TextField>
+            <TextField
+              size="small"
+              select
+              label="Dealer"
+              value={dealerFilter}
+              onChange={(e) => setDealerFilter(e.target.value)}
+              sx={{ minWidth: 200 }}
+            >
+              <MenuItem value="">All dealers</MenuItem>
+              {dealers.map((d) => (
+                <MenuItem key={d._id} value={d._id}>
+                  {d.name || 'Unnamed dealer'}
+                  {d.isActive === false ? ' (inactive)' : ''}
+                </MenuItem>
+              ))}
+            </TextField>
           </Stack>
           {purchaserParam && (
             <Stack direction="row" spacing={1} alignItems="center">
@@ -343,7 +402,7 @@ export default function LandTransferViewer() {
             ) : (
               rows.map((row, idx) => (
                 <TableRow key={row._id} hover>
-                  <TableCell>{page * rowsPerPage + idx + 1}</TableCell>
+                  <TableCell>{safePage * rowsPerPage + idx + 1}</TableCell>
                   <TableCell>{new Date(row.transferDate).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-')}</TableCell>
                   <TableCell>
                     <Button
@@ -454,7 +513,7 @@ export default function LandTransferViewer() {
         <TablePagination
           component="div"
           count={total}
-          page={page}
+          page={safePage}
           onPageChange={(_, next) => setPage(next)}
           rowsPerPage={rowsPerPage}
           onRowsPerPageChange={(e) => {
