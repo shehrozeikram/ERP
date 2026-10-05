@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 const mongoosePaginate = require('mongoose-paginate-v2');
+const {
+  getCalendarDaysInMonth,
+  resolveSettlementRateDate,
+  getSettlementDailyRate
+} = require('../../utils/finalSettlementDays');
 
 const finalSettlementSchema = new mongoose.Schema({
   // Employee Information
@@ -240,7 +245,11 @@ finalSettlementSchema.virtual('noticePeriodShortfallDays').get(function() {
 // Virtual for calculating notice period deduction amount
 finalSettlementSchema.virtual('noticePeriodDeductionAmount').get(function() {
   if (this.noticePeriodShortfallDays <= 0) return 0;
-  const dailyRate = (this.grossSalary || 0) / 30; // Based on gross salary
+  const rateDate = resolveSettlementRateDate({
+    lastWorkingDate: this.lastWorkingDate,
+    settlementDate: this.settlementDate
+  });
+  const dailyRate = getSettlementDailyRate(this.grossSalary, rateDate);
   return dailyRate * this.noticePeriodShortfallDays;
 });
 
@@ -259,8 +268,13 @@ finalSettlementSchema.virtual('settlementProgress').get(function() {
 // Pre-save middleware to calculate totals
 finalSettlementSchema.pre('save', function(next) {
   // Compute actualSalary as daily rate * notice period shortfall days
+  // (daily rate uses calendar days in last-working / settlement month)
   const shortfallDays = Math.max(0, (this.noticePeriod || 0) - (this.noticePeriodServed || 0));
-  const dailyRate = (this.grossSalary || 0) / 30;
+  const rateDate = resolveSettlementRateDate({
+    lastWorkingDate: this.lastWorkingDate,
+    settlementDate: this.settlementDate
+  });
+  const dailyRate = getSettlementDailyRate(this.grossSalary, rateDate);
   this.actualSalary = Math.round(dailyRate * shortfallDays);
 
   // Calculate total earnings
@@ -307,17 +321,26 @@ finalSettlementSchema.pre('save', function(next) {
 
 // Method to calculate leave encashment
 finalSettlementSchema.methods.calculateLeaveEncashment = function() {
-  const dailyRate = (this.grossSalary || 0) / 30;
-  const encashableLeaves = Math.min(this.leaveBalance.total, 30); // Max 30 days encashment
+  const rateDate = resolveSettlementRateDate({
+    lastWorkingDate: this.lastWorkingDate,
+    settlementDate: this.settlementDate
+  });
+  const dailyRate = getSettlementDailyRate(this.grossSalary, rateDate);
+  const encashableLeaves = Math.min(this.leaveBalance.total, 30); // Max 30 days encashment (policy cap)
   return dailyRate * encashableLeaves;
 };
 
 // Method to calculate gratuity
 finalSettlementSchema.methods.calculateGratuity = function() {
-  // Standard gratuity calculation: 30 days gross salary for each completed year
+  // One month's gross salary for each completed year (calendar month of settlement)
   const yearsOfService = this.getYearsOfService();
-  const dailyRate = (this.grossSalary || 0) / 30;
-  return dailyRate * 30 * yearsOfService;
+  const rateDate = resolveSettlementRateDate({
+    lastWorkingDate: this.lastWorkingDate,
+    settlementDate: this.settlementDate
+  });
+  const daysInMonth = getCalendarDaysInMonth(rateDate);
+  const dailyRate = getSettlementDailyRate(this.grossSalary, rateDate);
+  return dailyRate * daysInMonth * yearsOfService;
 };
 
 // Method to get years of service

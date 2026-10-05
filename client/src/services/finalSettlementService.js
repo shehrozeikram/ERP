@@ -1,5 +1,9 @@
 import api from './api';
 import { formatPKR } from '../utils/currency';
+import {
+  resolveSettlementRateDate,
+  getSettlementDailyRate
+} from '../utils/finalSettlementDays';
 
 class FinalSettlementService {
   // Get all settlements with pagination and filters
@@ -143,8 +147,16 @@ class FinalSettlementService {
       formattedBasicSalary: formatPKR(settlement.basicSalary),
       formattedGrossSalary: formatPKR(settlement.grossSalary),
       formattedActualSalary: formatPKR(
-        settlement.actualSalary || 
-        Math.round(((settlement.grossSalary || 0) / 30) * Math.max(0, (settlement.noticePeriod || 0) - (settlement.noticePeriodServed || 0)))
+        settlement.actualSalary ||
+        Math.round(
+          getSettlementDailyRate(
+            settlement.grossSalary || 0,
+            resolveSettlementRateDate({
+              lastWorkingDate: settlement.lastWorkingDate,
+              settlementDate: settlement.settlementDate
+            })
+          ) * Math.max(0, (settlement.noticePeriod || 0) - (settlement.noticePeriodServed || 0))
+        )
       ),
       formattedNetSalary: formatPKR(settlement.netSalary),
       formattedTotalEarnings: formatPKR(settlement.earnings?.totalEarnings),

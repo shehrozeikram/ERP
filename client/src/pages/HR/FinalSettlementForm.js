@@ -38,6 +38,11 @@ import * as Yup from 'yup';
 import finalSettlementService from '../../services/finalSettlementService';
 import api from '../../services/api';
 import { formatPKR } from '../../utils/currency';
+import {
+  getCalendarDaysInMonth,
+  resolveSettlementRateDate,
+  getSettlementDailyRateRounded
+} from '../../utils/finalSettlementDays';
 import { PageLoading, LoadingSpinner } from '../../components/LoadingSpinner';
 
 const steps = [
@@ -436,8 +441,12 @@ const FinalSettlementForm = () => {
 
       const basicSalary = grossSalary;
 
-      // Calculate daily rate and leave encashment
-      const dailyRate = Math.round(grossSalary / 30);
+      // Calculate daily rate from calendar days in last-working / settlement month
+      const rateDate = resolveSettlementRateDate({
+        lastWorkingDate: formik.values.lastWorkingDate,
+        settlementDate: formik.values.settlementDate
+      });
+      const dailyRate = getSettlementDailyRateRounded(grossSalary, rateDate);
       const leaveEncashment = 0; // Default to 0, user will input manually
 
       // Calculate gratuity based on years of service (using Gross Salary)
@@ -541,7 +550,13 @@ const FinalSettlementForm = () => {
         basicSalary: settlement.basicSalary || 0,
         grossSalary: settlement.grossSalary || 0,
         netSalary: settlement.netSalary || 0,
-        dailyRate: Math.round((settlement.grossSalary || 0) / 30),
+        dailyRate: getSettlementDailyRateRounded(
+          settlement.grossSalary || 0,
+          resolveSettlementRateDate({
+            lastWorkingDate: settlement.lastWorkingDate,
+            settlementDate: settlement.settlementDate
+          })
+        ),
         earnings: {
           basicSalary: earnings.basicSalary || 0,
           houseRent: earnings.houseRent || 0,
@@ -679,18 +694,38 @@ const FinalSettlementForm = () => {
   // Calculate notice period shortfall
   const noticePeriodShortfall = Math.max(0, formik.values.noticePeriod - formik.values.noticePeriodServed);
 
+  // Recalculate daily rate when last working / settlement month changes
+  useEffect(() => {
+    if (!formik.values.grossSalary && !selectedEmployee?.salary?.gross) return;
+    const rateDate = resolveSettlementRateDate({
+      lastWorkingDate: formik.values.lastWorkingDate,
+      settlementDate: formik.values.settlementDate
+    });
+    const gross = formik.values.grossSalary || selectedEmployee?.salary?.gross || 0;
+    const nextRate = getSettlementDailyRateRounded(gross, rateDate);
+    if (Number(formik.values.dailyRate) !== nextRate) {
+      formik.setFieldValue('dailyRate', nextRate);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formik.values.lastWorkingDate, formik.values.settlementDate, formik.values.grossSalary, selectedEmployee]);
+
   // Auto-prorate earnings based on notice period served
   useEffect(() => {
     if (!selectedEmployee) return;
 
     const servedDays = Number(formik.values.noticePeriodServed);
+    const rateDate = resolveSettlementRateDate({
+      lastWorkingDate: formik.values.lastWorkingDate,
+      settlementDate: formik.values.settlementDate
+    });
+    const daysInMonth = getCalendarDaysInMonth(rateDate);
 
-    // Helper to prorate base amounts based on notice period served (30 days standard month)
+    // Helper to prorate base amounts based on notice period served (calendar month days)
     const prorate = (amount) => {
       const baseAmount = Number(amount) || 0;
       if (baseAmount === 0) return 0;
       if (!servedDays || servedDays <= 0) return baseAmount;
-      return Math.round((baseAmount / 30) * servedDays);
+      return Math.round((baseAmount / daysInMonth) * servedDays);
     };
 
     const getAllow = (key) => {
@@ -737,7 +772,12 @@ const FinalSettlementForm = () => {
     }));
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formik.values.noticePeriodServed, selectedEmployee]);
+  }, [
+    formik.values.noticePeriodServed,
+    formik.values.lastWorkingDate,
+    formik.values.settlementDate,
+    selectedEmployee
+  ]);
 
   const settlementTotals = computeSettlementTotals(formik.values);
 
@@ -983,7 +1023,12 @@ const FinalSettlementForm = () => {
                     value={formik.values.dailyRate}
                     onChange={formik.handleChange}
                     InputProps={amountInputProps}
-                    helperText="Gross salary ÷ 30"
+                    helperText={`Gross salary ÷ ${getCalendarDaysInMonth(
+                      resolveSettlementRateDate({
+                        lastWorkingDate: formik.values.lastWorkingDate,
+                        settlementDate: formik.values.settlementDate
+                      })
+                    )} (calendar month)`}
                   />
                 </Grid>
 
@@ -1017,8 +1062,27 @@ const FinalSettlementForm = () => {
                   <Grid item xs={12}>
                     <Alert severity="info">
                       Notice period served: {formik.values.noticePeriodServed} days
+                      {' '}· Month days:{' '}
+                      {getCalendarDaysInMonth(
+                        resolveSettlementRateDate({
+                          lastWorkingDate: formik.values.lastWorkingDate,
+                          settlementDate: formik.values.settlementDate
+                        })
+                      )}
                       <br />
-                      Estimated salary: {formatPKR(Math.round((formik.values.dailyRate || (selectedEmployee?.salary?.gross || 70000) / 30) * formik.values.noticePeriodServed))}
+                      Estimated salary:{' '}
+                      {formatPKR(
+                        Math.round(
+                          (formik.values.dailyRate ||
+                            getSettlementDailyRateRounded(
+                              selectedEmployee?.salary?.gross || 70000,
+                              resolveSettlementRateDate({
+                                lastWorkingDate: formik.values.lastWorkingDate,
+                                settlementDate: formik.values.settlementDate
+                              })
+                            )) * formik.values.noticePeriodServed
+                        )
+                      )}
                     </Alert>
                   </Grid>
                 )}
