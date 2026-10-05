@@ -252,14 +252,20 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
 
     const defaultEarnings = {
       basicSalary,
-      houseRent: employee.salary?.houseRent || 0,
-      medicalAllowance: employee.salary?.medicalAllowance || 0,
-      conveyanceAllowance: employee.salary?.conveyanceAllowance || 0,
-      otherAllowances: employee.salary?.otherAllowances || 0,
+      houseRent: employee.salary?.houseRent || employee.allowances?.houseRent?.amount || 0,
+      medicalAllowance: employee.salary?.medical || employee.allowances?.medical?.amount || 0,
+      conveyanceAllowance: employee.allowances?.conveyance?.amount || employee.allowances?.transport?.amount || 0,
+      foodAllowance: employee.allowances?.food?.amount || 0,
+      vehicleAllowance: employee.allowances?.vehicle?.amount || 0,
+      fuelAllowance: employee.allowances?.fuel?.amount || 0,
+      specialAllowance: employee.allowances?.special?.amount || 0,
+      otherAllowances: employee.salary?.otherAllowances || employee.allowances?.other?.amount || 0,
+      otherEarnings: 0,
       overtime: 0,
       bonus: 0,
       gratuity: 0,
       leaveEncashment: 0,
+      noticePay: 0,
       providentFund: 0,
       eobi: 0
     };
@@ -282,10 +288,18 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
     const earnings = clientEarnings
       ? { ...defaultEarnings, ...clientEarnings }
       : defaultEarnings;
+    if (earnings.transportAllowance != null && !(Number(earnings.conveyanceAllowance) > 0)) {
+      earnings.conveyanceAllowance = earnings.transportAllowance;
+    }
+    delete earnings.transportAllowance;
 
     const deductions = clientDeductions
       ? { ...defaultDeductions, ...clientDeductions }
       : defaultDeductions;
+    if (deductions.taxDeductions != null && !(Number(deductions.incomeTax) > 0)) {
+      deductions.incomeTax = deductions.taxDeductions;
+    }
+    delete deductions.taxDeductions;
 
     const loans = Array.isArray(clientLoans) && clientLoans.length > 0
       ? clientLoans
@@ -366,19 +380,30 @@ router.put('/:id', authMiddleware, checkPermission('settlement_management'), asy
       });
     }
 
-    const updatedSettlement = await FinalSettlement.findByIdAndUpdate(
-      req.params.id,
-      {
-        ...req.body,
-        updatedBy: req.user._id
-      },
-      { new: true, runValidators: true }
-    );
+    const body = { ...req.body };
+    // Map form transportAllowance into schema conveyanceAllowance
+    if (body.earnings) {
+      if (body.earnings.transportAllowance != null && !(Number(body.earnings.conveyanceAllowance) > 0)) {
+        body.earnings.conveyanceAllowance = body.earnings.transportAllowance;
+      }
+      delete body.earnings.transportAllowance;
+    }
+    if (body.deductions && body.deductions.taxDeductions != null && !(Number(body.deductions.incomeTax) > 0)) {
+      body.deductions.incomeTax = body.deductions.taxDeductions;
+      delete body.deductions.taxDeductions;
+    }
+
+    Object.keys(body).forEach((key) => {
+      if (key === 'updatedBy' || key === '_id' || key === 'createdBy' || key === 'createdAt') return;
+      settlement[key] = body[key];
+    });
+    settlement.updatedBy = req.user._id;
+    await settlement.save();
 
     res.json({
       success: true,
       message: 'Settlement updated successfully',
-      data: updatedSettlement
+      data: settlement
     });
   } catch (error) {
     console.error('Error updating settlement:', error);

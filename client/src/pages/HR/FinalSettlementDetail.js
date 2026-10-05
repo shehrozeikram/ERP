@@ -444,8 +444,28 @@ const FinalSettlementDetail = () => {
                       <TableCell align="right">{formattedEarnings.conveyanceAllowance}</TableCell>
                     </TableRow>
                     <TableRow>
+                      <TableCell>Food Allowance</TableCell>
+                      <TableCell align="right">{formattedEarnings.foodAllowance}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Vehicle Allowance</TableCell>
+                      <TableCell align="right">{formattedEarnings.vehicleAllowance}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Fuel Allowance</TableCell>
+                      <TableCell align="right">{formattedEarnings.fuelAllowance}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Special Allowance</TableCell>
+                      <TableCell align="right">{formattedEarnings.specialAllowance}</TableCell>
+                    </TableRow>
+                    <TableRow>
                       <TableCell>Other Allowances</TableCell>
                       <TableCell align="right">{formattedEarnings.otherAllowances}</TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Other Earnings</TableCell>
+                      <TableCell align="right">{formattedEarnings.otherEarnings}</TableCell>
                     </TableRow>
                     <TableRow>
                       <TableCell>Overtime</TableCell>

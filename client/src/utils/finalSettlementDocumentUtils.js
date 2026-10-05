@@ -16,14 +16,20 @@ const earningRows = (earnings = {}) =>
     ['House Rent', earnings.houseRent],
     ['Medical Allowance', earnings.medicalAllowance],
     ['Conveyance Allowance', earnings.conveyanceAllowance],
+    ['Food Allowance', earnings.foodAllowance],
+    ['Vehicle Allowance', earnings.vehicleAllowance],
+    ['Fuel Allowance', earnings.fuelAllowance],
+    ['Special Allowance', earnings.specialAllowance],
     ['Other Allowances', earnings.otherAllowances],
+    ['Other Earnings', earnings.otherEarnings],
     ['Overtime', earnings.overtime],
     ['Bonus', earnings.bonus],
     ['Gratuity', earnings.gratuity],
     ['Leave Encashment', earnings.leaveEncashment],
+    ['Notice Pay', earnings.noticePay],
     ['Provident Fund', earnings.providentFund],
     ['EOBI', earnings.eobi]
-  ];
+  ].filter(([, amount]) => Number(amount) > 0);
 
 const deductionRows = (deductions = {}) =>
   [
@@ -32,8 +38,12 @@ const deductionRows = (deductions = {}) =>
     ['EOBI', deductions.eobi],
     ['Loan Deductions', deductions.loanDeductions],
     ['Notice Period Deduction', deductions.noticePeriodDeduction],
+    ['Security', deductions.security],
+    ['Health Insurance', deductions.healthInsurance],
+    ['Advance Deductions', deductions.advanceDeductions],
+    ['Pension', deductions.pension],
     ['Other Deductions', deductions.otherDeductions]
-  ];
+  ].filter(([, amount]) => Number(amount) > 0);
 
 export const generateFinalSettlementPdf = (settlement, company = {}) => {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -127,7 +137,14 @@ export const generateFinalSettlementPdf = (settlement, company = {}) => {
     head: [['Component', 'Amount']],
     body: [
       ...earningRows(settlement.earnings).map(([label, amount]) => [label, fmtPKR(amount)]),
-      ['Total Earnings', fmtPKR(settlement.earnings?.totalEarnings)]
+      [
+        'Total Earnings',
+        fmtPKR(
+          Number(settlement.earnings?.totalEarnings) > 0
+            ? settlement.earnings.totalEarnings
+            : settlement.grossSettlementAmount
+        )
+      ]
     ],
     headStyles: { fillColor: [76, 175, 80], textColor: 255, fontStyle: 'bold' },
     columnStyles: { 1: { halign: 'right' } },
@@ -146,7 +163,14 @@ export const generateFinalSettlementPdf = (settlement, company = {}) => {
     head: [['Component', 'Amount']],
     body: [
       ...deductionRows(settlement.deductions).map(([label, amount]) => [label, fmtPKR(amount)]),
-      ['Total Deductions', fmtPKR(settlement.deductions?.totalDeductions)]
+      [
+        'Total Deductions',
+        fmtPKR(
+          Number(settlement.deductions?.totalDeductions) > 0
+            ? settlement.deductions.totalDeductions
+            : deductionRows(settlement.deductions).reduce((s, [, a]) => s + (Number(a) || 0), 0)
+        )
+      ]
     ],
     headStyles: { fillColor: [244, 67, 54], textColor: 255, fontStyle: 'bold' },
     columnStyles: { 1: { halign: 'right' } },

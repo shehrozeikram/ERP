@@ -229,13 +229,37 @@ class FinalSettlementService {
   // Format earnings for display
   formatEarnings(earnings) {
     if (!earnings) return {};
+
+    const totalFromParts =
+      (Number(earnings.basicSalary) || 0) +
+      (Number(earnings.houseRent) || 0) +
+      (Number(earnings.medicalAllowance) || 0) +
+      (Number(earnings.conveyanceAllowance) || 0) +
+      (Number(earnings.foodAllowance) || 0) +
+      (Number(earnings.vehicleAllowance) || 0) +
+      (Number(earnings.fuelAllowance) || 0) +
+      (Number(earnings.specialAllowance) || 0) +
+      (Number(earnings.otherAllowances) || 0) +
+      (Number(earnings.otherEarnings) || 0) +
+      (Number(earnings.overtime) || 0) +
+      (Number(earnings.bonus) || 0) +
+      (Number(earnings.gratuity) || 0) +
+      (Number(earnings.leaveEncashment) || 0) +
+      (Number(earnings.noticePay) || 0) +
+      (Number(earnings.providentFund) || 0) +
+      (Number(earnings.eobi) || 0);
     
     return {
       basicSalary: formatPKR(earnings.basicSalary || 0),
       houseRent: formatPKR(earnings.houseRent || 0),
       medicalAllowance: formatPKR(earnings.medicalAllowance || 0),
       conveyanceAllowance: formatPKR(earnings.conveyanceAllowance || 0),
+      foodAllowance: formatPKR(earnings.foodAllowance || 0),
+      vehicleAllowance: formatPKR(earnings.vehicleAllowance || 0),
+      fuelAllowance: formatPKR(earnings.fuelAllowance || 0),
+      specialAllowance: formatPKR(earnings.specialAllowance || 0),
       otherAllowances: formatPKR(earnings.otherAllowances || 0),
+      otherEarnings: formatPKR(earnings.otherEarnings || 0),
       overtime: formatPKR(earnings.overtime || 0),
       bonus: formatPKR(earnings.bonus || 0),
       gratuity: formatPKR(earnings.gratuity || 0),
@@ -243,13 +267,25 @@ class FinalSettlementService {
       noticePay: formatPKR(earnings.noticePay || 0),
       providentFund: formatPKR(earnings.providentFund || 0),
       eobi: formatPKR(earnings.eobi || 0),
-      totalEarnings: formatPKR(earnings.totalEarnings || 0)
+      totalEarnings: formatPKR(Number(earnings.totalEarnings) > 0 ? earnings.totalEarnings : totalFromParts)
     };
   }
 
   // Format deductions for display
   formatDeductions(deductions) {
     if (!deductions) return {};
+
+    const totalFromParts =
+      (Number(deductions.incomeTax) || 0) +
+      (Number(deductions.providentFund) || 0) +
+      (Number(deductions.eobi) || 0) +
+      (Number(deductions.loanDeductions) || 0) +
+      (Number(deductions.noticePeriodDeduction) || 0) +
+      (Number(deductions.security) || 0) +
+      (Number(deductions.healthInsurance) || 0) +
+      (Number(deductions.advanceDeductions) || 0) +
+      (Number(deductions.pension) || 0) +
+      (Number(deductions.otherDeductions) || 0);
     
     return {
       incomeTax: formatPKR(deductions.incomeTax || 0),
@@ -262,7 +298,7 @@ class FinalSettlementService {
       advanceDeductions: formatPKR(deductions.advanceDeductions || 0),
       pension: formatPKR(deductions.pension || 0),
       otherDeductions: formatPKR(deductions.otherDeductions || 0),
-      totalDeductions: formatPKR(deductions.totalDeductions || 0)
+      totalDeductions: formatPKR(Number(deductions.totalDeductions) > 0 ? deductions.totalDeductions : totalFromParts)
     };
   }
 

@@ -97,7 +97,12 @@ const finalSettlementSchema = new mongoose.Schema({
     houseRent: { type: Number, default: 0 },
     medicalAllowance: { type: Number, default: 0 },
     conveyanceAllowance: { type: Number, default: 0 },
+    foodAllowance: { type: Number, default: 0 },
+    vehicleAllowance: { type: Number, default: 0 },
+    fuelAllowance: { type: Number, default: 0 },
+    specialAllowance: { type: Number, default: 0 },
     otherAllowances: { type: Number, default: 0 },
+    otherEarnings: { type: Number, default: 0 },
     overtime: { type: Number, default: 0 },
     bonus: { type: Number, default: 0 },
     gratuity: { type: Number, default: 0 },
@@ -277,33 +282,40 @@ finalSettlementSchema.pre('save', function(next) {
   const dailyRate = getSettlementDailyRate(this.grossSalary, rateDate);
   this.actualSalary = Math.round(dailyRate * shortfallDays);
 
-  // Calculate total earnings
-  this.earnings.totalEarnings = 
-    (this.earnings.basicSalary || 0) +
-    (this.earnings.houseRent || 0) +
-    (this.earnings.medicalAllowance || 0) +
-    (this.earnings.conveyanceAllowance || 0) +
-    (this.earnings.otherAllowances || 0) +
-    (this.earnings.overtime || 0) +
-    (this.earnings.bonus || 0) +
-    (this.earnings.gratuity || 0) +
-    (this.earnings.leaveEncashment || 0) +
-    (this.earnings.noticePay || 0) +
-    (this.earnings.providentFund || 0) +
-    (this.earnings.eobi || 0);
+  // Calculate total earnings (include all allowance components from the form)
+  const e = this.earnings || {};
+  this.earnings.totalEarnings =
+    (e.basicSalary || 0) +
+    (e.houseRent || 0) +
+    (e.medicalAllowance || 0) +
+    (e.conveyanceAllowance || 0) +
+    (e.foodAllowance || 0) +
+    (e.vehicleAllowance || 0) +
+    (e.fuelAllowance || 0) +
+    (e.specialAllowance || 0) +
+    (e.otherAllowances || 0) +
+    (e.otherEarnings || 0) +
+    (e.overtime || 0) +
+    (e.bonus || 0) +
+    (e.gratuity || 0) +
+    (e.leaveEncashment || 0) +
+    (e.noticePay || 0) +
+    (e.providentFund || 0) +
+    (e.eobi || 0);
 
   // Calculate total deductions
-  this.deductions.totalDeductions = 
-    (this.deductions.incomeTax || 0) +
-    (this.deductions.providentFund || 0) +
-    (this.deductions.eobi || 0) +
-    (this.deductions.loanDeductions || 0) +
-    (this.deductions.noticePeriodDeduction || 0) +
-    (this.deductions.security || 0) +
-    (this.deductions.healthInsurance || 0) +
-    (this.deductions.advanceDeductions || 0) +
-    (this.deductions.pension || 0) +
-    (this.deductions.otherDeductions || 0);
+  const d = this.deductions || {};
+  this.deductions.totalDeductions =
+    (d.incomeTax || 0) +
+    (d.providentFund || 0) +
+    (d.eobi || 0) +
+    (d.loanDeductions || 0) +
+    (d.noticePeriodDeduction || 0) +
+    (d.security || 0) +
+    (d.healthInsurance || 0) +
+    (d.advanceDeductions || 0) +
+    (d.pension || 0) +
+    (d.otherDeductions || 0);
 
   // Calculate gross settlement amount
   this.grossSettlementAmount = this.earnings.totalEarnings;

@@ -1015,11 +1015,12 @@ const Sidebar = () => {
                 color: 'primary.main',
                 fontWeight: 600,
                 fontSize: '0.875rem',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px'
+                textTransform: 'none',
+                letterSpacing: '0.2px'
               }}
+              title={user?.designation || user?.position || undefined}
             >
-              {user?.roleRef?.name || user?.roleRef?.displayName || (user?.roles?.[0]?.name) || user?.role || 'Employee'}
+              {user?.designation || user?.position || '—'}
             </Typography>
           </Box>
         </Box>

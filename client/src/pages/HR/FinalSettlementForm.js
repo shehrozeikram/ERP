@@ -142,7 +142,7 @@ const FinalSettlementForm = () => {
       basicSalary: parseAmount(e.basicSalary),
       houseRent: parseAmount(e.houseRent),
       medicalAllowance: parseAmount(e.medicalAllowance),
-      conveyanceAllowance: parseAmount(e.transportAllowance),
+      conveyanceAllowance: parseAmount(e.transportAllowance) || parseAmount(e.conveyanceAllowance),
       foodAllowance: parseAmount(e.foodAllowance),
       vehicleAllowance: parseAmount(e.vehicleAllowance),
       fuelAllowance: parseAmount(e.fuelAllowance),
@@ -155,20 +155,22 @@ const FinalSettlementForm = () => {
       leaveEncashment: parseAmount(e.leaveEncashment),
       noticePay: parseAmount(e.noticePay),
       providentFund: 0,
-      eobi: 0
+      eobi: 0,
+      totalEarnings: totals.totalEarnings
     };
 
     const deductions = {
-      incomeTax: parseAmount(d.taxDeductions),
+      incomeTax: parseAmount(d.taxDeductions) || parseAmount(d.incomeTax),
       providentFund: parseAmount(d.providentFund),
-      eobi: 0,
+      eobi: parseAmount(d.eobi),
       loanDeductions: parseAmount(d.loanDeductions),
       noticePeriodDeduction: parseAmount(d.noticePeriodDeduction),
       security: parseAmount(d.security),
       healthInsurance: parseAmount(d.healthInsurance),
       advanceDeductions: parseAmount(d.advanceDeductions),
       pension: parseAmount(d.pension),
-      otherDeductions: parseAmount(d.otherDeductions)
+      otherDeductions: parseAmount(d.otherDeductions),
+      totalDeductions: totals.totalDeductions
     };
 
     return {
@@ -428,7 +430,7 @@ const FinalSettlementForm = () => {
         return Number(a) || 0;
       };
 
-      // Calculate salary breakdown
+      // Calculate salary breakdown — basic is NOT full gross (allowances are separate)
       const grossSalary = Math.round(employee.salary?.gross || 70000);
       const medicalAllowance = getAllow('medical');
       const houseRentAllowance = getAllow('houseRent');
@@ -439,7 +441,11 @@ const FinalSettlementForm = () => {
       const otherAllowances = getAllow('other');
       const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
-      const basicSalary = grossSalary;
+      const basicSalary = Math.round(
+        Number(employee.salary?.basic) > 0
+          ? employee.salary.basic
+          : Math.max(0, grossSalary - medicalAllowance - houseRentAllowance - foodAllowance - vehicleAllowance - fuelAllowance - specialAllowance - otherAllowances - transportAllowance)
+      );
 
       // Calculate daily rate from calendar days in last-working / settlement month
       const rateDate = resolveSettlementRateDate({
@@ -749,13 +755,26 @@ const FinalSettlementForm = () => {
     const otherAllowances = getAllow('other');
     const transportAllowance = getAllow('conveyance') || getAllow('transport');
 
-    const earnedSalary = prorate(grossSalary);
+    const basicSalaryBase = Number(selectedEmployee.salary?.basic) > 0
+      ? Number(selectedEmployee.salary.basic)
+      : Math.max(
+        0,
+        grossSalary -
+          medicalAllowance -
+          houseRentAllowance -
+          foodAllowance -
+          vehicleAllowance -
+          fuelAllowance -
+          specialAllowance -
+          otherAllowances -
+          transportAllowance
+      );
 
     formik.setValues((prevValues) => ({
       ...prevValues,
       earnings: {
         ...prevValues.earnings,
-        basicSalary: earnedSalary,
+        basicSalary: prorate(basicSalaryBase),
         medicalAllowance: prorate(medicalAllowance),
         houseRent: prorate(houseRentAllowance),
         transportAllowance: prorate(transportAllowance),

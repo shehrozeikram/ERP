@@ -55,7 +55,7 @@ async function buildAuthProfilePayload(userIdOrDoc) {
 /** Attach linked employee fields (incl. explicit reporting line choice) to auth profile payload. */
 async function attachEmployeeProfileFields(userProfile, userDoc) {
   const employeeData = await findEmployeeForAuthUser(userDoc, {
-    select: 'jobDescription leaveBalance reportingLine employeeId',
+    select: 'jobDescription leaveBalance reportingLine employeeId placementDesignation designation position',
     autoLink: false
   });
 
@@ -66,6 +66,26 @@ async function attachEmployeeProfileFields(userProfile, userDoc) {
     if (employeeData.employeeId) {
       userProfile.employeeId = employeeData.employeeId; // Force Employee ID as master source
     }
+
+    // Resolve designation title for sidebar / profile display
+    if (employeeData.placementDesignation) {
+      await employeeData.populate('placementDesignation', 'title');
+    }
+    const designationTitle =
+      employeeData.placementDesignation?.title ||
+      (typeof employeeData.designation === 'object'
+        ? (employeeData.designation?.title || employeeData.designation?.name)
+        : employeeData.designation) ||
+      employeeData.position ||
+      '';
+    if (designationTitle) {
+      userProfile.designation = String(designationTitle).trim();
+    }
+  }
+
+  // Fallback: User.position when no linked employee designation
+  if (!userProfile.designation && userProfile.position) {
+    userProfile.designation = String(userProfile.position).trim();
   }
 
   userProfile.reportingLine = await loadReportingLineForProfile(userDoc);
