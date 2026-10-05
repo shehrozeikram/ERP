@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Alert,
@@ -36,7 +36,7 @@ import toast from 'react-hot-toast';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 import landAcquisitionPartyService from '../../services/landAcquisitionPartyService';
 import { getMozas } from '../../services/landAcquisitionMozaService';
-import { formatAreaReadable } from '../../utils/landAreaUnits';
+import { addAreas, formatAreaReadable } from '../../utils/landAreaUnits';
 import { resolveUploadFileHref } from '../../utils/uploadPaths';
 import LandTransferDialog from '../../components/TajResidencia/LandTransferDialog';
 import TransferPaymentDialog from '../../components/TajResidencia/TransferPaymentDialog';
@@ -162,6 +162,11 @@ export default function LandTransferViewer() {
   useEffect(() => {
     if (page > maxPage) setPage(maxPage);
   }, [page, maxPage]);
+
+  const totalLandLabel = useMemo(() => {
+    if (!allRows.length) return '—';
+    return formatAreaReadable(addAreas(...allRows.map((r) => r.transferArea)));
+  }, [allRows]);
 
   const handleDelete = async (row) => {
     if (!window.confirm(`Delete transfer ${row.referenceNo}?`)) return;
@@ -323,6 +328,31 @@ export default function LandTransferViewer() {
                 </MenuItem>
               ))}
             </TextField>
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                px: 2,
+                py: 0.75,
+                minWidth: 260,
+                flexShrink: 0,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+                bgcolor: 'grey.50'
+              }}
+            >
+              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                Total Land
+              </Typography>
+              <Typography
+                variant="body1"
+                sx={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}
+              >
+                {loading ? '…' : totalLandLabel}
+              </Typography>
+            </Box>
           </Stack>
           {purchaserParam && (
             <Stack direction="row" spacing={1} alignItems="center">
