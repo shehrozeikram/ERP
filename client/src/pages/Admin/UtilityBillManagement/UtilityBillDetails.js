@@ -568,10 +568,15 @@ const UtilityBillDetails = ({
       .replace(/"/g, '&quot;');
     const lines = bill?.billLines || [];
     const totalVal = getStoreInvoiceLinesTotal();
+    const duePayTotal =
+      Number(bill?.duePaymentAmount) > 0
+        ? Number(bill.duePaymentAmount)
+        : lines.reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0);
     const bd = bill?.billDate ? new Date(bill.billDate) : null;
     const created = bill?.createdAt ? new Date(bill.createdAt) : bd;
     const rowHtml = lines.map((line, i) => {
       const amt = Number(line.amount) || 0;
+      const duePay = Number(line.duePaymentAmount) || 0;
       const hasQty = line.quantity !== undefined && line.quantity !== null && line.quantity !== '';
       const qty = hasQty ? Number(line.quantity) : 1;
       const hasRate = line.unitPrice !== undefined && line.unitPrice !== null && line.unitPrice !== '';
@@ -586,6 +591,7 @@ const UtilityBillDetails = ({
         <td class="c-num">${formatDecimalPk(amt)}</td>
         <td class="c-center">0 %</td>
         <td class="c-num">${formatDecimalPk(amt)}</td>
+        <td class="c-num">${formatDecimalPk(duePay)}</td>
       </tr>`;
     }).join('');
     const charges = [
@@ -599,7 +605,7 @@ const UtilityBillDetails = ({
       ['Sales Tax', 0]
     ];
     const chargesHtml = charges
-      .map(([label, val]) => `<div class="sum-row"><span>${esc(label)}</span><span>${formatDecimalPk(val)}</span></div>`)
+      .map(([label, val]) => `<div class="sum-row charge"><span>${esc(label)}</span><span>${formatDecimalPk(val)}</span></div>`)
       .join('');
     const orgTitle = esc(getStoreInvoiceOrgTitle());
     const narration = esc(getStoreInvoiceNarration());
@@ -608,38 +614,135 @@ const UtilityBillDetails = ({
     return `<!DOCTYPE html>
 <html>
   <head>
-    <title>${docTypeLabel} - ${esc(displayValue(bill?.billId))}</title>
+    <title></title>
     <style>
-      body { font-family: Georgia, "Times New Roman", serif; color: #111; margin: 0; padding: 18px 22px; font-size: 12px; background: #fff; }
-      .sheet { max-width: 900px; margin: 0 auto; }
-      .doc-title { text-align: center; margin-bottom: 14px; }
-      .doc-title .org { font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
-      .doc-title .sub { font-size: 15px; font-weight: 700; margin-top: 2px; }
-      .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; margin-bottom: 12px; border-bottom: 1px solid #bbb; padding-bottom: 10px; }
-      .meta-block { line-height: 1.55; }
+      @page { size: A4 portrait; margin: 10mm 12mm; }
+      * { box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+        color: #111;
+        font-family: Georgia, "Times New Roman", Times, serif;
+        font-size: 11px;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .sheet { width: 100%; max-width: 100%; margin: 0; }
+      .doc-title { text-align: center; margin: 0 0 10px; }
+      .doc-title .org { font-size: 18px; font-weight: 700; letter-spacing: 0.3px; line-height: 1.2; }
+      .doc-title .sub { font-size: 14px; font-weight: 700; margin-top: 2px; line-height: 1.2; }
+      .meta {
+        display: grid;
+        grid-template-columns: 1.4fr 0.6fr;
+        gap: 8px 20px;
+        width: 100%;
+        margin-bottom: 8px;
+        border-bottom: 1px solid #bbb;
+        padding-bottom: 8px;
+      }
+      .meta-block { line-height: 1.45; }
       .meta-block-right { text-align: right; }
-      .meta-row { display: grid; grid-template-columns: 100px 1fr; font-weight: 700; }
-      .meta-row-time { display: flex; justify-content: flex-end; align-items: baseline; gap: 8px; font-weight: 700; }
-      .meta-row .lbl, .meta-row-time .lbl { color: #333; }
-      .narration { background: #ffe7c2; border: 1px solid #e8b86a; padding: 8px 10px; margin: 10px 0 14px; font-weight: 700; line-height: 1.4; }
-      table.inv { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 4px; }
-      table.inv th { font-size: 10px; font-weight: 800; text-align: center; border: 1px solid #999; padding: 6px 4px; background: #f2f2f2; vertical-align: middle; line-height: 1.2; }
-      table.inv td { border: 1px solid #aaa; padding: 7px 6px; vertical-align: top; font-size: 11px; }
-      table.inv .c-num { text-align: right; font-variant-numeric: tabular-nums; }
+      .meta-row {
+        display: grid;
+        grid-template-columns: 95px minmax(0, 1fr);
+        column-gap: 8px;
+        font-weight: 700;
+        font-size: 11px;
+        margin-bottom: 2px;
+      }
+      .meta-row span:last-child { word-break: break-word; }
+      .meta-row-time {
+        display: flex;
+        justify-content: flex-end;
+        align-items: baseline;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 11px;
+      }
+      .meta-row .lbl, .meta-row-time .lbl { color: #444; }
+      .narration {
+        width: 100%;
+        background: #ffe7c2;
+        border: 1px solid #e8b86a;
+        padding: 7px 10px;
+        margin: 0 0 10px;
+        font-weight: 700;
+        line-height: 1.35;
+        font-size: 11px;
+      }
+      table.inv {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        margin: 0;
+      }
+      table.inv th {
+        font-size: 9.5px;
+        font-weight: 800;
+        text-align: center;
+        border: 1px solid #888;
+        padding: 5px 3px;
+        background: #f2f2f2;
+        vertical-align: middle;
+        line-height: 1.2;
+      }
+      table.inv td {
+        border: 1px solid #999;
+        padding: 5px 4px;
+        vertical-align: top;
+        font-size: 10.5px;
+      }
+      table.inv .c-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
       table.inv .c-center { text-align: center; }
-      table.inv .c-code { font-size: 10.5px; word-break: break-all; }
-      table.inv .c-desc { text-align: left; line-height: 1.35; }
-      table.inv tr.subtotal td { font-weight: 800; border-top: 2px solid #333; }
-      .footer-sum { display: flex; justify-content: flex-end; margin-top: 10px; }
-      .sum-box { width: 280px; font-size: 11px; }
-      .sum-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #ddd; }
-      .sum-row.net { border-bottom: 0; margin-top: 6px; padding-top: 8px; font-weight: 800; font-size: 12px; }
-      .sum-row.net span:last-child { border-bottom: 3px double #111; padding-bottom: 2px; }
-      .approval-table { margin-top: 36px; border: 1px solid #999; width: 100%; border-collapse: collapse; }
-      .approval-table th { text-align: left; font-size: 11px; background: #f5f5f5; border-bottom: 1px solid #999; padding: 6px 8px; }
-      .approval-table td { border-bottom: 1px solid #ddd; padding: 6px 8px; font-size: 11px; }
+      table.inv .c-code { font-size: 10px; word-break: break-word; }
+      table.inv .c-desc { text-align: left; line-height: 1.3; word-break: break-word; }
+      table.inv tr.subtotal td { font-weight: 800; border-top: 2px solid #333; background: #fafafa; }
+      .footer-sum { display: flex; justify-content: flex-end; width: 100%; margin-top: 10px; }
+      .sum-box { width: 280px; max-width: 45%; font-size: 11px; }
+      .sum-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-bottom: 1px solid #ddd; }
+      .sum-row.charge { display: none; }
+      .sum-row.net {
+        border-bottom: 0;
+        margin-top: 4px;
+        padding-top: 6px;
+        font-weight: 800;
+        font-size: 12px;
+      }
+      .sum-row.net span:last-child {
+        border-bottom: 3px double #111;
+        padding-bottom: 2px;
+        min-width: 90px;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .approval-table {
+        margin-top: 18px;
+        border: 1px solid #999;
+        width: 100%;
+        border-collapse: collapse;
+        page-break-inside: avoid;
+      }
+      .approval-table th {
+        text-align: left;
+        font-size: 10px;
+        background: #f5f5f5;
+        border-bottom: 1px solid #999;
+        padding: 6px 8px;
+      }
+      .approval-table td {
+        border-bottom: 1px solid #ddd;
+        padding: 6px 8px;
+        font-size: 10px;
+        vertical-align: middle;
+      }
       .approval-table tr:last-child td { border-bottom: 0; }
-      @media print { body { padding: 12px; } }
+      .approval-table img { max-height: 32px !important; max-width: 110px !important; object-fit: contain; }
+      @media print {
+        html, body { width: 100%; }
+        .sheet { width: 100%; page-break-inside: avoid; }
+      }
     </style>
   </head>
   <body>
@@ -656,6 +759,7 @@ const UtilityBillDetails = ({
           <div class="meta-row"><span class="lbl">Supplier</span><span>${esc(getVendorSupplierLine())}</span></div>
           <div class="meta-row"><span class="lbl">Payee Name</span><span>${esc(getPayeeNameLine())}</span></div>
           <div class="meta-row"><span class="lbl">Address</span><span>${esc(displayValue(bill?.location))}</span></div>
+          <div class="meta-row"><span class="lbl">Due Date</span><span>${esc(formatInvoiceDateDmy(bill?.dueDate))}</span></div>
         </div>
         <div class="meta-block meta-block-right">
           <div class="meta-row-time"><span class="lbl">Time</span><span>${esc(formatInvoiceTime12h(created))}</span></div>
@@ -663,26 +767,40 @@ const UtilityBillDetails = ({
       </div>
       <div class="narration">Narration: ${narration}</div>
       <table class="inv">
+        <colgroup>
+          <col style="width:4%" />
+          <col style="width:11%" />
+          <col style="width:24%" />
+          <col style="width:5%" />
+          <col style="width:7%" />
+          <col style="width:9%" />
+          <col style="width:10%" />
+          <col style="width:5%" />
+          <col style="width:11%" />
+          <col style="width:14%" />
+        </colgroup>
         <thead>
           <tr>
-            <th style="width:4%">S.<br/>No</th>
-            <th style="width:11%">Product<br/>Code</th>
-            <th style="width:28%">Description</th>
-            <th style="width:7%">Units</th>
-            <th style="width:9%">Quantity</th>
-            <th style="width:10%">Rate</th>
-            <th style="width:12%">Value Excluding<br/>Sales Tax</th>
-            <th style="width:7%">Discount</th>
-            <th style="width:12%">Net<br/>Amount</th>
+            <th>S.<br/>No</th>
+            <th>Product<br/>Code</th>
+            <th>Description</th>
+            <th>Units</th>
+            <th>Quantity</th>
+            <th>Rate</th>
+            <th>Value Excl.<br/>Tax</th>
+            <th>Disc</th>
+            <th>Net<br/>Amount</th>
+            <th>Amount after<br/>Due Date</th>
           </tr>
         </thead>
         <tbody>
           ${rowHtml}
           <tr class="subtotal">
-            <td colspan="6" style="text-align:right;border-right:1px solid #aaa;">Sub Total</td>
+            <td colspan="6" style="text-align:right;">Sub Total</td>
             <td class="c-num">${formatDecimalPk(totalVal)}</td>
-            <td></td>
+            <td class="c-center"></td>
             <td class="c-num">${formatDecimalPk(totalVal)}</td>
+            <td class="c-num">${formatDecimalPk(duePayTotal)}</td>
           </tr>
         </tbody>
       </table>
@@ -690,9 +808,16 @@ const UtilityBillDetails = ({
         <div class="sum-box">
           ${chargesHtml}
           <div class="sum-row net"><span>Net Total</span><span>${formatDecimalPk(totalVal)}</span></div>
+          <div class="sum-row net"><span>Amount after Due Date</span><span>${formatDecimalPk(duePayTotal)}</span></div>
         </div>
       </div>
       <table class="approval-table">
+        <colgroup>
+          <col style="width:28%" />
+          <col style="width:24%" />
+          <col style="width:26%" />
+          <col style="width:22%" />
+        </colgroup>
         <thead><tr><th>Authority</th><th>Name</th><th>Digital Signature</th><th>Date &amp; Time</th></tr></thead>
         <tbody>
           ${getApprovalRows().map((row) => `
@@ -701,7 +826,7 @@ const UtilityBillDetails = ({
               <td>${esc(row.name || '-')}</td>
               <td>${
                 getSignatureSource(row)
-                  ? `<img src="${esc(getImageUrl(getSignatureSource(row)))}" alt="" style="max-height:38px;max-width:130px;object-fit:contain;" />`
+                  ? `<img src="${esc(getImageUrl(getSignatureSource(row)))}" alt="" />`
                   : esc(row.signature || '-')
               }</td>
               <td>${esc(row.dateTime || '-')}</td>
@@ -721,7 +846,7 @@ const UtilityBillDetails = ({
     <!DOCTYPE html>
     <html>
       <head>
-        <title>Utility Bill - ${displayValue(bill?.billId)}</title>
+        <title></title>
         <style>
           body { font-family: Georgia, "Times New Roman", serif; color: #141414; margin: 20px; font-size: 12px; background: #fff; }
           .memo-paper { max-width: 960px; margin: 0 auto; padding: 38px 30px 30px; }
@@ -834,6 +959,11 @@ const UtilityBillDetails = ({
 
     printWindow.document.write(getPrintContent());
     printWindow.document.close();
+    try {
+      printWindow.document.title = '';
+    } catch (_) {
+      /* ignore */
+    }
     setTimeout(() => {
       printWindow.focus();
       printWindow.print();
@@ -1087,6 +1217,8 @@ const UtilityBillDetails = ({
                 <Typography sx={{ fontWeight: 700 }}>{getPayeeNameLine()}</Typography>
                 <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Address</Typography>
                 <Typography sx={{ fontWeight: 700 }}>{displayValue(bill.location)}</Typography>
+                <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Due Date</Typography>
+                <Typography sx={{ fontWeight: 700 }}>{formatInvoiceDateDmy(bill.dueDate)}</Typography>
               </Box>
               <Box
                 sx={{
@@ -1154,12 +1286,14 @@ const UtilityBillDetails = ({
                     <TableCell sx={{ width: '10%', textAlign: 'right' }}>Rate</TableCell>
                     <TableCell sx={{ width: '12%', textAlign: 'right' }}>Value Excluding Sales Tax</TableCell>
                     <TableCell sx={{ width: '7%', textAlign: 'center' }}>Discount</TableCell>
-                    <TableCell sx={{ width: '12%', textAlign: 'right' }}>Net Amount</TableCell>
+                    <TableCell sx={{ width: '11%', textAlign: 'right' }}>Net Amount</TableCell>
+                    <TableCell sx={{ width: '12%', textAlign: 'right' }}>Amount after Due Date</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {(bill.billLines || []).map((line, i) => {
                     const amt = Number(line.amount) || 0;
+                    const duePay = Number(line.duePaymentAmount) || 0;
                     const qty = line.quantity !== undefined ? Number(line.quantity) : 1;
                     const rate = line.unitPrice !== undefined ? Number(line.unitPrice) : amt;
                     return (
@@ -1177,6 +1311,9 @@ const UtilityBillDetails = ({
                         <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
                           {formatDecimalPk(amt)}
+                        </TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                          {formatDecimalPk(duePay)}
                         </TableCell>
                       </TableRow>
                     );
@@ -1200,6 +1337,13 @@ const UtilityBillDetails = ({
                     <TableCell />
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatDecimalPk(getStoreInvoiceLinesTotal())}
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatDecimalPk(
+                        Number(bill.duePaymentAmount) > 0
+                          ? bill.duePaymentAmount
+                          : (bill.billLines || []).reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0)
+                      )}
                     </TableCell>
                   </TableRow>
                 </TableBody>
@@ -1238,6 +1382,27 @@ const UtilityBillDetails = ({
                   <Typography component="span">Net Total</Typography>
                   <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                     {formatDecimalPk(getStoreInvoiceLinesTotal())}
+                  </Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    pt: 0.75,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    borderBottom: '3px double',
+                    borderColor: 'grey.900',
+                    pb: 0.5
+                  }}
+                >
+                  <Typography component="span">Amount after Due Date</Typography>
+                  <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {formatDecimalPk(
+                      Number(bill.duePaymentAmount) > 0
+                        ? bill.duePaymentAmount
+                        : (bill.billLines || []).reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0)
+                    )}
                   </Typography>
                 </Box>
               </Stack>

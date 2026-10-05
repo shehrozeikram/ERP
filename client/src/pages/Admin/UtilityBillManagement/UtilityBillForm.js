@@ -585,6 +585,7 @@ const UtilityBillForm = () => {
         expenseAccount: storeItem.expenseAccount?._id || storeItem.expenseAccount,
         expenseAccountNumber: storeItem.expenseAccount?.accountNumber || '',
         dueDate: defaultLineDueYmd(),
+        duePaymentAmount: '',
         attachmentUrl: '',
         attachmentUrls: [],
         _pendingFiles: []
@@ -614,12 +615,9 @@ const UtilityBillForm = () => {
         const price = updatedRow.unitPrice === '' || updatedRow.unitPrice === undefined ? 0 : Number(updatedRow.unitPrice);
         updatedRow.amount = qty * price;
       }
-      // Utility bills: amount is entered directly after due date (qty=1)
-      if (isCentralizedStoreBill && field === 'amount') {
-        const amt = value === '' || value === undefined ? 0 : Number(value);
-        updatedRow.amount = Number.isFinite(amt) ? amt : 0;
-        updatedRow.quantity = 1;
-        updatedRow.unitPrice = updatedRow.amount;
+      if (field === 'duePaymentAmount') {
+        const pay = value === '' || value === undefined ? 0 : Number(value);
+        updatedRow.duePaymentAmount = Number.isFinite(pay) ? pay : 0;
       }
       return updatedRow;
     }));
@@ -666,6 +664,7 @@ const UtilityBillForm = () => {
           expenseAccount: line.expenseAccount?._id || line.expenseAccount,
           expenseAccountNumber: line.expenseAccount?.accountNumber || line.expenseAccountNumber || '',
           dueDate: line.dueDate ? new Date(line.dueDate).toISOString().split('T')[0] : defaultLineDueYmd(),
+          duePaymentAmount: line.duePaymentAmount != null ? Number(line.duePaymentAmount) : '',
           attachmentUrl: line.attachmentUrl || '',
           attachmentUrls: Array.isArray(line.attachmentUrls) && line.attachmentUrls.length
             ? line.attachmentUrls
@@ -858,8 +857,8 @@ const UtilityBillForm = () => {
         setError('Each line item must have a due date.');
         return;
       }
-      if (isUtilityBillForm && billLines.some((l) => !(Number(l.amount) > 0))) {
-        setError('Each utility bill line must have an Amount greater than 0 (required after Due Date).');
+      if (isUtilityBillForm && billLines.some((l) => !(Number(l.duePaymentAmount) > 0))) {
+        setError('Each utility bill line must have Amount after Due Date (does not change bill amount).');
         return;
       }
       if (isCentralizedStoreBill) {
@@ -934,6 +933,7 @@ const UtilityBillForm = () => {
           expenseAccount: l.expenseAccount,
           expenseAccountNumber: l.expenseAccountNumber,
           dueDate: l.dueDate || '',
+          duePaymentAmount: Number(l.duePaymentAmount) || 0,
           attachmentUrl: l.attachmentUrl || '',
           attachmentUrls: l.attachmentUrls || []
         }));
@@ -1550,12 +1550,12 @@ const UtilityBillForm = () => {
                           {isCentralizedStoreBill && <TableCell>Company</TableCell>}
                           {isCentralizedStoreBill && <TableCell>Project</TableCell>}
                           {!isCentralizedStoreBill && <TableCell>Location</TableCell>}
-                          <TableCell>Due date *</TableCell>
-                          {isUtilityBillForm && <TableCell align="right">Amount *</TableCell>}
+                          <TableCell>{isUtilityBillForm ? 'Due date *' : 'Due date'}</TableCell>
                           <TableCell>Attachment</TableCell>
-                          {isCentralizedStoreBill && !isUtilityBillForm && <TableCell align="right">Qty</TableCell>}
-                          {isCentralizedStoreBill && !isUtilityBillForm && <TableCell align="right">Unit Price</TableCell>}
-                          {!isUtilityBillForm && <TableCell align="right">Amount</TableCell>}
+                          {isCentralizedStoreBill && <TableCell align="right">Qty</TableCell>}
+                          {isCentralizedStoreBill && <TableCell align="right">Unit Price</TableCell>}
+                          <TableCell align="right">Amount</TableCell>
+                          {isUtilityBillForm && <TableCell align="right">Amount after Due Date *</TableCell>}
                           <TableCell width={48} />
                         </TableRow>
                       </TableHead>
@@ -1630,20 +1630,6 @@ const UtilityBillForm = () => {
                                 sx={{ width: 150 }}
                               />
                             </TableCell>
-                            {isUtilityBillForm && (
-                              <TableCell align="right">
-                                <TextField
-                                  size="small"
-                                  type="number"
-                                  required
-                                  placeholder="Required"
-                                  value={line.amount === undefined || line.amount === null ? '' : line.amount}
-                                  onChange={(e) => updateBillLine(idx, 'amount', e.target.value)}
-                                  inputProps={{ min: 0.01, step: 0.01 }}
-                                  sx={{ width: 130 }}
-                                />
-                              </TableCell>
-                            )}
                             <TableCell sx={{ minWidth: 160, maxWidth: 240 }}>
                               <LineAttachmentCell
                                 line={line}
@@ -1653,19 +1639,35 @@ const UtilityBillForm = () => {
                                 readOnly={workflowLocksEdit}
                               />
                             </TableCell>
-                            {isCentralizedStoreBill && !isUtilityBillForm && (
+                            {isCentralizedStoreBill && (
                               <TableCell align="right">
                                 <TextField size="small" type="number" value={line.quantity !== undefined ? line.quantity : ''} onChange={(e) => updateBillLine(idx, 'quantity', e.target.value)} sx={{ width: 80 }} />
                               </TableCell>
                             )}
-                            {isCentralizedStoreBill && !isUtilityBillForm && (
+                            {isCentralizedStoreBill && (
                               <TableCell align="right">
                                 <TextField size="small" type="number" value={line.unitPrice !== undefined ? line.unitPrice : ''} onChange={(e) => updateBillLine(idx, 'unitPrice', e.target.value)} sx={{ width: 100 }} />
                               </TableCell>
                             )}
-                            {!isUtilityBillForm && (
+                            <TableCell align="right">
+                              <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} InputProps={{ readOnly: isCentralizedStoreBill }} />
+                            </TableCell>
+                            {isUtilityBillForm && (
                               <TableCell align="right">
-                                <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} InputProps={{ readOnly: isCentralizedStoreBill }} />
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  required
+                                  placeholder="Required"
+                                  value={
+                                    line.duePaymentAmount === undefined || line.duePaymentAmount === null || line.duePaymentAmount === ''
+                                      ? ''
+                                      : line.duePaymentAmount
+                                  }
+                                  onChange={(e) => updateBillLine(idx, 'duePaymentAmount', e.target.value)}
+                                  inputProps={{ min: 0.01, step: 0.01 }}
+                                  sx={{ width: 150 }}
+                                />
                               </TableCell>
                             )}
                             <TableCell>
@@ -1675,9 +1677,9 @@ const UtilityBillForm = () => {
                         ))}
                         {!billLines.length && (
                           <TableRow>
-                            <TableCell colSpan={isCentralizedStoreBill ? (isUtilityBillForm ? 9 : 11) : 8} align="center" sx={{ color: 'text.secondary' }}>
+                            <TableCell colSpan={isCentralizedStoreBill ? (isUtilityBillForm ? 12 : 11) : 8} align="center" sx={{ color: 'text.secondary' }}>
                               {isUtilityBillForm
-                                ? 'Select category and item, then click Add Item. Fill Due Date and Amount for each line.'
+                                ? 'Select category and item, then click Add Item. Fill Due Date and Amount after Due Date (separate from bill Amount).'
                                 : 'Select category and item, then click Add Item'}
                             </TableCell>
                           </TableRow>
@@ -1689,8 +1691,8 @@ const UtilityBillForm = () => {
                     </Typography>
                     {isUtilityBillForm && (
                       <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                        Amount after Due Date is required. When the due date passes, unpaid bills are marked Overdue
-                        and linked Finance payments surface automatically for payment.
+                        Amount after Due Date is required and does not change the bill Amount (Qty × Rate).
+                        When the due date passes, that amount is applied for payment.
                       </Typography>
                     )}
                   </Grid>

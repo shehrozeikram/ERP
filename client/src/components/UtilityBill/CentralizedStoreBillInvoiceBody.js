@@ -43,6 +43,10 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
   if (!bill) return null;
   const lines = bill.billLines || [];
   const totalVal = getStoreInvoiceLinesTotal(bill);
+  const duePayTotal =
+    Number(bill.duePaymentAmount) > 0
+      ? Number(bill.duePaymentAmount)
+      : lines.reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0);
   const isCoa = isChartOfAccountsBill(bill);
 
   return (
@@ -73,6 +77,8 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
           <Typography sx={{ fontWeight: 700 }}>{getVendorSupplierLine(bill)}</Typography>
           <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Address</Typography>
           <Typography sx={{ fontWeight: 700 }}>{displayBillValue(bill.location)}</Typography>
+          <Typography sx={{ fontWeight: 800, color: 'grey.700' }}>Due Date</Typography>
+          <Typography sx={{ fontWeight: 700 }}>{formatInvoiceDateDmy(bill.dueDate)}</Typography>
         </Box>
         <Box
           sx={{
@@ -181,14 +187,18 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                 Value Excl. Tax
               </TableCell>
               <TableCell sx={{ width: '5%', textAlign: 'center', '@media print': { width: '6%' } }}>Disc</TableCell>
-              <TableCell sx={{ width: '9%', textAlign: 'right', '@media print': { width: '12%' } }}>
+              <TableCell sx={{ width: '8%', textAlign: 'right', '@media print': { width: '10%' } }}>
                 Net Amount
+              </TableCell>
+              <TableCell sx={{ width: '9%', textAlign: 'right', '@media print': { width: '11%' } }}>
+                Amount after Due Date
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {lines.map((line, i) => {
               const amt = Number(line.amount) || 0;
+              const duePay = Number(line.duePaymentAmount) || 0;
               const hasQty = line.quantity !== undefined && line.quantity !== null && line.quantity !== '';
               const qty = hasQty ? Number(line.quantity) : 1;
               const hasRate = line.unitPrice !== undefined && line.unitPrice !== null && line.unitPrice !== '';
@@ -221,6 +231,9 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                   <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
                   <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
                     {formatDecimalPk(amt)}
+                  </TableCell>
+                  <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                    {formatDecimalPk(duePay)}
                   </TableCell>
                 </TableRow>
               );
@@ -266,6 +279,9 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                 {formatDecimalPk(totalVal)}
               </TableCell>
+              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                {formatDecimalPk(duePayTotal)}
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -273,7 +289,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
 
       {showChargesSummary && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1.5, '@media print': { mt: 1 } }}>
-          <Stack spacing={0.25} sx={{ width: { xs: '100%', sm: 240 }, fontSize: 12, '@media print': { width: 200 } }}>
+          <Stack spacing={0.25} sx={{ width: { xs: '100%', sm: 260 }, fontSize: 12, '@media print': { width: 220 } }}>
             {CHARGE_LABELS.map((label) => (
               <Box
                 key={label}
@@ -310,6 +326,23 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               <Typography component="span" sx={{ fontWeight: 800 }}>Net Total</Typography>
               <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>
                 {formatDecimalPk(totalVal)}
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                pt: 0.5,
+                fontWeight: 800,
+                fontSize: 13,
+                borderBottom: '3px double',
+                borderColor: 'grey.900',
+                pb: 0.25
+              }}
+            >
+              <Typography component="span" sx={{ fontWeight: 800 }}>Amount after Due Date</Typography>
+              <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>
+                {formatDecimalPk(duePayTotal)}
               </Typography>
             </Box>
           </Stack>

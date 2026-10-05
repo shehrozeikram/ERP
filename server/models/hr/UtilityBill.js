@@ -77,6 +77,11 @@ const utilityBillSchema = new mongoose.Schema({
     expenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     expenseAccountNumber: { type: String, trim: true, default: '' },
     dueDate: { type: Date },
+    /**
+     * Scheduled payment amount for this line (entered after Due Date on Create Utility Bill).
+     * Does NOT replace line.amount / bill.amount — applied for payment when dueDate passes.
+     */
+    duePaymentAmount: { type: Number, min: 0, default: 0 },
     /** Legacy single attachment (kept for backward compat with older bills). */
     attachmentUrl: { type: String, trim: true, default: '' },
     /** Multiple document images per line item (compressed on the client). */
@@ -99,6 +104,23 @@ const utilityBillSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 0
+  },
+  /**
+   * Total scheduled payment (usually sum of billLines.duePaymentAmount).
+   * Independent of `amount` — used when due date passes; never overwrites bill amount.
+   */
+  duePaymentAmount: {
+    type: Number,
+    min: 0,
+    default: 0
+  },
+  /** Set by overdue cron when duePaymentAmount becomes payable (due date passed). */
+  duePaymentApplied: {
+    type: Boolean,
+    default: false
+  },
+  duePaymentAppliedAt: {
+    type: Date
   },
   lastMonthAmount: {
     type: Number,

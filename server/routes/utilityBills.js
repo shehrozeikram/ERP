@@ -958,7 +958,7 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
         return res.status(400).json({ success: false, message: kindCheck.message });
       }
       if (kindCheck.kind === 'utility') {
-        const missingAmount = billData.billLines.some((l) => !(Number(l.amount) > 0));
+        const missingAmount = billData.billLines.some((l) => !(Number(l.duePaymentAmount) > 0));
         const missingDue = billData.billLines.some((l) => !l.dueDate);
         if (missingDue) {
           return res.status(400).json({ success: false, message: 'Each utility bill line must have a due date' });
@@ -966,7 +966,7 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
         if (missingAmount) {
           return res.status(400).json({
             success: false,
-            message: 'Each utility bill line must have an Amount greater than 0 (required after Due Date)'
+            message: 'Each utility bill line must have Amount after Due Date (does not change bill amount)'
           });
         }
       }
@@ -1086,7 +1086,7 @@ router.put('/:id', upload.any(), requireBillPermission('update'), async (req, re
           return res.status(400).json({ success: false, message: kindCheck.message });
         }
         if (kindCheck.kind === 'utility') {
-          const missingAmount = updateData.billLines.some((l) => !(Number(l.amount) > 0));
+          const missingAmount = updateData.billLines.some((l) => !(Number(l.duePaymentAmount) > 0));
           const missingDue = updateData.billLines.some((l) => !l.dueDate);
           if (missingDue) {
             return res.status(400).json({ success: false, message: 'Each utility bill line must have a due date' });
@@ -1094,7 +1094,7 @@ router.put('/:id', upload.any(), requireBillPermission('update'), async (req, re
           if (missingAmount) {
             return res.status(400).json({
               success: false,
-              message: 'Each utility bill line must have an Amount greater than 0 (required after Due Date)'
+              message: 'Each utility bill line must have Amount after Due Date (does not change bill amount)'
             });
           }
         }

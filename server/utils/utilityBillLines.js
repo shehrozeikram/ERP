@@ -53,6 +53,7 @@ const applyBillLinesToPayload = async (billData) => {
     if (!attachmentUrls.length && attachmentUrl) attachmentUrls = [attachmentUrl];
     const primaryAttachmentUrl = attachmentUrls[0] || attachmentUrl;
     const itemCode = String(storeItem?.code || raw.itemCode || '').trim();
+    const duePaymentAmount = round2(raw.duePaymentAmount);
 
     normalized.push({
       storeItem: storeItem?._id || raw.storeItem || null,
@@ -68,6 +69,7 @@ const applyBillLinesToPayload = async (billData) => {
       unitPrice: raw.unitPrice !== undefined && raw.unitPrice !== null && raw.unitPrice !== '' ? round2(raw.unitPrice) : (raw.quantity ? round2(amt / Number(raw.quantity)) : amt),
       expenseAccount: expenseAccount || null,
       expenseAccountNumber,
+      duePaymentAmount: duePaymentAmount > 0 ? duePaymentAmount : 0,
       ...(lineDue ? { dueDate: lineDue } : {}),
       ...(primaryAttachmentUrl || attachmentUrls.length
         ? {
@@ -89,6 +91,8 @@ const applyBillLinesToPayload = async (billData) => {
   billData.amount = round2(normalized.reduce((s, l) => s + l.amount, 0));
   billData.grandTotal = billData.amount;
   billData.balanceAmount = Math.max(billData.amount - (Number(billData.lastMonthAmount) || 0), 0);
+  // Scheduled payment total — independent of bill.amount
+  billData.duePaymentAmount = round2(normalized.reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0));
 
   // Ensure header due date exists (required on UtilityBill)
   const hasHeaderDue = billData.dueDate && !Number.isNaN(new Date(billData.dueDate).getTime());
