@@ -30,7 +30,9 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -54,6 +56,10 @@ import {
   canApproveUtilityBillRow,
   isUtilityBillDeptApproved
 } from '../../../utils/departmentApprovalListActions';
+import {
+  isCentralizedUtilityBill,
+  isUtilityCategoryName
+} from '../../../utils/centralizedStoreBillKind';
 
 const sortBillsByDate = (a, b) => {
   const ta = a.billDate ? new Date(a.billDate).getTime() : 0;
@@ -106,6 +112,8 @@ const CentralizedStoreBills = () => {
   const [actionLoadingId, setActionLoadingId] = useState('');
   const [rejectDialog, setRejectDialog] = useState({ open: false, bill: null });
   const [rejectReason, setRejectReason] = useState('');
+  /** 'bill' = regular store bills, 'utility' = utility-type store bills */
+  const [billKindTab, setBillKindTab] = useState('bill');
 
   // Debounce search so typing doesn't fire a request every keystroke / race results
   useEffect(() => {
@@ -200,9 +208,28 @@ const CentralizedStoreBills = () => {
     return new Date(y, m - 1, 1).toLocaleString('en-PK', { month: 'long', year: 'numeric' });
   };
 
+  const billsByKind = useMemo(() => {
+    const utility = [];
+    const regular = [];
+    (bills || []).forEach((bill) => {
+      if (isCentralizedUtilityBill(bill)) utility.push(bill);
+      else regular.push(bill);
+    });
+    return { utility, regular };
+  }, [bills]);
+
+  const visibleBills = billKindTab === 'utility' ? billsByKind.utility : billsByKind.regular;
+
+  const categoryOptionsForTab = useMemo(() => {
+    return (categories || []).filter((cat) => {
+      const isUtil = isUtilityCategoryName(cat.name);
+      return billKindTab === 'utility' ? isUtil : !isUtil;
+    });
+  }, [categories, billKindTab]);
+
   const billsByMonthYear = useMemo(() => {
     const map = new Map();
-    (bills || []).forEach((bill) => {
+    (visibleBills || []).forEach((bill) => {
       const key = billPeriodKey(bill);
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(bill);
@@ -213,7 +240,10 @@ const CentralizedStoreBills = () => {
       const total = groupBills.reduce((sum, b) => sum + (Number(b.amount) || 0), 0);
       return { key, label: formatPeriodLabel(key), bills: groupBills, total };
     });
-  }, [bills]);
+  }, [visibleBills]);
+
+  const newBillPathForTab =
+    `${newBillPath}?kind=${billKindTab === 'utility' ? 'utility' : 'bill'}`;
 
   const clearFilters = () => {
     setSearchInput('');
@@ -278,10 +308,10 @@ const CentralizedStoreBills = () => {
       <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={3} flexWrap="wrap" gap={2}>
         <Box>
           <Typography variant="h4" component="h1">
-            Bills
+            Centralized Store Bills
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Centralized store bills created from Create Bill.
+            Segregated into Bills and Utility Bills. Create one kind per bill — categories cannot be mixed.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1.5}>
@@ -294,12 +324,30 @@ const CentralizedStoreBills = () => {
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => navigate(newBillPath)}
+            onClick={() => navigate(newBillPathForTab)}
           >
-            Create Bill
+            {billKindTab === 'utility' ? 'Create Utility Bill' : 'Create Bill'}
           </Button>
         </Stack>
       </Box>
+
+      <Tabs
+        value={billKindTab}
+        onChange={(_, v) => {
+          setBillKindTab(v);
+          setFilterCategoryId('');
+        }}
+        sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab
+          value="bill"
+          label={`Bills (${billsByKind.regular.length})`}
+        />
+        <Tab
+          value="utility"
+          label={`Utility Bills (${billsByKind.utility.length})`}
+        />
+      </Tabs>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
@@ -349,7 +397,7 @@ const CentralizedStoreBills = () => {
                   label="Category"
                 >
                   <MenuItem value="">All categories</MenuItem>
-                  {categories.map((cat) => (
+                  {categoryOptionsForTab.map((cat) => (
                     <MenuItem key={cat._id} value={cat._id}>
                       {cat.name}
                     </MenuItem>
@@ -372,7 +420,7 @@ const CentralizedStoreBills = () => {
       </Card>
 
       <Typography variant="h6" sx={{ fontWeight: 600, mb: 1.5 }}>
-        Bills by period
+        {billKindTab === 'utility' ? 'Utility bills' : 'Bills'} by period
       </Typography>
 
       {billsByMonthYear.length === 0 ? (
@@ -380,8 +428,10 @@ const CentralizedStoreBills = () => {
           <CardContent>
             <Typography color="text.secondary" align="center" py={2}>
               {hasActiveFilters
-                ? 'No bills found for these filters. Try clearing search/company/category.'
-                : 'No centralized store bills yet. Use Create Bill to add one.'}
+                ? `No ${billKindTab === 'utility' ? 'utility bills' : 'bills'} found for these filters. Try clearing search/company/category.`
+                : billKindTab === 'utility'
+                  ? 'No utility bills yet. Use Create Utility Bill (Electricity, Gas, Water, Internet, Phone).'
+                  : 'No bills yet. Use Create Bill for non-utility store purchases.'}
             </Typography>
           </CardContent>
         </Card>

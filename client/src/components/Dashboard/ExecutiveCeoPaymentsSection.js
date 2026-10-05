@@ -76,6 +76,7 @@ import { WorkflowAuditFeedbackPanel } from '../Admin/workflowAuditReturn';
 import IndentDetail from '../../pages/General/Indents/IndentDetail';
 import UtilityBillDetails from '../../pages/Admin/UtilityBillManagement/UtilityBillDetails';
 import CentralizedStoreBillInvoiceBody from '../UtilityBill/CentralizedStoreBillInvoiceBody';
+import { getCentralizedStoreDocumentTypeLabel } from '../../utils/centralizedStoreBillKind';
 import PODocumentView from '../../pages/Procurement/Store/PODocumentView';
 
 const ExecutiveCeoPaymentsSection = () => {
@@ -625,7 +626,7 @@ const ExecutiveCeoPaymentsSection = () => {
             : isIndent
               ? 'Indent'
               : isUtilityBill
-                ? 'Store / Utility Bill'
+                ? getCentralizedStoreDocumentTypeLabel(doc)
                 : isVendorBill
                   ? 'Vendor Bill'
                   : doc.itemType || 'Payment Settlement',
@@ -1765,7 +1766,7 @@ const ExecutiveCeoPaymentsSection = () => {
                 : viewDialog.isIndent
                 ? 'Indent Details'
                 : viewDialog.isUtilityBill
-                ? 'Utility Bill Details'
+                ? `${getCentralizedStoreDocumentTypeLabel(viewDialog.settlement)} Details`
                 : viewDialog.isVendorBill
                 ? 'Vendor Bill Details'
                 : 'PAYMENT SETTLEMENT'}

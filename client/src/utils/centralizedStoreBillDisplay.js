@@ -1,4 +1,7 @@
 import { getBillNarrationDisplay } from './documentNarrationDisplay';
+import { getCentralizedStoreDocumentTypeLabel } from './centralizedStoreBillKind';
+
+export { getCentralizedStoreDocumentTypeLabel };
 
 /** Shared formatters and line helpers for centralized store bills (detail + audit workflow). */
 

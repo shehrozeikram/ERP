@@ -11,7 +11,9 @@ import { DigitalSignatureImage } from '../../components/common/DigitalSignatureI
 import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
 import {
   getBillCompany,
-  getBillInvoiceLocation
+  getBillInvoiceLocation,
+  getCentralizedStoreDocumentTypeLabel,
+  getStoreInvoiceOrgTitle
 } from '../../utils/centralizedStoreBillDisplay';
 import { formatPKR } from '../../utils/currency';
 import { formatDate } from '../../utils/dateUtils';
@@ -59,6 +61,15 @@ export default function BillPrint() {
   const companyAddress =
     (bill?.companyId && typeof bill.companyId === 'object' && bill.companyId.contactInfo?.address) ||
     '';
+  const isCentralizedStore = bill?.referenceType === 'utility_bill' || bill?.module === 'taj_utilities';
+  const storeDocTypeLabel = isCentralizedStore ? getCentralizedStoreDocumentTypeLabel(bill) : null;
+  const storeOrgTitle = isCentralizedStore
+    ? getStoreInvoiceOrgTitle({
+        ...bill,
+        site: bill.site || companyName,
+        provider: vendorName
+      })
+    : null;
 
   const normalizedBill = {
     ...bill,
@@ -217,10 +228,16 @@ export default function BillPrint() {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.text(companyName !== '—' ? companyName : 'Vendor Bill', 14, 12);
+    doc.text(
+      isCentralizedStore
+        ? (storeOrgTitle || companyName || 'Bill')
+        : (companyName !== '—' ? companyName : 'Vendor Bill'),
+      14,
+      12
+    );
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    doc.text('VENDOR BILL INVOICE', 14, 20);
+    doc.text(isCentralizedStore ? (storeDocTypeLabel || 'Bill') : 'VENDOR BILL INVOICE', 14, 20);
     doc.text(bill.billNumber, 196, 12, { align: 'right' });
     doc.text(`Status: ${bill.status?.toUpperCase()}`, 196, 20, { align: 'right' });
 
@@ -327,11 +344,29 @@ export default function BillPrint() {
         {/* Document Header */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2.5, pb: 2, borderBottom: '2px solid #1e293b' }}>
           <Box>
-            <Typography fontWeight={900} sx={{ fontSize: '1.5rem', color: '#1e293b' }}>
-              {companyName !== '—' ? companyName : 'Vendor Bill'}
+            <Typography
+              fontWeight={900}
+              sx={{
+                fontSize: isCentralizedStore ? '1.35rem' : '1.5rem',
+                color: '#1e293b',
+                fontFamily: isCentralizedStore ? 'Georgia, "Times New Roman", serif' : 'inherit'
+              }}
+            >
+              {isCentralizedStore
+                ? (storeOrgTitle || companyName || 'Bill')
+                : (companyName !== '—' ? companyName : 'Vendor Bill')}
             </Typography>
-            <Typography fontWeight={800} color="primary" sx={{ fontSize: '1.15rem', textTransform: 'uppercase', mt: 0.5 }}>
-              VENDOR BILL INVOICE
+            <Typography
+              fontWeight={800}
+              color={isCentralizedStore ? 'inherit' : 'primary'}
+              sx={{
+                fontSize: isCentralizedStore ? '1.05rem' : '1.15rem',
+                textTransform: isCentralizedStore ? 'none' : 'uppercase',
+                mt: 0.5,
+                fontFamily: isCentralizedStore ? 'Georgia, "Times New Roman", serif' : 'inherit'
+              }}
+            >
+              {isCentralizedStore ? (storeDocTypeLabel || 'Bill') : 'VENDOR BILL INVOICE'}
             </Typography>
             {companyAddress ? (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>

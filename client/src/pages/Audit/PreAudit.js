@@ -96,6 +96,7 @@ import FinanceVendorsAuditPanel from '../../components/Audit/FinanceVendorsAudit
 import { collectUtilityBillWorkflowImages } from '../../utils/utilityBillAttachments';
 import {
   getStoreInvoiceOrgTitle,
+  getCentralizedStoreDocumentTypeLabel,
   isCentralizedStoreBill
 } from '../../utils/centralizedStoreBillDisplay';
 import { canPerformInitialPreAuditActions } from '../../utils/auditAccess';
@@ -819,7 +820,7 @@ const PreAudit = () => {
       ? getStoreInvoiceOrgTitle(bill)
       : (bill.accountHead || bill.site || bill.location || bill.provider || bill.utilityType || 'Utility Bill').toUpperCase();
     const secondaryHeading = isStoreInvoice
-      ? 'Bill'
+      ? getCentralizedStoreDocumentTypeLabel(bill)
       : consolidatedMemoSecondaryHeading(
         bill,
         [bill.provider, bill.utilityType].filter(Boolean).join(' - ')

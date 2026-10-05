@@ -81,7 +81,9 @@ import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
 import {
   getBillCompany,
   getBillProject,
-  getBillInvoiceLocation
+  getBillInvoiceLocation,
+  getCentralizedStoreDocumentTypeLabel,
+  getStoreInvoiceOrgTitle
 } from '../../utils/centralizedStoreBillDisplay';
 import { useAuth } from '../../contexts/AuthContext';
 import FinanceApprovalAuthorityPicker from '../../components/Finance/FinanceApprovalAuthorityPicker';
@@ -2022,7 +2024,11 @@ const AccountsPayable = () => {
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-            <Typography variant="h6" component="div">Bill Details: {selectedBill?.billNumber}</Typography>
+            <Typography variant="h6" component="div">
+              {selectedBill && (selectedBill.referenceType === 'utility_bill' || selectedBill.module === 'taj_utilities')
+                ? `${getCentralizedStoreDocumentTypeLabel(selectedBill)} Details: ${selectedBill?.billNumber || ''}`
+                : `Bill Details: ${selectedBill?.billNumber || ''}`}
+            </Typography>
             <Typography variant="body2" color="textSecondary" sx={{ fontWeight: 'bold' }}>
               Company: {selectedBill ? getBillCompany(selectedBill) : '—'}
             </Typography>
@@ -2077,6 +2083,37 @@ const AccountsPayable = () => {
                 {/* Tab 0: Vendor Bill & Approval Authorities */}
                 {billViewTab === 0 && (
                   <Box sx={{ p: 2 }}>
+                    {(selectedBill?.referenceType === 'utility_bill' || selectedBill?.module === 'taj_utilities') && (
+                      <Box sx={{ textAlign: 'center', mb: 2.5 }}>
+                        <Typography
+                          variant="h5"
+                          sx={{
+                            fontFamily: 'Georgia, "Times New Roman", serif',
+                            fontWeight: 700,
+                            fontSize: { xs: 20, md: 22 },
+                            textTransform: 'none',
+                            letterSpacing: 0.2
+                          }}
+                        >
+                          {getStoreInvoiceOrgTitle({
+                            ...selectedBill,
+                            site: selectedBill.site || getBillCompany(selectedBill),
+                            provider: selectedBill.vendorName || selectedBill.vendor?.name
+                          })}
+                        </Typography>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontFamily: 'Georgia, "Times New Roman", serif',
+                            fontWeight: 700,
+                            fontSize: { xs: 16, md: 18 },
+                            mt: 0.5
+                          }}
+                        >
+                          {getCentralizedStoreDocumentTypeLabel(selectedBill)}
+                        </Typography>
+                      </Box>
+                    )}
                     <CentralizedStoreBillInvoiceBody
                       bill={{
                         ...selectedBill,

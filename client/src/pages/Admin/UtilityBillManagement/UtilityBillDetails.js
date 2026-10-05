@@ -60,6 +60,7 @@ import {
   useAdminWorkflowAuditReturn,
   isWorkflowAuditBlockingEditStatus
 } from '../../../components/Admin/workflowAuditReturn';
+import { getCentralizedStoreDocumentTypeLabel } from '../../../utils/centralizedStoreBillKind';
 
 const formatMemoDate = (date) => {
   if (!date) return '';
@@ -319,6 +320,7 @@ const UtilityBillDetails = ({
   );
   const getStoreInvoiceOrgTitle = () =>
     (displayValue(bill?.site) || displayValue(bill?.accountHead) || displayValue(bill?.provider) || 'Bill').trim();
+  const storeDocumentTypeLabel = getCentralizedStoreDocumentTypeLabel(bill);
   const getVendorSupplierLine = () => {
     const e = bill?.payeeEmployee;
     if (e && typeof e === 'object') {
@@ -601,11 +603,12 @@ const UtilityBillDetails = ({
       .join('');
     const orgTitle = esc(getStoreInvoiceOrgTitle());
     const narration = esc(getStoreInvoiceNarration());
+    const docTypeLabel = esc(storeDocumentTypeLabel);
 
     return `<!DOCTYPE html>
 <html>
   <head>
-    <title>Bill - ${esc(displayValue(bill?.billId))}</title>
+    <title>${docTypeLabel} - ${esc(displayValue(bill?.billId))}</title>
     <style>
       body { font-family: Georgia, "Times New Roman", serif; color: #111; margin: 0; padding: 18px 22px; font-size: 12px; background: #fff; }
       .sheet { max-width: 900px; margin: 0 auto; }
@@ -643,7 +646,7 @@ const UtilityBillDetails = ({
     <div class="sheet">
       <div class="doc-title">
         <div class="org">${orgTitle}</div>
-        <div class="sub">Bill</div>
+        <div class="sub">${docTypeLabel}</div>
       </div>
       <div class="meta">
         <div class="meta-block">
@@ -1001,7 +1004,7 @@ const UtilityBillDetails = ({
                   mt: 0.5
                 }}
               >
-                Bill
+                {storeDocumentTypeLabel}
               </Typography>
             </>
           ) : (

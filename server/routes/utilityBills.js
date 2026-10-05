@@ -28,6 +28,7 @@ const {
 } = require('../utils/utilityBillFinance');
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const { applyBillLinesToPayload } = require('../utils/utilityBillLines');
+const { validateBillLinesSameKind } = require('../utils/centralizedStoreBillKind');
 
 const MAX_BILL_ATTACHMENTS = 50;
 const LINE_ATTACHMENT_PREFIX = 'lineAttachment_';
@@ -949,6 +950,15 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
       });
     }
 
+    const isStoreBill =
+      billData.useCentralizedStore === true || billData.useCentralizedStore === 'true';
+    if (isStoreBill && Array.isArray(billData.billLines) && billData.billLines.length) {
+      const kindCheck = validateBillLinesSameKind(billData.billLines);
+      if (!kindCheck.ok) {
+        return res.status(400).json({ success: false, message: kindCheck.message });
+      }
+    }
+
     const bill = new UtilityBill(billData);
     if (Array.isArray(bill.billLines) && bill.billLines.length) {
       bill.markModified('billLines');
@@ -1048,9 +1058,21 @@ router.put('/:id', upload.any(), requireBillPermission('update'), async (req, re
     }
 
     const existingBill = await UtilityBill.findById(req.params.id)
-      .select('approvalStatus auditStatus consolidatedIntoBillId');
+      .select('approvalStatus auditStatus consolidatedIntoBillId useCentralizedStore');
     if (!existingBill) {
       return res.status(404).json({ success: false, message: 'Utility bill not found' });
+    }
+    if (updateData.billLines !== undefined) {
+      const isStoreBill =
+        updateData.useCentralizedStore === true ||
+        updateData.useCentralizedStore === 'true' ||
+        existingBill.useCentralizedStore === true;
+      if (isStoreBill && Array.isArray(updateData.billLines) && updateData.billLines.length) {
+        const kindCheck = validateBillLinesSameKind(updateData.billLines);
+        if (!kindCheck.ok) {
+          return res.status(400).json({ success: false, message: kindCheck.message });
+        }
+      }
     }
     if (existingBill.consolidatedIntoBillId) {
       return res.status(400).json({

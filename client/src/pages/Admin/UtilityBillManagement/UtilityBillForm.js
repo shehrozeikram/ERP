@@ -60,6 +60,12 @@ import {
 import { formatDateTime } from '../../../utils/dateUtils';
 import { compressImages } from '../../../utils/compressImage';
 import { getStoreItemId } from '../../../utils/utilityBillAttachments';
+import {
+  getLockedBillKindFromLines,
+  validateBillLinesSameKind,
+  categoryMatchesBillKind,
+  storeItemMatchesBillKind
+} from '../../../utils/centralizedStoreBillKind';
 
 const userDisplayName = (user) => {
   if (!user) return '';
@@ -294,6 +300,9 @@ const UtilityBillForm = () => {
   const defaultType = searchParams.get('type') || 'Electricity';
   const accountHeadOptions = ['President Personal', 'SGCHQ', 'Boly.pk', 'Usman Solar'];
   const defaultMode = searchParams.get('mode') || (isCentralizedStoreBill ? 'store' : 'category');
+  const kindFromQuery = searchParams.get('kind'); // 'utility' | 'bill'
+  const preferredBillKind =
+    kindFromQuery === 'utility' || kindFromQuery === 'bill' ? kindFromQuery : null;
   const [billMode, setBillMode] = useState(defaultMode);
 
   const [formData, setFormData] = useState({
@@ -508,6 +517,18 @@ const UtilityBillForm = () => {
     return storeItems.filter((item) => validCatIds.includes(String(item.category?._id || item.category)));
   }, [storeItems, selectedBillCategory, selectedBillSubCategory, storeCategories]);
 
+  const lockedBillKind = useMemo(() => {
+    if (!isCentralizedStoreBill) return null;
+    const fromLines = getLockedBillKindFromLines(billLines);
+    return fromLines || preferredBillKind || null;
+  }, [isCentralizedStoreBill, billLines, preferredBillKind]);
+
+  const categoriesForBillKind = useMemo(() => {
+    const topLevel = (storeCategories || []).filter((c) => !c.parentCategory);
+    if (!isCentralizedStoreBill || !lockedBillKind) return topLevel;
+    return topLevel.filter((cat) => categoryMatchesBillKind(cat.name, lockedBillKind));
+  }, [storeCategories, isCentralizedStoreBill, lockedBillKind]);
+
   useEffect(() => {
     if (!useStoreBill) return;
     setFormData((prev) => ({ ...prev, amount: billLinesTotal }));
@@ -516,6 +537,28 @@ const UtilityBillForm = () => {
   const addBillLineFromItem = (storeItem) => {
     if (!storeItem) return;
     setError(null);
+
+    if (isCentralizedStoreBill) {
+      const nextKindOk = storeItemMatchesBillKind(storeItem, lockedBillKind || preferredBillKind);
+      if (lockedBillKind && !nextKindOk) {
+        setError(
+          lockedBillKind === 'utility'
+            ? 'This is a Utility Bill. You can only add Electricity, Gas, Water, Internet, or Phone items.'
+            : 'This is a regular Bill. You cannot add Utility categories (Electricity, Gas, Water, Internet, Phone).'
+        );
+        return;
+      }
+      // First item: if preferred kind set, enforce it
+      if (!lockedBillKind && preferredBillKind && !storeItemMatchesBillKind(storeItem, preferredBillKind)) {
+        setError(
+          preferredBillKind === 'utility'
+            ? 'Open Create Utility Bill to add utility categories, or switch to Create Bill for other categories.'
+            : 'This Create Bill form is for non-utility items only. Use Create Utility Bill for Electricity/Gas/Water/etc.'
+        );
+        return;
+      }
+    }
+
     const finalCat = selectedBillSubCategory || selectedBillCategory;
     const categoryName = storeItem.category?.name || finalCat?.name || '';
     const lineLabel = categoryName ? `${categoryName} — ${storeItem.name}` : storeItem.name;
@@ -803,6 +846,21 @@ const UtilityBillForm = () => {
       if (billLines.some((l) => !l.dueDate)) {
         setError('Each line item must have a due date.');
         return;
+      }
+      if (isCentralizedStoreBill) {
+        const kindCheck = validateBillLinesSameKind(billLines);
+        if (!kindCheck.ok) {
+          setError(kindCheck.message);
+          return;
+        }
+        if (preferredBillKind && kindCheck.kind && kindCheck.kind !== preferredBillKind) {
+          setError(
+            preferredBillKind === 'utility'
+              ? 'This form is for Utility Bills only. Remove non-utility items or use Create Bill.'
+              : 'This form is for regular Bills only. Remove utility items or use Create Utility Bill.'
+          );
+          return;
+        }
       }
     }
     
@@ -1153,6 +1211,18 @@ const UtilityBillForm = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                       Choose <strong>category</strong>, then <strong>item</strong>, click Add Item.
                       On each row set due date, attachment (optional), site, location, description, and amount. Set approval authorities before submit.
+                      {isCentralizedStoreBill && (
+                        <>
+                          {' '}
+                          <strong>
+                            {lockedBillKind === 'utility' || preferredBillKind === 'utility'
+                              ? 'Utility Bill: only Electricity, Gas, Water, Internet, Phone categories.'
+                              : lockedBillKind === 'bill' || preferredBillKind === 'bill'
+                                ? 'Regular Bill: utility categories cannot be mixed in.'
+                                : 'Do not mix Utility categories with other bill categories on the same bill.'}
+                          </strong>
+                        </>
+                      )}
                     </Typography>
                   </Grid>
                   {isCentralizedStoreBill && (
@@ -1360,7 +1430,7 @@ const UtilityBillForm = () => {
                             <MenuItem value="">
                               <em>Select category</em>
                             </MenuItem>
-                            {(storeCategories || []).filter(c => !c.parentCategory).map((cat) => (
+                            {(categoriesForBillKind || []).map((cat) => (
                               <MenuItem key={cat?._id || cat?.name} value={cat?._id}>
                                 {cat?.name}
                               </MenuItem>
