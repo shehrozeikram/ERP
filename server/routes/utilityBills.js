@@ -957,6 +957,19 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
       if (!kindCheck.ok) {
         return res.status(400).json({ success: false, message: kindCheck.message });
       }
+      if (kindCheck.kind === 'utility') {
+        const missingAmount = billData.billLines.some((l) => !(Number(l.amount) > 0));
+        const missingDue = billData.billLines.some((l) => !l.dueDate);
+        if (missingDue) {
+          return res.status(400).json({ success: false, message: 'Each utility bill line must have a due date' });
+        }
+        if (missingAmount) {
+          return res.status(400).json({
+            success: false,
+            message: 'Each utility bill line must have an Amount greater than 0 (required after Due Date)'
+          });
+        }
+      }
     }
 
     const bill = new UtilityBill(billData);
@@ -1071,6 +1084,19 @@ router.put('/:id', upload.any(), requireBillPermission('update'), async (req, re
         const kindCheck = validateBillLinesSameKind(updateData.billLines);
         if (!kindCheck.ok) {
           return res.status(400).json({ success: false, message: kindCheck.message });
+        }
+        if (kindCheck.kind === 'utility') {
+          const missingAmount = updateData.billLines.some((l) => !(Number(l.amount) > 0));
+          const missingDue = updateData.billLines.some((l) => !l.dueDate);
+          if (missingDue) {
+            return res.status(400).json({ success: false, message: 'Each utility bill line must have a due date' });
+          }
+          if (missingAmount) {
+            return res.status(400).json({
+              success: false,
+              message: 'Each utility bill line must have an Amount greater than 0 (required after Due Date)'
+            });
+          }
         }
       }
     }

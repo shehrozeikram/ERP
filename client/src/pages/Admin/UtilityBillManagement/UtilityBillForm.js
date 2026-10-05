@@ -523,6 +523,10 @@ const UtilityBillForm = () => {
     return fromLines || preferredBillKind || null;
   }, [isCentralizedStoreBill, billLines, preferredBillKind]);
 
+  const isUtilityBillForm =
+    isCentralizedStoreBill &&
+    (lockedBillKind === 'utility' || preferredBillKind === 'utility');
+
   const categoriesForBillKind = useMemo(() => {
     const topLevel = (storeCategories || []).filter((c) => !c.parentCategory);
     if (!isCentralizedStoreBill || !lockedBillKind) return topLevel;
@@ -609,6 +613,13 @@ const UtilityBillForm = () => {
         const qty = updatedRow.quantity === '' || updatedRow.quantity === undefined ? 0 : Number(updatedRow.quantity);
         const price = updatedRow.unitPrice === '' || updatedRow.unitPrice === undefined ? 0 : Number(updatedRow.unitPrice);
         updatedRow.amount = qty * price;
+      }
+      // Utility bills: amount is entered directly after due date (qty=1)
+      if (isCentralizedStoreBill && field === 'amount') {
+        const amt = value === '' || value === undefined ? 0 : Number(value);
+        updatedRow.amount = Number.isFinite(amt) ? amt : 0;
+        updatedRow.quantity = 1;
+        updatedRow.unitPrice = updatedRow.amount;
       }
       return updatedRow;
     }));
@@ -845,6 +856,10 @@ const UtilityBillForm = () => {
       }
       if (billLines.some((l) => !l.dueDate)) {
         setError('Each line item must have a due date.');
+        return;
+      }
+      if (isUtilityBillForm && billLines.some((l) => !(Number(l.amount) > 0))) {
+        setError('Each utility bill line must have an Amount greater than 0 (required after Due Date).');
         return;
       }
       if (isCentralizedStoreBill) {
@@ -1535,11 +1550,12 @@ const UtilityBillForm = () => {
                           {isCentralizedStoreBill && <TableCell>Company</TableCell>}
                           {isCentralizedStoreBill && <TableCell>Project</TableCell>}
                           {!isCentralizedStoreBill && <TableCell>Location</TableCell>}
-                          <TableCell>Due date</TableCell>
+                          <TableCell>Due date *</TableCell>
+                          {isUtilityBillForm && <TableCell align="right">Amount *</TableCell>}
                           <TableCell>Attachment</TableCell>
-                          {isCentralizedStoreBill && <TableCell align="right">Qty</TableCell>}
-                          {isCentralizedStoreBill && <TableCell align="right">Unit Price</TableCell>}
-                          <TableCell align="right">Amount</TableCell>
+                          {isCentralizedStoreBill && !isUtilityBillForm && <TableCell align="right">Qty</TableCell>}
+                          {isCentralizedStoreBill && !isUtilityBillForm && <TableCell align="right">Unit Price</TableCell>}
+                          {!isUtilityBillForm && <TableCell align="right">Amount</TableCell>}
                           <TableCell width={48} />
                         </TableRow>
                       </TableHead>
@@ -1610,9 +1626,24 @@ const UtilityBillForm = () => {
                                 value={line.dueDate || ''}
                                 onChange={(e) => updateBillLine(idx, 'dueDate', e.target.value)}
                                 InputLabelProps={{ shrink: true }}
+                                required={isUtilityBillForm}
                                 sx={{ width: 150 }}
                               />
                             </TableCell>
+                            {isUtilityBillForm && (
+                              <TableCell align="right">
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  required
+                                  placeholder="Required"
+                                  value={line.amount === undefined || line.amount === null ? '' : line.amount}
+                                  onChange={(e) => updateBillLine(idx, 'amount', e.target.value)}
+                                  inputProps={{ min: 0.01, step: 0.01 }}
+                                  sx={{ width: 130 }}
+                                />
+                              </TableCell>
+                            )}
                             <TableCell sx={{ minWidth: 160, maxWidth: 240 }}>
                               <LineAttachmentCell
                                 line={line}
@@ -1622,19 +1653,21 @@ const UtilityBillForm = () => {
                                 readOnly={workflowLocksEdit}
                               />
                             </TableCell>
-                            {isCentralizedStoreBill && (
+                            {isCentralizedStoreBill && !isUtilityBillForm && (
                               <TableCell align="right">
                                 <TextField size="small" type="number" value={line.quantity !== undefined ? line.quantity : ''} onChange={(e) => updateBillLine(idx, 'quantity', e.target.value)} sx={{ width: 80 }} />
                               </TableCell>
                             )}
-                            {isCentralizedStoreBill && (
+                            {isCentralizedStoreBill && !isUtilityBillForm && (
                               <TableCell align="right">
                                 <TextField size="small" type="number" value={line.unitPrice !== undefined ? line.unitPrice : ''} onChange={(e) => updateBillLine(idx, 'unitPrice', e.target.value)} sx={{ width: 100 }} />
                               </TableCell>
                             )}
-                            <TableCell align="right">
-                              <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} InputProps={{ readOnly: isCentralizedStoreBill }} />
-                            </TableCell>
+                            {!isUtilityBillForm && (
+                              <TableCell align="right">
+                                <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} InputProps={{ readOnly: isCentralizedStoreBill }} />
+                              </TableCell>
+                            )}
                             <TableCell>
                               <IconButton size="small" color="error" onClick={() => removeBillLine(idx)}><DeleteIcon /></IconButton>
                             </TableCell>
@@ -1642,8 +1675,10 @@ const UtilityBillForm = () => {
                         ))}
                         {!billLines.length && (
                           <TableRow>
-                            <TableCell colSpan={isCentralizedStoreBill ? 11 : 8} align="center" sx={{ color: 'text.secondary' }}>
-                              Select category and item, then click Add Item
+                            <TableCell colSpan={isCentralizedStoreBill ? (isUtilityBillForm ? 9 : 11) : 8} align="center" sx={{ color: 'text.secondary' }}>
+                              {isUtilityBillForm
+                                ? 'Select category and item, then click Add Item. Fill Due Date and Amount for each line.'
+                                : 'Select category and item, then click Add Item'}
                             </TableCell>
                           </TableRow>
                         )}
@@ -1652,6 +1687,12 @@ const UtilityBillForm = () => {
                     <Typography variant="subtitle2" align="right" sx={{ mt: 1 }}>
                       Total: PKR {billLinesTotal.toLocaleString()}
                     </Typography>
+                    {isUtilityBillForm && (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                        Amount after Due Date is required. When the due date passes, unpaid bills are marked Overdue
+                        and linked Finance payments surface automatically for payment.
+                      </Typography>
+                    )}
                   </Grid>
                 </>
               )}

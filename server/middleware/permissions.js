@@ -55,6 +55,55 @@ const isPayrollManagerIdentity = (value) => {
   return n === 'payroll_manager' || n.includes('payroll_manager') || n === 'payrollmanager';
 };
 
+/** True if RBAC role doc grants Final Settlement create/manage. */
+const roleDocAllowsSettlement = (roleDoc, needApprove = false) => {
+  if (!roleDoc?.permissions || !Array.isArray(roleDoc.permissions)) return false;
+  return roleDoc.permissions.some((p) => {
+    if (!p || p.module !== 'hr') return false;
+    const sub = String(p.submodule || p.subModule || '').toLowerCase();
+    if (!['settlement_management', 'settlements', 'settlement', 'final_settlement'].includes(sub)) {
+      return false;
+    }
+    const actions = Array.isArray(p.actions) ? p.actions.map((a) => String(a).toLowerCase()) : [];
+    if (needApprove) {
+      return (
+        actions.includes('approve') ||
+        actions.includes('manage') ||
+        actions.includes('all') ||
+        p.approve === true
+      );
+    }
+    return (
+      actions.includes('create') ||
+      actions.includes('update') ||
+      actions.includes('read') ||
+      actions.includes('manage') ||
+      actions.includes('all') ||
+      p.create === true ||
+      p.update === true
+    );
+  });
+};
+
+const userAllowsSettlementViaRoleDocs = (user, needApprove = false) => {
+  if (!user) return false;
+  if (roleDocAllowsSettlement(user.roleRef, needApprove)) return true;
+  if (Array.isArray(user.roles) && user.roles.some((r) => roleDocAllowsSettlement(r, needApprove))) {
+    return true;
+  }
+  return false;
+};
+
+const SETTLEMENT_PERMISSIONS = new Set([
+  'settlement_create',
+  'settlement_management',
+  'settlement_approval',
+  'settlement_processing',
+  'hr.settlement.create',
+  'hr.settlement.approve',
+  'hr.settlement.process'
+]);
+
 const checkPermission = (permission) => {
   return async (req, res, next) => {
     try {
@@ -78,7 +127,19 @@ const checkPermission = (permission) => {
         }
       }
 
-      // 3. Fallback check for active sub-roles
+      // 3. Final Settlement: payroll manager by identity, or settlement_management on roleRef
+      if (SETTLEMENT_PERMISSIONS.has(permission)) {
+        const needApprove =
+          permission === 'settlement_approval' || permission === 'hr.settlement.approve';
+        if (
+          roleCandidates.some(isPayrollManagerIdentity) ||
+          userAllowsSettlementViaRoleDocs(user, needApprove)
+        ) {
+          return next();
+        }
+      }
+
+      // 4. Fallback check for active sub-roles
       try {
         const UserSubRole = require('../models/UserSubRole');
         const userSubRoles = await UserSubRole.findActiveByUser(user.id || user._id);

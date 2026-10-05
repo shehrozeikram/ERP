@@ -345,9 +345,14 @@ const PERMISSION_MAPPINGS = {
   'hr.loan.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   'hr.loan.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
-  'hr.settlement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
-  'hr.settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
-  'hr.settlement.process': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.settlement.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.settlement.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'hr.settlement.process': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  // Aliases used by finalSettlements routes
+  'settlement_create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'settlement_management': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'settlement_approval': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
+  'settlement_processing': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.FINANCE_MANAGER, ROLES.PAYROLL_MANAGER, 'Hr General Manager', 'hr_general_manager', 'hr general manager', 'Payroll Manager', 'payroll_manager', 'payroll manager'],
   
   // Finance Module Permissions
   'finance.invoice.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.FINANCE_MANAGER],

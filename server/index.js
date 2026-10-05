@@ -918,6 +918,14 @@ server.listen(PORT, '0.0.0.0', async () => {
     console.error('❌ Failed to start Deferred Entry Cron:', error);
   }
 
+  // Utility / CS bills: mark Overdue + linked AP when due date has passed
+  try {
+    const { startUtilityBillOverdueCron } = require('./utils/utilityBillOverdueCron');
+    startUtilityBillOverdueCron();
+  } catch (error) {
+    console.error('❌ Failed to start Utility Bill Overdue Cron:', error);
+  }
+
   // Recovery WhatsApp: manual sends only (My Tasks). No cron or automatic follow-up.
 
   try {
