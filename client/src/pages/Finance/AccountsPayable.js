@@ -85,7 +85,8 @@ import {
   getCentralizedStoreDocumentTypeLabel,
   getStoreInvoiceOrgTitle,
   getDuePaymentAmountFromBill,
-  getLineDuePaymentAmount
+  getLineDuePaymentAmount,
+  getPayableAmountFromBill
 } from '../../utils/centralizedStoreBillDisplay';
 import { useAuth } from '../../contexts/AuthContext';
 import FinanceApprovalAuthorityPicker from '../../components/Finance/FinanceApprovalAuthorityPicker';
@@ -200,17 +201,18 @@ const AccountsPayable = () => {
   };
 
   const getOutstanding = (bill) => {
-    const total = Number(bill?.totalAmount || 0);
+    // After due date, payable base switches to duePaymentAmount (keeps original totalAmount for display)
+    const total = getPayableAmountFromBill(bill);
     const paid = getPaidAmount(bill);
     const adv = getAdvanceAppliedAmount(bill);
-    // Unpaid balance before pending authority
     const actualUnpaid = Math.max(0, Math.round((total - paid - adv) * 100) / 100);
-    if (bill?.outstandingAmount != null && Number(bill.outstandingAmount) >= 0) {
-      return Number(bill.outstandingAmount);
-    }
     const pending = getSettlementPending(bill);
     const afterPending = Math.max(0, Math.round((actualUnpaid - pending) * 100) / 100);
-    // If there is pending approval, we return the balance after pending so it doesn't allow duplicate payments
+    // Prefer fresh local calc when API outstanding understates after-due payable
+    if (bill?.outstandingAmount != null && Number(bill.outstandingAmount) >= 0) {
+      const apiOut = Number(bill.outstandingAmount);
+      return Math.max(apiOut, afterPending);
+    }
     return afterPending;
   };
 

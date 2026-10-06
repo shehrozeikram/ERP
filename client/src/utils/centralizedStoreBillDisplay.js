@@ -184,6 +184,24 @@ export const getDuePaymentAmountFromBill = (bill) => {
   return apLines.reduce((s, l) => s + (Number(l.duePaymentAmount) || 0), 0);
 };
 
+/**
+ * Payable base for open balance / payment: after due date, use duePaymentAmount when higher.
+ * Keeps original totalAmount for display; payment cap switches dynamically.
+ */
+export const getPayableAmountFromBill = (bill) => {
+  const total = Math.round((Number(bill?.totalAmount) || 0) * 100) / 100;
+  const duePay = Math.round((Number(getDuePaymentAmountFromBill(bill)) || 0) * 100) / 100;
+  if (!(duePay > total + 0.009)) return total;
+  const dueRaw = bill?.dueDate;
+  if (!dueRaw) return total;
+  const due = new Date(dueRaw);
+  if (Number.isNaN(due.getTime())) return total;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  if (due >= startOfToday) return total;
+  return duePay;
+};
+
 /** Per-line Amount after Due Date (AP line or matching source utility line). */
 export const getLineDuePaymentAmount = (bill, line, idx = 0) => {
   const fromLine = Number(line?.duePaymentAmount);

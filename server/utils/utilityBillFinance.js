@@ -490,8 +490,8 @@ const syncLinkedUtilityBillsFromApPayment = async (apBill, userId) => {
 
   const actorId = normalizeActorId(userId);
   const settled = round2((Number(apBill.amountPaid) || 0) + (Number(apBill.advanceApplied) || 0));
-  const apTotal = round2(Number(apBill.totalAmount) || 0);
-  const isPaid = apBill.status === 'paid' || (apTotal > 0 && settled >= apTotal - 0.01);
+  const apPayable = round2(FinanceHelper.getAPPayableBase(apBill));
+  const isPaid = apBill.status === 'paid' || (apPayable > 0 && settled >= apPayable - 0.01);
   const isPartial = !isPaid && settled > 0.01;
   if (!isPaid && !isPartial) return { synced: 0 };
 
@@ -503,15 +503,23 @@ const syncLinkedUtilityBillsFromApPayment = async (apBill, userId) => {
 
   let synced = 0;
   for (const bill of bills) {
-    const billTotal = round2(Number(bill.amount) || getUtilityBillPostAmount(bill));
+    const original = round2(Number(bill.amount) || getUtilityBillPostAmount(bill));
+    const duePay = round2(Number(bill.duePaymentAmount) || 0);
+    // Mirror Finance: after due date, utility is settled at duePaymentAmount
+    const billPayable = round2(FinanceHelper.getAPPayableBase({
+      totalAmount: original,
+      duePaymentAmount: duePay,
+      dueDate: bill.dueDate || apBill.dueDate
+    }));
     const previousAudit = bill.auditStatus || 'Not Sent';
     const nextAudit = isPaid ? 'Paid (from Finance)' : 'Partially Paid (from Finance)';
 
-    if (bill.auditStatus === nextAudit && round2(bill.paidAmount) >= (isPaid ? billTotal : settled) - 0.01) {
+    if (bill.auditStatus === nextAudit && round2(bill.paidAmount) >= (isPaid ? billPayable : settled) - 0.01) {
       continue;
     }
 
-    bill.paidAmount = isPaid ? billTotal : Math.min(settled, billTotal);
+    bill.paidAmount = isPaid ? billPayable : Math.min(settled, billPayable);
+    bill.status = isPaid ? 'Paid' : 'Partial';
     bill.auditStatus = nextAudit;
     if (isPaid && !bill.paymentDate) {
       bill.paymentDate = paymentDate;

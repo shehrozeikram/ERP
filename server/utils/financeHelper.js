@@ -489,20 +489,55 @@ const FinanceHelper = {
    */
   _updateDocumentStatus: (doc) => {
     const settled = (doc.amountPaid || 0) + (doc.advanceApplied || 0);
-    if (settled >= doc.totalAmount) {
+    const modelName = doc?.constructor?.modelName;
+    let target = Number(doc.totalAmount) || 0;
+    if (modelName === 'AccountsPayable') {
+      target = FinanceHelper.getAPPayableBase(doc);
+    } else if (modelName !== 'AccountsReceivable' && doc?.billNumber && doc?.duePaymentAmount != null) {
+      target = FinanceHelper.getAPPayableBase(doc);
+    }
+    if (settled >= target) {
       doc.status = 'paid';
     } else if (settled > 0) {
       doc.status = 'partial';
     } else {
-      doc.status = doc.constructor.modelName === 'AccountsReceivable' ? 'sent' : 'approved';
+      doc.status = modelName === 'AccountsReceivable' ? 'sent' : 'approved';
     }
+  },
+
+  /**
+   * Amount that must be settled after due date for utility / store bills.
+   * Keeps totalAmount as original; switches payable base to duePaymentAmount once due date has passed.
+   */
+  getAPPayableBase: (bill) => {
+    const total = Math.round((Number(bill?.totalAmount) || 0) * 100) / 100;
+    const duePay = Math.round((Number(bill?.duePaymentAmount) || 0) * 100) / 100;
+    if (!(duePay > total + 0.009)) return total;
+    const dueRaw = bill?.dueDate;
+    if (!dueRaw) return total;
+    const due = new Date(dueRaw);
+    if (Number.isNaN(due.getTime())) return total;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    // Same rule as utility overdue cron: payable after the due calendar day ends
+    if (due >= startOfToday) return total;
+    return duePay;
+  },
+
+  /** Remaining AP liability still on books (original totalAmount basis). */
+  getAPBookedOutstanding: (bill) => {
+    return Math.round(
+      ((Number(bill?.totalAmount) || 0)
+        - (Number(bill?.amountPaid) || 0)
+        - (Number(bill?.advanceApplied) || 0)) * 100
+    ) / 100;
   },
 
   getAPOutstanding: (bill) => {
     return Math.round(
-      ((Number(bill.totalAmount) || 0)
-        - (Number(bill.amountPaid) || 0)
-        - (Number(bill.advanceApplied) || 0)) * 100
+      (FinanceHelper.getAPPayableBase(bill)
+        - (Number(bill?.amountPaid) || 0)
+        - (Number(bill?.advanceApplied) || 0)) * 100
     ) / 100;
   },
 
@@ -1367,16 +1402,45 @@ const FinanceHelper = {
         throw new Error(`${missing.join(' and ')} not found. Please ensure these accounts exist in the Chart of Accounts.`);
       }
 
-      const lines = [
-        { account: apAccount._id, description: `Payment to ${bill.vendor.name} – ${bill.billNumber}`, debit: amount_, department: bill.department },
-        { account: bankAccount._id, description: `Bank payment – ${bill.billNumber} (pending signatures)`, credit: netBankAmount, department: bill.department }
-      ];
+      // After-due utility payments may exceed booked AP liability (totalAmount).
+      // Debit AP only up to booked remaining; surcharge → utility expense (6200).
+      const bookedRem = Math.max(0, FinanceHelper.getAPBookedOutstanding(bill));
+      const apDebit = Math.min(amount_, bookedRem);
+      const surcharge = Math.round((amount_ - apDebit) * 100) / 100;
+
+      const lines = [];
+      if (apDebit > 0.009) {
+        lines.push({
+          account: apAccount._id,
+          description: `Payment to ${bill.vendor.name} – ${bill.billNumber}`,
+          debit: apDebit,
+          department: bill.department
+        });
+      }
+      if (surcharge > 0.009) {
+        const surchargeAccount = await A.resolve('6200');
+        if (!surchargeAccount) {
+          throw new Error('Utility expense account (6200) not found — required for after-due payment surcharge.');
+        }
+        lines.push({
+          account: surchargeAccount._id,
+          description: `After-due surcharge – ${bill.billNumber}`,
+          debit: surcharge,
+          department: bill.department
+        });
+      }
+      lines.push({
+        account: bankAccount._id,
+        description: `Bank payment – ${bill.billNumber} (pending signatures)`,
+        credit: netBankAmount,
+        department: bill.department
+      });
       if (whtAmount > 0) {
         const whtAccount = await A.resolve('2004');
         if (whtAccount) {
           lines.push({ account: whtAccount._id, description: `WHT @ ${whtRate}% on ${bill.vendor.name}`, credit: whtAmount, department: bill.department });
         } else {
-          lines[1].credit = amount_;
+          lines[lines.length - 1].credit = amount_;
         }
       }
 
@@ -1598,13 +1662,33 @@ const FinanceHelper = {
         }
 
         const billCompanyLines = [];
+        let surchargeAccount = null;
         for (const item of billObjects) {
-          billCompanyLines.push({
-            account: apAccount._id,
-            description: `Payment to ${item.bill.vendor?.name || 'Vendor'} – ${item.bill.billNumber}`,
-            debit: item.amount,
-            department: item.bill.department
-          });
+          const bookedRem = Math.max(0, FinanceHelper.getAPBookedOutstanding(item.bill));
+          const apDebit = Math.min(item.amount, bookedRem);
+          const surcharge = Math.round((item.amount - apDebit) * 100) / 100;
+          if (apDebit > 0.009) {
+            billCompanyLines.push({
+              account: apAccount._id,
+              description: `Payment to ${item.bill.vendor?.name || 'Vendor'} – ${item.bill.billNumber}`,
+              debit: apDebit,
+              department: item.bill.department
+            });
+          }
+          if (surcharge > 0.009) {
+            if (!surchargeAccount) {
+              surchargeAccount = await A_target.resolve('6200');
+              if (!surchargeAccount) {
+                throw new Error('Utility expense account (6200) not found — required for after-due payment surcharge.');
+              }
+            }
+            billCompanyLines.push({
+              account: surchargeAccount._id,
+              description: `After-due surcharge – ${item.bill.billNumber}`,
+              debit: surcharge,
+              department: item.bill.department
+            });
+          }
         }
         billCompanyLines.push({
           account: relatedPartyAccount._id,
@@ -1720,14 +1804,34 @@ const FinanceHelper = {
       }
 
       const lines = [];
-      // Debit AP for each bill on target company ledger
+      // Debit AP for each bill on target company ledger (surcharge for after-due excess)
+      let batchSurchargeAccount = null;
       for (const item of billObjects) {
-        lines.push({
-          account: apAccount._id,
-          description: `Payment to ${item.bill.vendor?.name || 'Vendor'} – ${item.bill.billNumber}`,
-          debit: item.amount,
-          department: item.bill.department
-        });
+        const bookedRem = Math.max(0, FinanceHelper.getAPBookedOutstanding(item.bill));
+        const apDebit = Math.min(item.amount, bookedRem);
+        const surcharge = Math.round((item.amount - apDebit) * 100) / 100;
+        if (apDebit > 0.009) {
+          lines.push({
+            account: apAccount._id,
+            description: `Payment to ${item.bill.vendor?.name || 'Vendor'} – ${item.bill.billNumber}`,
+            debit: apDebit,
+            department: item.bill.department
+          });
+        }
+        if (surcharge > 0.009) {
+          if (!batchSurchargeAccount) {
+            batchSurchargeAccount = await A_target.resolve('6200');
+            if (!batchSurchargeAccount) {
+              throw new Error('Utility expense account (6200) not found — required for after-due payment surcharge.');
+            }
+          }
+          lines.push({
+            account: batchSurchargeAccount._id,
+            description: `After-due surcharge – ${item.bill.billNumber}`,
+            debit: surcharge,
+            department: item.bill.department
+          });
+        }
       }
 
       // Standard Same-Company Payment

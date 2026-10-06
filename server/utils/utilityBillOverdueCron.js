@@ -1,6 +1,7 @@
 /**
  * Daily cron: when a utility / centralized-store bill due date has passed,
- * mark it Overdue and apply duePaymentAmount for payment (without changing bill.amount).
+ * mark it Overdue and flag duePaymentAmount as payable (without changing bill.amount).
+ * Finance payment/open balance then uses duePaymentAmount dynamically once due date passed.
  * Linked Finance AP bills are flipped to overdue so the payment surfaces.
  * Runs every day at 01:15 AM Asia/Karachi.
  */

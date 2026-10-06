@@ -118,7 +118,8 @@ const accountsPayableSchema = new mongoose.Schema({
   },
   /**
    * Scheduled payment after due date (from Centralized Store / Utility bills).
-   * Independent of totalAmount — display / overdue only; does not change AP total.
+   * Independent of totalAmount (original bill). Once dueDate has passed, payable /
+   * open balance / payment cap use this amount dynamically.
    */
   duePaymentAmount: {
     type: Number,
@@ -180,8 +181,19 @@ const accountsPayableSchema = new mongoose.Schema({
   balanceDue: {
     type: Number,
     get: function() {
+      const total = Number(this.totalAmount) || 0;
+      const duePay = Number(this.duePaymentAmount) || 0;
+      let payableBase = total;
+      if (duePay > total + 0.009 && this.dueDate) {
+        const due = new Date(this.dueDate);
+        if (!Number.isNaN(due.getTime())) {
+          const startOfToday = new Date();
+          startOfToday.setHours(0, 0, 0, 0);
+          if (due < startOfToday) payableBase = duePay;
+        }
+      }
       return Math.round(
-        (this.totalAmount
+        (payableBase
           - (this.amountPaid || 0)
           - (this.advanceApplied || 0)
           - (this.advancePending || 0)

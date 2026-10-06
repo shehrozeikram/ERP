@@ -4384,14 +4384,11 @@ router.get('/accounts-payable',
 
     const dueUtilityWarnings = (dueUtilityWarningBills || [])
       .map((bill) => {
-        const outstanding = Math.round(
-          ((bill.totalAmount || 0)
-            - (bill.amountPaid || 0)
-            - (bill.advanceApplied || 0)
-            - (bill.advancePending || 0)
-            - (bill.paymentPending || 0)) * 100
-        ) / 100;
-        if (outstanding <= 0) return null;
+        const outstanding = FinanceHelper.getAPOutstanding(bill)
+          - (Number(bill.advancePending) || 0)
+          - (Number(bill.paymentPending) || 0);
+        const outstandingRounded = Math.round(outstanding * 100) / 100;
+        if (outstandingRounded <= 0) return null;
         const due = bill.dueDate ? new Date(bill.dueDate) : null;
         const isOverdue = due && due < warningDayStart;
         const isDueToday = due && due >= warningDayStart && due <= warningDayEnd;
@@ -4402,7 +4399,7 @@ router.get('/accounts-payable',
           dueDate: bill.dueDate,
           totalAmount: bill.totalAmount || 0,
           duePaymentAmount: bill.duePaymentAmount || 0,
-          outstandingAmount: outstanding,
+          outstandingAmount: outstandingRounded,
           status: bill.status,
           company: bill.company || '',
           project: bill.project || '',
@@ -4439,9 +4436,7 @@ router.get('/accounts-payable',
         (((bill.advancePending || 0) + (bill.paymentPending || 0)) * 100)
       ) / 100,
       outstandingAmount: Math.round(
-        ((bill.totalAmount || 0)
-          - (bill.amountPaid || 0)
-          - (bill.advanceApplied || 0)
+        (FinanceHelper.getAPOutstanding(bill)
           - (bill.advancePending || 0)
           - (bill.paymentPending || 0)) * 100
       ) / 100
