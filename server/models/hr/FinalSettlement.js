@@ -3,7 +3,9 @@ const mongoosePaginate = require('mongoose-paginate-v2');
 const {
   getCalendarDaysInMonth,
   resolveSettlementRateDate,
-  getSettlementDailyRate
+  getSettlementDailyRate,
+  getSettlementActualSalary,
+  getSettlementShortfallDeduction
 } = require('../../utils/finalSettlementDays');
 
 const finalSettlementSchema = new mongoose.Schema({
@@ -254,8 +256,12 @@ finalSettlementSchema.virtual('noticePeriodDeductionAmount').get(function() {
     lastWorkingDate: this.lastWorkingDate,
     settlementDate: this.settlementDate
   });
-  const dailyRate = getSettlementDailyRate(this.grossSalary, rateDate);
-  return dailyRate * this.noticePeriodShortfallDays;
+  return getSettlementShortfallDeduction(
+    this.grossSalary,
+    this.noticePeriod,
+    this.noticePeriodServed,
+    rateDate
+  );
 });
 
 // Virtual for calculating total outstanding loans
@@ -272,15 +278,26 @@ finalSettlementSchema.virtual('settlementProgress').get(function() {
 
 // Pre-save middleware to calculate totals
 finalSettlementSchema.pre('save', function(next) {
-  // Compute actualSalary as daily rate * notice period shortfall days
-  // (daily rate uses calendar days in last-working / settlement month)
-  const shortfallDays = Math.max(0, (this.noticePeriod || 0) - (this.noticePeriodServed || 0));
   const rateDate = resolveSettlementRateDate({
     lastWorkingDate: this.lastWorkingDate,
     settlementDate: this.settlementDate
   });
-  const dailyRate = getSettlementDailyRate(this.grossSalary, rateDate);
-  this.actualSalary = Math.round(dailyRate * shortfallDays);
+  const servedDays = Math.max(0, Number(this.noticePeriodServed) || 0);
+  const shortfallDays = Math.max(0, (Number(this.noticePeriod) || 0) - servedDays);
+
+  // Actual salary = GROSS daily rate × days served (matches Salary & Calculations)
+  this.actualSalary = getSettlementActualSalary(this.grossSalary, servedDays, rateDate);
+
+  // If notice shortfall exists and deduction not set, default from GROSS daily rate
+  if (shortfallDays > 0 && !(Number(this.deductions?.noticePeriodDeduction) > 0)) {
+    this.deductions.noticePeriodDeduction = getSettlementShortfallDeduction(
+      this.grossSalary,
+      this.noticePeriod,
+      this.noticePeriodServed,
+      rateDate
+    );
+  }
+  this.noticePeriodShortfall = shortfallDays;
 
   // Calculate total earnings (include all allowance components from the form)
   const e = this.earnings || {};

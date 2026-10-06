@@ -41,7 +41,10 @@ import { formatPKR } from '../../utils/currency';
 import {
   getCalendarDaysInMonth,
   resolveSettlementRateDate,
-  getSettlementDailyRateRounded
+  getSettlementDailyRateRounded,
+  getSettlementActualSalary,
+  getSettlementShortfallDeduction,
+  prorateSettlementAmount
 } from '../../utils/finalSettlementDays';
 import { PageLoading, LoadingSpinner } from '../../components/LoadingSpinner';
 
@@ -188,6 +191,14 @@ const FinalSettlementForm = () => {
       basicSalary: parseAmount(values.basicSalary) || earnings.basicSalary,
       grossSalary: parseAmount(values.grossSalary),
       netSalary: parseAmount(values.netSalary),
+      actualSalary: getSettlementActualSalary(
+        parseAmount(values.grossSalary),
+        values.noticePeriodServed,
+        resolveSettlementRateDate({
+          lastWorkingDate: values.lastWorkingDate,
+          settlementDate: values.settlementDate
+        })
+      ),
       earnings,
       deductions,
       grossSettlementAmount: totals.grossSettlementAmount,
@@ -715,24 +726,16 @@ const FinalSettlementForm = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formik.values.lastWorkingDate, formik.values.settlementDate, formik.values.grossSalary, selectedEmployee]);
 
-  // Auto-prorate earnings based on notice period served
+  // Auto-prorate earnings from GROSS components + notice shortfall deduction from GROSS daily rate
   useEffect(() => {
     if (!selectedEmployee) return;
 
     const servedDays = Number(formik.values.noticePeriodServed);
+    const noticePeriod = Number(formik.values.noticePeriod) || 30;
     const rateDate = resolveSettlementRateDate({
       lastWorkingDate: formik.values.lastWorkingDate,
       settlementDate: formik.values.settlementDate
     });
-    const daysInMonth = getCalendarDaysInMonth(rateDate);
-
-    // Helper to prorate base amounts based on notice period served (calendar month days)
-    const prorate = (amount) => {
-      const baseAmount = Number(amount) || 0;
-      if (baseAmount === 0) return 0;
-      if (!servedDays || servedDays <= 0) return baseAmount;
-      return Math.round((baseAmount / daysInMonth) * servedDays);
-    };
 
     const getAllow = (key) => {
       const a = selectedEmployee.allowances?.[key] || selectedEmployee.salary?.[key];
@@ -770,8 +773,20 @@ const FinalSettlementForm = () => {
           transportAllowance
       );
 
+    const prorate = (amount) => prorateSettlementAmount(amount, servedDays, rateDate);
+    const dailyRate = getSettlementDailyRateRounded(grossSalary, rateDate);
+    const shortfallDeduction = getSettlementShortfallDeduction(
+      grossSalary,
+      noticePeriod,
+      servedDays,
+      rateDate
+    );
+
     formik.setValues((prevValues) => ({
       ...prevValues,
+      dailyRate,
+      basicSalary: basicSalaryBase,
+      grossSalary,
       earnings: {
         ...prevValues.earnings,
         basicSalary: prorate(basicSalaryBase),
@@ -786,19 +801,35 @@ const FinalSettlementForm = () => {
       },
       deductions: {
         ...prevValues.deductions,
-        noticePeriodDeduction: 0
+        noticePeriodDeduction: shortfallDeduction
       }
     }));
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     formik.values.noticePeriodServed,
+    formik.values.noticePeriod,
     formik.values.lastWorkingDate,
     formik.values.settlementDate,
     selectedEmployee
   ]);
 
   const settlementTotals = computeSettlementTotals(formik.values);
+  const rateDateForUi = resolveSettlementRateDate({
+    lastWorkingDate: formik.values.lastWorkingDate,
+    settlementDate: formik.values.settlementDate
+  });
+  const actualSalaryAmount = getSettlementActualSalary(
+    formik.values.grossSalary || selectedEmployee?.salary?.gross || 0,
+    formik.values.noticePeriodServed,
+    rateDateForUi
+  );
+  const shortfallDeductionAmount = getSettlementShortfallDeduction(
+    formik.values.grossSalary || selectedEmployee?.salary?.gross || 0,
+    formik.values.noticePeriod || 30,
+    formik.values.noticePeriodServed,
+    rateDateForUi
+  );
 
   const yearsOfService = selectedEmployee?.dateOfJoining
     ? Math.floor((new Date() - new Date(selectedEmployee.dateOfJoining)) / (1000 * 60 * 60 * 24 * 365))
@@ -1070,10 +1101,10 @@ const FinalSettlementForm = () => {
                     type="number"
                     name="actualSalary"
                     label="Actual Salary"
-                    value={Math.round((formik.values.dailyRate || 0) * (formik.values.noticePeriodServed || 0))}
+                    value={actualSalaryAmount}
                     InputProps={amountInputProps}
                     disabled
-                    helperText="Daily rate × notice period served days"
+                    helperText="Gross daily rate × notice period served days"
                   />
                 </Grid>
 
@@ -1082,25 +1113,16 @@ const FinalSettlementForm = () => {
                     <Alert severity="info">
                       Notice period served: {formik.values.noticePeriodServed} days
                       {' '}· Month days:{' '}
-                      {getCalendarDaysInMonth(
-                        resolveSettlementRateDate({
-                          lastWorkingDate: formik.values.lastWorkingDate,
-                          settlementDate: formik.values.settlementDate
-                        })
-                      )}
+                      {getCalendarDaysInMonth(rateDateForUi)}
+                      {' '}· Daily rate (from gross): {formatPKR(formik.values.dailyRate || 0)}
                       <br />
-                      Estimated salary:{' '}
-                      {formatPKR(
-                        Math.round(
-                          (formik.values.dailyRate ||
-                            getSettlementDailyRateRounded(
-                              selectedEmployee?.salary?.gross || 70000,
-                              resolveSettlementRateDate({
-                                lastWorkingDate: formik.values.lastWorkingDate,
-                                settlementDate: formik.values.settlementDate
-                              })
-                            )) * formik.values.noticePeriodServed
-                        )
+                      Actual salary (gross-based): {formatPKR(actualSalaryAmount)}
+                      {noticePeriodShortfall > 0 && (
+                        <>
+                          <br />
+                          Shortfall: {noticePeriodShortfall} days · Notice deduction (from gross):{' '}
+                          {formatPKR(shortfallDeductionAmount)}
+                        </>
                       )}
                     </Alert>
                   </Grid>
@@ -1113,7 +1135,18 @@ const FinalSettlementForm = () => {
                   </Typography>
                 </Grid>
 
-
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    name="earnings.basicSalary"
+                    label="Basic Salary (Earning)"
+                    value={formik.values.earnings.basicSalary}
+                    onChange={formik.handleChange}
+                    InputProps={amountInputProps}
+                    helperText="Prorated basic included in total earnings"
+                  />
+                </Grid>
 
                 <Grid item xs={12} md={6}>
                   <TextField
@@ -1301,7 +1334,11 @@ const FinalSettlementForm = () => {
                     value={formik.values.deductions.noticePeriodDeduction}
                     onChange={formik.handleChange}
                     InputProps={amountInputProps}
-                    helperText={formik.values.noticePeriodServed > 0 ? `${formik.values.noticePeriodServed} days served` : 'Manual deduction if applicable'}
+                    helperText={
+                      noticePeriodShortfall > 0
+                        ? `Auto from gross: ${noticePeriodShortfall} shortfall day(s) × daily rate = ${formatPKR(shortfallDeductionAmount)}`
+                        : 'No shortfall — editable if needed'
+                    }
                   />
                 </Grid>
 
@@ -1593,13 +1630,62 @@ const FinalSettlementForm = () => {
               <Card variant="outlined">
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
+                    Salary & Calculations
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Gross Salary</Typography>
+                      <Typography fontWeight={700}>{formatPKR(formik.values.grossSalary)}</Typography>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Basic (Reference)</Typography>
+                      <Typography fontWeight={700}>{formatPKR(formik.values.basicSalary)}</Typography>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Daily Rate (Gross)</Typography>
+                      <Typography fontWeight={700}>{formatPKR(formik.values.dailyRate)}</Typography>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Actual Salary</Typography>
+                      <Typography fontWeight={700} color="primary.main">{formatPKR(actualSalaryAmount)}</Typography>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Notice Served</Typography>
+                      <Typography fontWeight={700}>{formik.values.noticePeriodServed || 0} days</Typography>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Shortfall</Typography>
+                      <Typography fontWeight={700} color={noticePeriodShortfall > 0 ? 'error.main' : 'text.primary'}>
+                        {noticePeriodShortfall} days
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Notice Deduction</Typography>
+                      <Typography fontWeight={700} color="error.main">
+                        {formatPKR(formik.values.deductions.noticePeriodDeduction)}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">Month Days</Typography>
+                      <Typography fontWeight={700}>{getCalendarDaysInMonth(rateDateForUi)}</Typography>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
                     Settlement Amount
                   </Typography>
                   <Typography variant="h4" color="primary">
                     {formatPKR(settlementTotals.netSettlementAmount)}
                   </Typography>
                   <Typography variant="body2" color="textSecondary">
-                    Gross: {formatPKR(settlementTotals.grossSettlementAmount)} · Deductions: {formatPKR(settlementTotals.totalDeductions)}
+                    Total Earnings: {formatPKR(settlementTotals.grossSettlementAmount)} · Total Deductions:{' '}
+                    {formatPKR(settlementTotals.totalDeductions)}
                   </Typography>
                 </CardContent>
               </Card>

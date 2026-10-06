@@ -2,7 +2,10 @@ import api from './api';
 import { formatPKR } from '../utils/currency';
 import {
   resolveSettlementRateDate,
-  getSettlementDailyRate
+  getSettlementDailyRate,
+  getSettlementActualSalary,
+  getSettlementShortfallDeduction,
+  getCalendarDaysInMonth
 } from '../utils/finalSettlementDays';
 
 class FinalSettlementService {
@@ -140,24 +143,45 @@ class FinalSettlementService {
 
   // Format settlement data for display
   formatSettlementData(settlement) {
+    const rateDate = resolveSettlementRateDate({
+      lastWorkingDate: settlement.lastWorkingDate,
+      settlementDate: settlement.settlementDate
+    });
+    const dailyRate = getSettlementDailyRate(settlement.grossSalary || 0, rateDate);
+    const actualSalary =
+      Number(settlement.actualSalary) > 0
+        ? Number(settlement.actualSalary)
+        : getSettlementActualSalary(
+          settlement.grossSalary || 0,
+          settlement.noticePeriodServed,
+          rateDate
+        );
+    const shortfallDays = Math.max(
+      0,
+      (Number(settlement.noticePeriod) || 0) - (Number(settlement.noticePeriodServed) || 0)
+    );
+    const shortfallDeduction = getSettlementShortfallDeduction(
+      settlement.grossSalary || 0,
+      settlement.noticePeriod,
+      settlement.noticePeriodServed,
+      rateDate
+    );
+
     return {
       ...settlement,
       formattedGrossAmount: formatPKR(settlement.grossSettlementAmount),
       formattedNetAmount: formatPKR(settlement.netSettlementAmount),
       formattedBasicSalary: formatPKR(settlement.basicSalary),
       formattedGrossSalary: formatPKR(settlement.grossSalary),
-      formattedActualSalary: formatPKR(
-        settlement.actualSalary ||
-        Math.round(
-          getSettlementDailyRate(
-            settlement.grossSalary || 0,
-            resolveSettlementRateDate({
-              lastWorkingDate: settlement.lastWorkingDate,
-              settlementDate: settlement.settlementDate
-            })
-          ) * Math.max(0, (settlement.noticePeriod || 0) - (settlement.noticePeriodServed || 0))
-        )
+      formattedDailyRate: formatPKR(Math.round(dailyRate)),
+      formattedActualSalary: formatPKR(actualSalary),
+      formattedShortfallDeduction: formatPKR(
+        Number(settlement.deductions?.noticePeriodDeduction) > 0
+          ? settlement.deductions.noticePeriodDeduction
+          : shortfallDeduction
       ),
+      noticePeriodShortfallDays: shortfallDays,
+      calendarDaysInMonth: getCalendarDaysInMonth(rateDate),
       formattedNetSalary: formatPKR(settlement.netSalary),
       formattedTotalEarnings: formatPKR(settlement.earnings?.totalEarnings),
       formattedTotalDeductions: formatPKR(settlement.deductions?.totalDeductions),

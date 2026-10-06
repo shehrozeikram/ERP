@@ -359,9 +359,51 @@ const FinalSettlementDetail = () => {
                   </Typography>
                 </Grid>
                 <Grid item xs={6}>
-                  <Typography variant="body2" color="textSecondary">Actual Salary</Typography>
-                  <Typography variant="body1" fontWeight="bold">
-                    {finalSettlementService.formatSettlementData(settlement).formattedActualSalary}
+                  <Typography variant="body2" color="textSecondary">Shortfall</Typography>
+                  <Typography variant="body1" fontWeight="bold" color={formattedSettlement.noticePeriodShortfallDays > 0 ? 'error.main' : 'inherit'}>
+                    {formattedSettlement.noticePeriodShortfallDays || 0} days
+                  </Typography>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Salary & Calculations — mirrors create form */}
+        <Grid item xs={12}>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <MoneyIcon sx={{ mr: 1 }} />
+                <Typography variant="h6">Salary & Calculations</Typography>
+              </Box>
+              <Grid container spacing={2}>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="body2" color="textSecondary">Gross Salary</Typography>
+                  <Typography variant="body1" fontWeight="bold">{formattedSettlement.formattedGrossSalary}</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="body2" color="textSecondary">Basic Salary</Typography>
+                  <Typography variant="body1" fontWeight="bold">{formattedSettlement.formattedBasicSalary}</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="body2" color="textSecondary">Daily Rate (from Gross)</Typography>
+                  <Typography variant="body1" fontWeight="bold">{formattedSettlement.formattedDailyRate}</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="body2" color="textSecondary">Month Days</Typography>
+                  <Typography variant="body1" fontWeight="bold">{formattedSettlement.calendarDaysInMonth}</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="body2" color="textSecondary">Actual Salary (Gross × Served)</Typography>
+                  <Typography variant="body1" fontWeight="bold" color="primary.main">
+                    {formattedSettlement.formattedActualSalary}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="body2" color="textSecondary">Notice Deduction (Gross × Shortfall)</Typography>
+                  <Typography variant="body1" fontWeight="bold" color="error.main">
+                    {formattedSettlement.formattedShortfallDeduction}
                   </Typography>
                 </Grid>
               </Grid>

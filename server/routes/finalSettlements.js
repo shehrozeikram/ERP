@@ -7,7 +7,9 @@ const { authMiddleware } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permissions');
 const {
   resolveSettlementRateDate,
-  getSettlementDailyRate
+  getSettlementDailyRate,
+  getSettlementShortfallDeduction,
+  getSettlementActualSalary
 } = require('../utils/finalSettlementDays');
 
 // Get all final settlements with pagination and filters
@@ -281,8 +283,12 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
 
     if (noticePeriodShortfall > 0 && !clientDeductions) {
       const rateDate = resolveSettlementRateDate({ lastWorkingDate, settlementDate });
-      const dailyRate = getSettlementDailyRate(grossSalary, rateDate);
-      defaultDeductions.noticePeriodDeduction = dailyRate * noticePeriodShortfall;
+      defaultDeductions.noticePeriodDeduction = getSettlementShortfallDeduction(
+        grossSalary,
+        noticePeriod,
+        noticePeriodServed,
+        rateDate
+      );
     }
 
     const earnings = clientEarnings

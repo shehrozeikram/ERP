@@ -30,3 +30,26 @@ export const getSettlementDailyRate = (grossSalary, dateInput) => {
 
 export const getSettlementDailyRateRounded = (grossSalary, dateInput) =>
   Math.round(getSettlementDailyRate(grossSalary, dateInput));
+
+/** Actual salary for days served — always from GROSS daily rate. */
+export const getSettlementActualSalary = (grossSalary, servedDays, dateInput) => {
+  const rate = getSettlementDailyRate(grossSalary, dateInput);
+  return Math.round(rate * Math.max(0, Number(servedDays) || 0));
+};
+
+/** Notice shortfall deduction — always from GROSS daily rate × shortfall days. */
+export const getSettlementShortfallDeduction = (grossSalary, noticePeriod, servedDays, dateInput) => {
+  const shortfall = Math.max(0, (Number(noticePeriod) || 0) - (Number(servedDays) || 0));
+  const rate = getSettlementDailyRate(grossSalary, dateInput);
+  return Math.round(rate * shortfall);
+};
+
+/** Prorate a monthly component by served days in the settlement month. */
+export const prorateSettlementAmount = (amount, servedDays, dateInput) => {
+  const baseAmount = Number(amount) || 0;
+  if (baseAmount === 0) return 0;
+  const days = getCalendarDaysInMonth(dateInput);
+  const served = Number(servedDays) || 0;
+  if (!served || served <= 0) return Math.round(baseAmount);
+  return Math.round((baseAmount / (days > 0 ? days : 30)) * served);
+};
