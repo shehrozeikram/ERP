@@ -219,6 +219,7 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
       basicSalary: clientBasicSalary,
       grossSalary: clientGrossSalary,
       netSalary: clientNetSalary,
+      actualSalary: clientActualSalary,
       earnings: clientEarnings,
       deductions: clientDeductions,
       grossSettlementAmount: clientGrossSettlement,
@@ -338,6 +339,9 @@ router.post('/', authMiddleware, checkPermission('settlement_create'), async (re
       basicSalary,
       grossSalary,
       netSalary,
+      actualSalary: clientActualSalary != null
+        ? clientActualSalary
+        : getSettlementActualSalary(grossSalary, noticePeriodServed, resolveSettlementRateDate({ lastWorkingDate, settlementDate })),
       earnings,
       deductions,
       loans,

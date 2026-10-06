@@ -138,7 +138,33 @@ const FinalSettlementForm = () => {
   const buildSettlementPayload = (values, loans, shortfallDays) => {
     const e = values.earnings || {};
     const d = values.deductions || {};
-    const totals = computeSettlementTotals(values);
+    const rateDate = resolveSettlementRateDate({
+      lastWorkingDate: values.lastWorkingDate,
+      settlementDate: values.settlementDate
+    });
+    const gross = parseAmount(values.grossSalary);
+    const computedShortfallDeduction = getSettlementShortfallDeduction(
+      gross,
+      values.noticePeriod || 30,
+      values.noticePeriodServed,
+      rateDate
+    );
+    // Force shortfall deduction from GROSS so it always goes forward with the settlement
+    const noticePeriodDeduction =
+      shortfallDays > 0
+        ? (parseAmount(d.noticePeriodDeduction) > 0
+          ? parseAmount(d.noticePeriodDeduction)
+          : computedShortfallDeduction)
+        : parseAmount(d.noticePeriodDeduction);
+
+    const valuesForTotals = {
+      ...values,
+      deductions: {
+        ...d,
+        noticePeriodDeduction
+      }
+    };
+    const totals = computeSettlementTotals(valuesForTotals);
     const leaveBalance = values.leaveBalance || {};
 
     const earnings = {
@@ -167,7 +193,7 @@ const FinalSettlementForm = () => {
       providentFund: parseAmount(d.providentFund),
       eobi: parseAmount(d.eobi),
       loanDeductions: parseAmount(d.loanDeductions),
-      noticePeriodDeduction: parseAmount(d.noticePeriodDeduction),
+      noticePeriodDeduction,
       security: parseAmount(d.security),
       healthInsurance: parseAmount(d.healthInsurance),
       advanceDeductions: parseAmount(d.advanceDeductions),
@@ -189,16 +215,10 @@ const FinalSettlementForm = () => {
       bankDetails: values.bankDetails,
       notes: values.notes,
       basicSalary: parseAmount(values.basicSalary) || earnings.basicSalary,
-      grossSalary: parseAmount(values.grossSalary),
+      grossSalary: gross,
       netSalary: parseAmount(values.netSalary),
-      actualSalary: getSettlementActualSalary(
-        parseAmount(values.grossSalary),
-        values.noticePeriodServed,
-        resolveSettlementRateDate({
-          lastWorkingDate: values.lastWorkingDate,
-          settlementDate: values.settlementDate
-        })
-      ),
+      actualSalary: getSettlementActualSalary(gross, values.noticePeriodServed, rateDate),
+      dailyRate: getSettlementDailyRateRounded(gross, rateDate),
       earnings,
       deductions,
       grossSettlementAmount: totals.grossSettlementAmount,
@@ -303,6 +323,18 @@ const FinalSettlementForm = () => {
         security: 0,
         pension: 0,
         otherDeductions: 0
+      },
+      shortfallBreakdown: {
+        basicSalary: 0,
+        houseRent: 0,
+        medicalAllowance: 0,
+        transportAllowance: 0,
+        foodAllowance: 0,
+        vehicleAllowance: 0,
+        fuelAllowance: 0,
+        specialAllowance: 0,
+        otherAllowances: 0,
+        total: 0
       },
       leaveBalance: {
         annual: 0,
@@ -501,6 +533,7 @@ const FinalSettlementForm = () => {
           specialAllowance,
           otherAllowances,
           leaveEncashment,
+          noticePay: 0,
           gratuity,
           bonus: 0,
           overtime: 0,
@@ -732,6 +765,7 @@ const FinalSettlementForm = () => {
 
     const servedDays = Number(formik.values.noticePeriodServed);
     const noticePeriod = Number(formik.values.noticePeriod) || 30;
+    const shortfallDays = Math.max(0, noticePeriod - (Number.isFinite(servedDays) ? servedDays : 0));
     const rateDate = resolveSettlementRateDate({
       lastWorkingDate: formik.values.lastWorkingDate,
       settlementDate: formik.values.settlementDate
@@ -782,6 +816,14 @@ const FinalSettlementForm = () => {
       rateDate
     );
 
+    // Shortfall portion of each salary component (basic + allowances) — from GROSS package
+    const shortfallOf = (amount) => {
+      const baseAmount = Number(amount) || 0;
+      if (baseAmount === 0 || shortfallDays <= 0) return 0;
+      const days = getCalendarDaysInMonth(rateDate);
+      return Math.round((baseAmount / (days > 0 ? days : 30)) * shortfallDays);
+    };
+
     formik.setValues((prevValues) => ({
       ...prevValues,
       dailyRate,
@@ -801,7 +843,25 @@ const FinalSettlementForm = () => {
       },
       deductions: {
         ...prevValues.deductions,
+        // Recurring deductions also follow served days; shortfall is separate notice deduction
+        taxDeductions: prorate(Number(prevValues.deductions?.taxDeductions) || Number(selectedEmployee.deductions?.incomeTax) || Number(selectedEmployee.salary?.tax) || 0),
+        healthInsurance: prorate(Number(selectedEmployee.deductions?.healthInsurance) || Number(selectedEmployee.deductions?.insurance) || 0),
+        providentFund: prorate(Number(selectedEmployee.deductions?.providentFund) || 0),
+        pension: prorate(Number(selectedEmployee.deductions?.pension) || 0),
         noticePeriodDeduction: shortfallDeduction
+      },
+      // snapshot for UI / forward display
+      shortfallBreakdown: {
+        basicSalary: shortfallOf(basicSalaryBase),
+        houseRent: shortfallOf(houseRentAllowance),
+        medicalAllowance: shortfallOf(medicalAllowance),
+        transportAllowance: shortfallOf(transportAllowance),
+        foodAllowance: shortfallOf(foodAllowance),
+        vehicleAllowance: shortfallOf(vehicleAllowance),
+        fuelAllowance: shortfallOf(fuelAllowance),
+        specialAllowance: shortfallOf(specialAllowance),
+        otherAllowances: shortfallOf(otherAllowances),
+        total: shortfallDeduction
       }
     }));
 
@@ -1116,12 +1176,31 @@ const FinalSettlementForm = () => {
                       {getCalendarDaysInMonth(rateDateForUi)}
                       {' '}· Daily rate (from gross): {formatPKR(formik.values.dailyRate || 0)}
                       <br />
-                      Actual salary (gross-based): {formatPKR(actualSalaryAmount)}
+                      Actual salary (gross × served): {formatPKR(actualSalaryAmount)}
                       {noticePeriodShortfall > 0 && (
                         <>
                           <br />
-                          Shortfall: {noticePeriodShortfall} days · Notice deduction (from gross):{' '}
+                          Shortfall: {noticePeriodShortfall} days · Notice deduction (gross × shortfall):{' '}
                           {formatPKR(shortfallDeductionAmount)}
+                          <br />
+                          Shortfall includes unpaid basic + allowances for those days
+                          {formik.values.shortfallBreakdown && (
+                            <>
+                              {' '}(
+                              {[
+                                formik.values.shortfallBreakdown.basicSalary > 0 && `Basic ${formatPKR(formik.values.shortfallBreakdown.basicSalary)}`,
+                                formik.values.shortfallBreakdown.foodAllowance > 0 && `Food ${formatPKR(formik.values.shortfallBreakdown.foodAllowance)}`,
+                                formik.values.shortfallBreakdown.houseRent > 0 && `HRA ${formatPKR(formik.values.shortfallBreakdown.houseRent)}`,
+                                formik.values.shortfallBreakdown.medicalAllowance > 0 && `Medical ${formatPKR(formik.values.shortfallBreakdown.medicalAllowance)}`,
+                                formik.values.shortfallBreakdown.transportAllowance > 0 && `Transport ${formatPKR(formik.values.shortfallBreakdown.transportAllowance)}`,
+                                formik.values.shortfallBreakdown.vehicleAllowance > 0 && `Vehicle ${formatPKR(formik.values.shortfallBreakdown.vehicleAllowance)}`,
+                                formik.values.shortfallBreakdown.fuelAllowance > 0 && `Fuel ${formatPKR(formik.values.shortfallBreakdown.fuelAllowance)}`,
+                                formik.values.shortfallBreakdown.specialAllowance > 0 && `Special ${formatPKR(formik.values.shortfallBreakdown.specialAllowance)}`,
+                                formik.values.shortfallBreakdown.otherAllowances > 0 && `Other ${formatPKR(formik.values.shortfallBreakdown.otherAllowances)}`
+                              ].filter(Boolean).join(' + ') || 'gross package'}
+                              )
+                            </>
+                          )}
                         </>
                       )}
                     </Alert>

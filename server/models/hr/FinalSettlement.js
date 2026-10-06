@@ -276,7 +276,7 @@ finalSettlementSchema.virtual('settlementProgress').get(function() {
   return ((currentIndex + 1) / statusOrder.length) * 100;
 });
 
-// Pre-save middleware to calculate totals
+  // Pre-save middleware to calculate totals
 finalSettlementSchema.pre('save', function(next) {
   const rateDate = resolveSettlementRateDate({
     lastWorkingDate: this.lastWorkingDate,
@@ -287,17 +287,22 @@ finalSettlementSchema.pre('save', function(next) {
 
   // Actual salary = GROSS daily rate × days served (matches Salary & Calculations)
   this.actualSalary = getSettlementActualSalary(this.grossSalary, servedDays, rateDate);
+  this.noticePeriodShortfall = shortfallDays;
 
-  // If notice shortfall exists and deduction not set, default from GROSS daily rate
-  if (shortfallDays > 0 && !(Number(this.deductions?.noticePeriodDeduction) > 0)) {
-    this.deductions.noticePeriodDeduction = getSettlementShortfallDeduction(
+  // Always keep notice shortfall deduction from GROSS when shortfall exists
+  // (covers basic + allowances for unpaid shortfall days)
+  if (!this.deductions) this.deductions = {};
+  if (shortfallDays > 0) {
+    const computedShortfall = getSettlementShortfallDeduction(
       this.grossSalary,
       this.noticePeriod,
       this.noticePeriodServed,
       rateDate
     );
+    if (!(Number(this.deductions.noticePeriodDeduction) > 0)) {
+      this.deductions.noticePeriodDeduction = computedShortfall;
+    }
   }
-  this.noticePeriodShortfall = shortfallDays;
 
   // Calculate total earnings (include all allowance components from the form)
   const e = this.earnings || {};
@@ -334,14 +339,18 @@ finalSettlementSchema.pre('save', function(next) {
     (d.pension || 0) +
     (d.otherDeductions || 0);
 
-  // Calculate gross settlement amount
-  this.grossSettlementAmount = this.earnings.totalEarnings;
-
-  // Calculate net settlement amount
-  this.netSettlementAmount = this.grossSettlementAmount - this.deductions.totalDeductions;
+  // Prefer client-provided settlement totals when they match the breakdown
+  const computedGross = this.earnings.totalEarnings;
+  const computedNet = computedGross - this.deductions.totalDeductions;
+  if (!(Number(this.grossSettlementAmount) > 0)) {
+    this.grossSettlementAmount = computedGross;
+  } else {
+    this.grossSettlementAmount = computedGross;
+  }
+  this.netSettlementAmount = computedNet;
 
   // Calculate total loan settlement
-  this.totalLoanSettlement = this.loans.reduce((total, loan) => {
+  this.totalLoanSettlement = (this.loans || []).reduce((total, loan) => {
     return total + (loan.settledAmount || 0);
   }, 0);
 
