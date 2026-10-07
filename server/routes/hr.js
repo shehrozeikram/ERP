@@ -173,6 +173,7 @@ router.get('/employees',
       status,
       search,
       active,
+      employeeCategory,
       getAll = false, // New parameter to get all employees without pagination
       withoutUser = false, // Filter employees without user accounts
       includeDeleted = false // Option to include soft-deleted employees (e.g. for turnover metrics)
@@ -202,6 +203,9 @@ router.get('/employees',
     if (department) query.department = department;
     if (position) query.position = position;
     if (status) query.employmentStatus = status;
+    if (employeeCategory === 'white_collar' || employeeCategory === 'blue_collar') {
+      query.employeeCategory = employeeCategory;
+    }
     if (search) {
       query.$or = [
         { firstName: { $regex: search, $options: 'i' } },
@@ -233,7 +237,7 @@ router.get('/employees',
       // Get all employees without pagination for dropdowns and forms
       // Select only essential fields and populate only what's needed for list view
       employees = await Employee.find(query)
-        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate hireDate probationPeriodMonths endOfProbationDate confirmationDate terminationDate terminationReason updatedAt placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus createdAt profileImage user cashSalary salary')
+        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate hireDate probationPeriodMonths endOfProbationDate confirmationDate terminationDate terminationReason updatedAt placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus employeeCategory createdAt profileImage user cashSalary salary')
         .populate('bankName', 'name type')
         .populate('placementCompany', 'name type')
         .populate('placementProject', 'name company')

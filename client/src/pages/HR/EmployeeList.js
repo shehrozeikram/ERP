@@ -75,6 +75,7 @@ const EmployeeList = () => {
   const [statusFilter, setStatusFilter] = useState('');
   const [projectFilter, setProjectFilter] = useState('');
   const [companyFilter, setCompanyFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -194,12 +195,18 @@ const EmployeeList = () => {
     setPage(0);
   }, []);
 
+  const handleCategoryFilterChange = useCallback((value) => {
+    setCategoryFilter(value);
+    setPage(0);
+  }, []);
+
   const clearAllFilters = useCallback(() => {
     setSearchTerm('');
     setDepartmentFilter('');
     setStatusFilter('');
     setProjectFilter('');
     setCompanyFilter('');
+    setCategoryFilter('');
     setPage(0); // Reset to first page when clearing filters
   }, []);
 
@@ -210,6 +217,7 @@ const EmployeeList = () => {
     setDepartmentFilter('');
     setProjectFilter('');
     setCompanyFilter('');
+    setCategoryFilter('');
     setStatusFilter('');
     setPage(0);
     setSnackbar({
@@ -273,9 +281,12 @@ const EmployeeList = () => {
         }
       }
 
-      return matchesSearch && matchesDepartment && matchesProject && matchesCompany && matchesStatus;
+      // Employee category (White / Blue collar) — applied to full list, then paginated
+      const matchesCategory = !categoryFilter || employee.employeeCategory === categoryFilter;
+
+      return matchesSearch && matchesDepartment && matchesProject && matchesCompany && matchesStatus && matchesCategory;
     });
-  }, [employees, searchTerm, departmentFilter, projectFilter, companyFilter, statusFilter]);
+  }, [employees, searchTerm, departmentFilter, projectFilter, companyFilter, statusFilter, categoryFilter]);
 
   // Sort filtered employees by status first (active at top, inactive at end), then by Employee ID
   const sortedEmployees = useMemo(() => {
@@ -783,6 +794,28 @@ const EmployeeList = () => {
             </FormControl>
           </Grid>
           <Grid item xs={12} sm={6} md={1.5}>
+            <FormControl fullWidth>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={categoryFilter}
+                onChange={(e) => handleCategoryFilterChange(e.target.value)}
+                label="Category"
+                sx={{
+                  '& .MuiSelect-select': {
+                    paddingRight: '32px',
+                  },
+                  '& .MuiSelect-icon': {
+                    right: '8px',
+                  }
+                }}
+              >
+                <MenuItem value="">All Categories</MenuItem>
+                <MenuItem value="white_collar">White Collar</MenuItem>
+                <MenuItem value="blue_collar">Blue Collar</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid item xs={12} sm={6} md={1.5}>
             <Button
               variant="outlined"
               onClick={clearAllFilters}
@@ -795,7 +828,7 @@ const EmployeeList = () => {
         </Grid>
         
         {/* Search Results Summary */}
-        {(searchTerm || departmentFilter || projectFilter || companyFilter || statusFilter) && (
+        {(searchTerm || departmentFilter || projectFilter || companyFilter || statusFilter || categoryFilter) && (
           <Box sx={{ mt: 2, p: 2, bgcolor: 'info.50', borderRadius: 1, border: '1px solid', borderColor: 'info.200' }}>
             <Typography variant="body2" color="info.main" sx={{ fontWeight: 500 }}>
               🔍 Filtered Results: Found {totalItems} employee(s)
@@ -809,6 +842,7 @@ const EmployeeList = () => {
               {projectFilter && ` • Project: ${projectFilter}`}
               {companyFilter && ` • Company: ${companyFilter}`}
               {statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : statusFilter === 'draft' ? 'Draft' : 'Inactive'}`}
+              {categoryFilter && ` • Category: ${categoryFilter === 'white_collar' ? 'White Collar' : 'Blue Collar'}`}
             </Typography>
           </Box>
         )}
@@ -1028,7 +1062,7 @@ const EmployeeList = () => {
                       <Typography variant="body2" color="textSecondary">
                         {dataLoading.employees 
                           ? 'Please wait while we fetch your employee data...' 
-                          : searchTerm || departmentFilter || projectFilter || companyFilter || statusFilter
+                          : searchTerm || departmentFilter || projectFilter || companyFilter || statusFilter || categoryFilter
                             ? 'Try adjusting your search criteria or filters'
                             : 'No employees in the system yet'
                         }
