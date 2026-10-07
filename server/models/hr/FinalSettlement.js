@@ -289,19 +289,10 @@ finalSettlementSchema.pre('save', function(next) {
   this.actualSalary = getSettlementActualSalary(this.grossSalary, servedDays, rateDate);
   this.noticePeriodShortfall = shortfallDays;
 
-  // Always keep notice shortfall deduction from GROSS when shortfall exists
-  // (covers basic + allowances for unpaid shortfall days)
+  // Notice period deduction is user-controlled (default 0). Do not auto-fill shortfall.
   if (!this.deductions) this.deductions = {};
-  if (shortfallDays > 0) {
-    const computedShortfall = getSettlementShortfallDeduction(
-      this.grossSalary,
-      this.noticePeriod,
-      this.noticePeriodServed,
-      rateDate
-    );
-    if (!(Number(this.deductions.noticePeriodDeduction) > 0)) {
-      this.deductions.noticePeriodDeduction = computedShortfall;
-    }
+  if (this.deductions.noticePeriodDeduction == null || this.deductions.noticePeriodDeduction === '') {
+    this.deductions.noticePeriodDeduction = 0;
   }
 
   // Calculate total earnings (include all allowance components from the form)

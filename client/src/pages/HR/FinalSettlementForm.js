@@ -143,19 +143,8 @@ const FinalSettlementForm = () => {
       settlementDate: values.settlementDate
     });
     const gross = parseAmount(values.grossSalary);
-    const computedShortfallDeduction = getSettlementShortfallDeduction(
-      gross,
-      values.noticePeriod || 30,
-      values.noticePeriodServed,
-      rateDate
-    );
-    // Force shortfall deduction from GROSS so it always goes forward with the settlement
-    const noticePeriodDeduction =
-      shortfallDays > 0
-        ? (parseAmount(d.noticePeriodDeduction) > 0
-          ? parseAmount(d.noticePeriodDeduction)
-          : computedShortfallDeduction)
-        : parseAmount(d.noticePeriodDeduction);
+    // Use form value only (defaults to 0). Do not auto-apply computed shortfall.
+    const noticePeriodDeduction = parseAmount(d.noticePeriodDeduction);
 
     const valuesForTotals = {
       ...values,
@@ -843,12 +832,12 @@ const FinalSettlementForm = () => {
       },
       deductions: {
         ...prevValues.deductions,
-        // Recurring deductions also follow served days; shortfall is separate notice deduction
+        // Recurring deductions also follow served days; notice period deduction stays user-controlled (default 0)
         taxDeductions: prorate(Number(prevValues.deductions?.taxDeductions) || Number(selectedEmployee.deductions?.incomeTax) || Number(selectedEmployee.salary?.tax) || 0),
         healthInsurance: prorate(Number(selectedEmployee.deductions?.healthInsurance) || Number(selectedEmployee.deductions?.insurance) || 0),
         providentFund: prorate(Number(selectedEmployee.deductions?.providentFund) || 0),
         pension: prorate(Number(selectedEmployee.deductions?.pension) || 0),
-        noticePeriodDeduction: shortfallDeduction
+        noticePeriodDeduction: parseAmount(prevValues.deductions?.noticePeriodDeduction)
       },
       // snapshot for UI / forward display
       shortfallBreakdown: {
@@ -1415,8 +1404,8 @@ const FinalSettlementForm = () => {
                     InputProps={amountInputProps}
                     helperText={
                       noticePeriodShortfall > 0
-                        ? `Auto from gross: ${noticePeriodShortfall} shortfall day(s) × daily rate = ${formatPKR(shortfallDeductionAmount)}`
-                        : 'No shortfall — editable if needed'
+                        ? `Defaults to 0. Suggested shortfall (${noticePeriodShortfall} day(s)): ${formatPKR(shortfallDeductionAmount)} — enter manually if needed`
+                        : 'Defaults to 0 — enter an amount only if you want to deduct'
                     }
                   />
                 </Grid>

@@ -5,8 +5,7 @@ import {
   getCalendarDaysInMonth,
   resolveSettlementRateDate,
   getSettlementDailyRate,
-  getSettlementActualSalary,
-  getSettlementShortfallDeduction
+  getSettlementActualSalary
 } from './finalSettlementDays';
 
 const fmtPKR = (amount) =>
@@ -75,15 +74,8 @@ export const generateFinalSettlementPdf = (settlement, company = {}) => {
     0,
     (Number(settlement.noticePeriod) || 0) - (Number(settlement.noticePeriodServed) || 0)
   );
-  const shortfallDeduction =
-    Number(settlement.deductions?.noticePeriodDeduction) > 0
-      ? Number(settlement.deductions.noticePeriodDeduction)
-      : getSettlementShortfallDeduction(
-        settlement.grossSalary || 0,
-        settlement.noticePeriod,
-        settlement.noticePeriodServed,
-        rateDate
-      );
+  // Use stored deduction only (defaults to 0; do not auto-apply computed shortfall)
+  const shortfallDeduction = Number(settlement.deductions?.noticePeriodDeduction) || 0;
   const monthDays = getCalendarDaysInMonth(rateDate);
   const earningsBody = earningRows(settlement.earnings);
   const deductionsBody = deductionRows(settlement.deductions);
