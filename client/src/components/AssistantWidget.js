@@ -172,7 +172,8 @@ const AssistantWidget = () => {
           sx={{
             position: 'fixed',
             right: 24,
-            bottom: 96,
+            // Stack above Chat FAB; leave room for page pagination
+            bottom: { xs: 168, sm: 180 },
             zIndex: (theme) => theme.zIndex.drawer + 2,
             '@media print': { display: 'none !important' }
           }}
@@ -188,7 +189,7 @@ const AssistantWidget = () => {
           sx={{
             position: 'fixed',
             right: 24,
-            bottom: 160,
+            bottom: { xs: 240, sm: 252 },
             width: { xs: 'calc(100vw - 32px)', sm: 380 },
             maxWidth: 420,
             height: 480,

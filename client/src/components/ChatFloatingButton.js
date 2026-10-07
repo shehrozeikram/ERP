@@ -48,7 +48,8 @@ const ChatFloatingButton = () => {
         sx={{
           position: 'fixed',
           right: 24,
-          bottom: 24,
+          // Keep above page pagination / footer controls
+          bottom: { xs: 96, sm: 108 },
           zIndex: (theme) => theme.zIndex.drawer + 2,
           '@media print': { display: 'none !important' }
         }}
