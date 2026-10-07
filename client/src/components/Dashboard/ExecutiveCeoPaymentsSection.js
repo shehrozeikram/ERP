@@ -722,22 +722,29 @@ const ExecutiveCeoPaymentsSection = () => {
   };
 
   // Submit Approval
-  const resolveOnboardingStatus = (item) =>
+  const resolveDocStatus = (item) =>
     String(item?.workflowStatus || item?.status || '');
 
+  /** CEO-office queue only — not every HM / authority step. */
+  const isCeoForwardedStatus = (item) => resolveDocStatus(item) === 'Forwarded to CEO';
+
   const approveOnboardingForStatus = async (item, payload) => {
-    const status = resolveOnboardingStatus(item);
+    const status = resolveDocStatus(item);
     if (status === 'Pending AVP') return nonEmployeeService.approveByAVP(item._id, payload);
     if (status === 'Pending Chairman') return nonEmployeeService.approveByChairman(item._id, payload);
     if (status === 'Pending HOD HR') return nonEmployeeService.approveByHOD(item._id, payload);
+    if (status === 'Pending Sr Director') return nonEmployeeService.approveBySrDirector(item._id, payload);
+    if (status === 'Forwarded to CEO') return nonEmployeeService.approveByCEO(item._id, payload);
     return nonEmployeeService.approveByCEO(item._id, payload);
   };
 
   const rejectOnboardingForStatus = async (item, payload) => {
-    const status = resolveOnboardingStatus(item);
+    const status = resolveDocStatus(item);
     if (status === 'Pending AVP') return nonEmployeeService.rejectByAVP(item._id, payload);
     if (status === 'Pending Chairman') return nonEmployeeService.rejectByChairman(item._id, payload);
     if (status === 'Pending HOD HR') return nonEmployeeService.rejectByHOD(item._id, payload);
+    if (status === 'Pending Sr Director') return nonEmployeeService.rejectBySrDirector(item._id, payload);
+    if (status === 'Forwarded to CEO') return nonEmployeeService.rejectByCEO(item._id, payload);
     return nonEmployeeService.rejectByCEO(item._id, payload);
   };
 
@@ -749,6 +756,12 @@ const ExecutiveCeoPaymentsSection = () => {
     const item = withCeoDocTypeFlags(approveDialog.settlement);
     if (!item) return;
 
+    const ceoStep = isCeoForwardedStatus(item);
+    if (ceoStep && !canApproveAsCeo) {
+      toast.error('Only the designated CEO can approve Forwarded to CEO documents.');
+      return;
+    }
+
     const effectiveSig = getAutoDigitalSignature();
     if (!item.isCashApproval && !item.isOnboarding && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
@@ -758,17 +771,33 @@ const ExecutiveCeoPaymentsSection = () => {
     setActionLoading(true);
     try {
       if (item.isPurchaseOrder) {
-        await api.put(`/procurement/purchase-orders/${item._id}/ceo-approve`, {
-          approvalComments,
-          digitalSignature: effectiveSig
-        });
+        if (ceoStep) {
+          await api.put(`/procurement/purchase-orders/${item._id}/ceo-approve`, {
+            approvalComments,
+            digitalSignature: effectiveSig
+          });
+        } else {
+          await api.put(`/procurement/purchase-orders/${item._id}/approve`, {
+            comments: approvalComments,
+            approvalComments,
+            digitalSignature: effectiveSig
+          });
+        }
         toast.success(`Purchase order ${item.displayRef} approved`);
       } else if (item.isCashApproval) {
-        await api.put(`/cash-approvals/${item._id}/ceo-approve`, {
-          comments: approvalComments,
-          approvalComments,
-          digitalSignature: effectiveSig
-        });
+        if (ceoStep) {
+          await api.put(`/cash-approvals/${item._id}/ceo-approve`, {
+            comments: approvalComments,
+            approvalComments,
+            digitalSignature: effectiveSig
+          });
+        } else {
+          await api.put(`/cash-approvals/${item._id}/approve`, {
+            comments: approvalComments,
+            approvalComments,
+            digitalSignature: effectiveSig
+          });
+        }
         toast.success(`Cash approval ${item.displayRef} approved`);
       } else if (item.isOnboarding) {
         await approveOnboardingForStatus(item, {
@@ -816,6 +845,12 @@ const ExecutiveCeoPaymentsSection = () => {
     }
     if (!item) return;
 
+    const ceoStep = isCeoForwardedStatus(item);
+    if (ceoStep && !canApproveAsCeo) {
+      toast.error('Only the designated CEO can reject Forwarded to CEO documents.');
+      return;
+    }
+
     const effectiveSig = getAutoDigitalSignature();
     if (!item.isOnboarding && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
@@ -826,19 +861,37 @@ const ExecutiveCeoPaymentsSection = () => {
     try {
       const validObs = rejectObservations.filter((o) => o.observation.trim());
       if (item.isPurchaseOrder) {
-        await api.put(`/procurement/purchase-orders/${item._id}/ceo-reject`, {
-          comments: rejectionComments,
-          rejectionComments,
-          digitalSignature: effectiveSig,
-          observations: validObs
-        });
+        if (ceoStep) {
+          await api.put(`/procurement/purchase-orders/${item._id}/ceo-reject`, {
+            comments: rejectionComments,
+            rejectionComments,
+            digitalSignature: effectiveSig,
+            observations: validObs
+          });
+        } else {
+          await api.put(`/procurement/purchase-orders/${item._id}/reject`, {
+            comments: rejectionComments,
+            rejectionComments,
+            digitalSignature: effectiveSig,
+            observations: validObs
+          });
+        }
       } else if (item.isCashApproval) {
-        await api.put(`/cash-approvals/${item._id}/ceo-reject`, {
-          comments: rejectionComments,
-          rejectionComments,
-          digitalSignature: effectiveSig,
-          observations: validObs
-        });
+        if (ceoStep) {
+          await api.put(`/cash-approvals/${item._id}/ceo-reject`, {
+            comments: rejectionComments,
+            rejectionComments,
+            digitalSignature: effectiveSig,
+            observations: validObs
+          });
+        } else {
+          await api.put(`/cash-approvals/${item._id}/reject`, {
+            comments: rejectionComments,
+            rejectionComments,
+            digitalSignature: effectiveSig,
+            observations: validObs
+          });
+        }
       } else if (item.isOnboarding) {
         await rejectOnboardingForStatus(item, {
           comments: rejectionComments,
@@ -871,7 +924,7 @@ const ExecutiveCeoPaymentsSection = () => {
     }
   };
 
-  // Submit Return
+  // Submit Return (CEO-office queue only)
   const handleReturnSubmit = async () => {
     const validObs = returnObservations.filter((o) => o.observation.trim());
     if (!returnAgree || !returnComments.trim() || validObs.length === 0) {
@@ -880,6 +933,11 @@ const ExecutiveCeoPaymentsSection = () => {
     }
     const item = withCeoDocTypeFlags(returnDialog.settlement);
     if (!item) return;
+
+    if (!isCeoForwardedStatus(item) || !canApproveAsCeo) {
+      toast.error('Return with observations is only available for Forwarded to CEO documents.');
+      return;
+    }
 
     const effectiveSig = getAutoDigitalSignature();
     if (!effectiveSig) {
@@ -1029,9 +1087,17 @@ const ExecutiveCeoPaymentsSection = () => {
     if (!item) return false;
     if (item.ceoViewOnly) return false;
     const status = item.workflowStatus || item.status || '';
+    // CEO-queue docs: only designated CEO can act; PS stays view-only
     if (status === 'Forwarded to CEO' && !canApproveAsCeo) return false;
     return true;
   };
+
+  /** Return-with-observations is a CEO-office action only. */
+  const canReturnInboxItem = (item) =>
+    canActOnInboxItem(item)
+    && isCeoForwardedStatus(item)
+    && canApproveAsCeo
+    && !(item.isIndent || item.isUtilityBill || item.isVendorBill);
 
   // Hide cleanly for users who cannot receive executive/HM approvals and have an empty inbox
   if (!loading && !canReceiveExecutiveApprovals && payments.length === 0) {
@@ -1090,7 +1156,7 @@ const ExecutiveCeoPaymentsSection = () => {
               <CancelIcon fontSize="small" />
             </IconButton>
           </Tooltip>
-          {!(item.isIndent || item.isUtilityBill || item.isVendorBill) && (
+          {canReturnInboxItem(item) && (
             <Tooltip title="Return with observations">
               <IconButton
                 size="small"
@@ -2821,7 +2887,8 @@ const ExecutiveCeoPaymentsSection = () => {
         </DialogTitle>
         <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            You are about to give CEO approval for{' '}
+            You are about to{' '}
+            {isCeoForwardedStatus(approveDialog.settlement) ? 'give CEO approval for' : 'approve'}{' '}
             <strong>{approveDialog.settlement?.displayRef}</strong> ({approveDialog.settlement?.itemType}) of amount{' '}
             <strong>{formatPKR(approveDialog.settlement?.displayAmount)}</strong> to{' '}
             <strong>{approveDialog.settlement?.displayVendor}</strong>.
@@ -2853,7 +2920,11 @@ const ExecutiveCeoPaymentsSection = () => {
                 onChange={(e) => setApprovalAgree(e.target.checked)}
               />
             }
-            label="I confirm that I have reviewed all payment details and authorize this approval as CEO"
+            label={
+              isCeoForwardedStatus(approveDialog.settlement)
+                ? 'I confirm that I have reviewed all payment details and authorize this approval as CEO'
+                : 'I confirm that I have reviewed this document and authorize this approval'
+            }
           />
         </DialogContent>
         <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: { xs: 1.5, sm: 1 }, flexDirection: { xs: 'column-reverse', sm: 'row' }, gap: 1 }}>
