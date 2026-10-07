@@ -21,6 +21,35 @@ const {
   sameUserId
 } = require('./executiveAccess');
 
+/** Resolve a human-readable company label from common document shapes. */
+const resolveCompanyLabel = (...sources) => {
+  for (const doc of sources) {
+    if (!doc) continue;
+    if (typeof doc === 'string' && doc.trim()) return doc.trim();
+    if (typeof doc !== 'object') continue;
+    const candidates = [
+      doc.company,
+      doc.companyName,
+      doc.parentCompanyName,
+      doc.subsidiaryName,
+      doc.accountHead,
+      doc.companyId,
+      doc.placementCompany,
+      doc.indent?.companyId,
+      doc.indent?.company,
+      doc.indent?.companyName
+    ];
+    for (const c of candidates) {
+      if (typeof c === 'string' && c.trim() && c.trim() !== '—') return c.trim();
+      if (c && typeof c === 'object') {
+        const name = c.name || c.companyName || c.companyCode;
+        if (typeof name === 'string' && name.trim()) return name.trim();
+      }
+    }
+  }
+  return null;
+};
+
 const card = (partial) => ({
   id: String(partial.id),
   type: partial.type,
@@ -162,12 +191,20 @@ async function fetchPurchaseOrdersForUser(user) {
     'Pending Finance'
   ];
 
+  const populatePoCompany = (q) => q
+    .populate('vendor', 'name')
+    .populate('companyId', 'name companyCode')
+    .populate({
+      path: 'indent',
+      select: 'indentNumber title comparativeStatementApprovals companyId companyName',
+      populate: { path: 'companyId', select: 'name companyCode' }
+    });
+
   let docs = [];
   if (or.length) {
-    docs = await PurchaseOrder.find({ $or: or })
-      .populate('vendor', 'name')
-      .populate('indent', 'indentNumber title comparativeStatementApprovals')
-      .populate('createdBy', 'firstName lastName')
+    docs = await populatePoCompany(
+      PurchaseOrder.find({ $or: or }).populate('createdBy', 'firstName lastName')
+    )
       .sort({ updatedAt: -1 })
       .limit(100)
       .lean();
@@ -175,12 +212,12 @@ async function fetchPurchaseOrdersForUser(user) {
 
   // Supplement with authority-text matches
   if (tokens.length) {
-    const candidates = await PurchaseOrder.find({
-      status: { $in: openStatuses },
-      _id: { $nin: docs.map((d) => d._id) }
-    })
-      .populate('vendor', 'name')
-      .populate('indent', 'indentNumber title comparativeStatementApprovals')
+    const candidates = await populatePoCompany(
+      PurchaseOrder.find({
+        status: { $in: openStatuses },
+        _id: { $nin: docs.map((d) => d._id) }
+      })
+    )
       .sort({ updatedAt: -1 })
       .limit(80)
       .lean();
@@ -209,6 +246,7 @@ async function fetchPurchaseOrdersForUser(user) {
     date: po.orderDate || po.updatedAt,
     amount: po.totalAmount,
     party: po.vendor?.name,
+    company: resolveCompanyLabel(po, po.indent),
     subtitle: po.notes || (po.indent?.title ? `PR: ${po.indent.title}` : 'Purchase Order'),
     department: 'Procurement',
     path: `/procurement/purchase-orders/${po._id}`,
@@ -242,6 +280,7 @@ async function fetchCashApprovalsForUser(user) {
 
   let docs = await CashApproval.find({ $or: or })
     .populate('vendor', 'name')
+    .populate('companyId', 'name companyCode')
     .populate('createdBy', 'firstName lastName')
     .sort({ updatedAt: -1 })
     .limit(100)
@@ -263,6 +302,7 @@ async function fetchCashApprovalsForUser(user) {
       _id: { $nin: docs.map((d) => d._id) }
     })
       .populate('vendor', 'name')
+      .populate('companyId', 'name companyCode')
       .sort({ updatedAt: -1 })
       .limit(80)
       .lean();
@@ -290,6 +330,7 @@ async function fetchCashApprovalsForUser(user) {
     date: ca.approvalDate || ca.updatedAt,
     amount: ca.totalAmount || ca.advanceAmount,
     party: ca.advanceToName || ca.vendor?.name || ca.requestingDepartment,
+    company: resolveCompanyLabel(ca),
     subtitle: ca.purpose || 'Cash Approval',
     department: ca.requestingDepartment || 'Cash Approval',
     path: `/procurement/cash-approvals/${ca._id}`,
@@ -345,7 +386,7 @@ async function fetchSettlementsForUser(user) {
     party: s.toWhomPaid || s.custodian,
     subtitle: s.forWhat || s.notes || 'Payment Settlement',
     department: s.fromDepartment || 'Administration',
-    company: s.subsidiaryName || s.parentCompanyName,
+    company: resolveCompanyLabel(s) || s.subsidiaryName || s.parentCompanyName || null,
     path: `/admin/payment-settlement`,
     ceoViewOnly: s.workflowStatus === 'Forwarded to CEO' && !isCeo,
     raw: s
@@ -390,6 +431,7 @@ async function fetchOnboardingForUser(user) {
       date: r.updatedAt || r.createdAt,
       amount: null,
       party: `${party || '—'}${extra}`,
+      company: resolveCompanyLabel(r, first) || first?.project || first?.location || null,
       subtitle: 'Non-employee onboarding',
       department: 'HR',
       path: `/hr/non-employee-onboarding`,
@@ -421,6 +463,7 @@ async function fetchIndentsForUser(user, ceoIds = []) {
   })
     .populate('requestedBy', 'firstName lastName')
     .populate('department', 'name')
+    .populate('companyId', 'name companyCode')
     .sort({ updatedAt: -1 })
     .limit(100)
     .lean();
@@ -447,7 +490,7 @@ async function fetchIndentsForUser(user, ceoIds = []) {
         : null,
       subtitle: ind.title || 'Indent pending approval',
       department: ind.department?.name || 'Indent',
-      company: null,
+      company: resolveCompanyLabel(ind),
       path: `/general/indents/${ind._id}`,
       ceoViewOnly: onCeoQueue && !isCeo && !iAmPending,
       raw: ind
@@ -498,6 +541,7 @@ async function fetchUtilityBillsForUser(user, ceoIds = []) {
       date: b.billDate || b.updatedAt,
       amount: b.totalAmount,
       party: b.provider || b.vendorName,
+      company: resolveCompanyLabel(b) || b.accountHead || b.site || null,
       subtitle: b.forWhat || b.notes || 'Bill pending approval',
       department: 'Centralized Store',
       path: `/general/centralized-store/bills`,
@@ -531,6 +575,7 @@ async function fetchVendorBillsForUser(user, ceoIds = []) {
     status: { $nin: ['paid', 'cancelled', 'void', 'approved', 'partial'] }
   })
     .select('billNumber billDate totalAmount status approvalStatus vendor vendorName company companyId notes approvalChain module referenceType')
+    .populate('companyId', 'name companyCode')
     .sort({ updatedAt: -1 })
     .limit(50)
     .lean()
@@ -563,6 +608,7 @@ async function fetchVendorBillsForUser(user, ceoIds = []) {
         date: b.billDate || b.updatedAt,
         amount: b.totalAmount,
         party: b.vendorName || b.vendor?.name,
+        company: resolveCompanyLabel(b),
         subtitle: b.notes || 'Pending department approval (Finance)',
         department: 'Finance',
         path: `/finance/accounts-payable`,

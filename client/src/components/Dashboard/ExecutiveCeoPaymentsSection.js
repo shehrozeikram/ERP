@@ -154,6 +154,29 @@ const ExecutiveCeoPaymentsSection = () => {
 
       const combined = items.map((item) => {
         const raw = item.raw && typeof item.raw === 'object' ? item.raw : {};
+        const companyFromItem = (() => {
+          if (typeof item.company === 'string' && item.company.trim()) return item.company.trim();
+          if (item.company && typeof item.company === 'object' && item.company.name) {
+            return String(item.company.name).trim();
+          }
+          if (typeof raw.parentCompanyName === 'string' && raw.parentCompanyName.trim()) {
+            return raw.parentCompanyName.trim();
+          }
+          if (typeof raw.subsidiaryName === 'string' && raw.subsidiaryName.trim()) {
+            return raw.subsidiaryName.trim();
+          }
+          if (typeof raw.company === 'string' && raw.company.trim()) return raw.company.trim();
+          if (raw.company && typeof raw.company === 'object' && raw.company.name) {
+            return String(raw.company.name).trim();
+          }
+          if (raw.companyId && typeof raw.companyId === 'object' && raw.companyId.name) {
+            return String(raw.companyId.name).trim();
+          }
+          if (typeof raw.companyName === 'string' && raw.companyName.trim()) return raw.companyName.trim();
+          if (typeof raw.accountHead === 'string' && raw.accountHead.trim()) return raw.accountHead.trim();
+          return null;
+        })();
+
         return {
           ...raw,
           _id: item.id || raw._id,
@@ -172,6 +195,9 @@ const ExecutiveCeoPaymentsSection = () => {
           displayVendor: item.displayVendor || item.party || '—',
           displayNotes: item.displayNotes || item.subtitle || item.itemType || '',
           department: item.department || raw.fromDepartment || '—',
+          company: companyFromItem || raw.company || null,
+          companyName: companyFromItem || raw.companyName || null,
+          parentCompanyName: raw.parentCompanyName || companyFromItem || null,
           workflowStatus: item.workflowStatus || item.status || raw.workflowStatus || raw.status,
           status: item.status || raw.status || raw.workflowStatus,
           path: item.path || raw.path || null,
@@ -259,11 +285,20 @@ const ExecutiveCeoPaymentsSection = () => {
     if (typeof item.companyName === 'string' && item.companyName.trim()) {
       return item.companyName.trim();
     }
+    if (item.companyId && typeof item.companyId === 'object' && item.companyId.name) {
+      return String(item.companyId.name).trim();
+    }
     if (item.placementCompany && typeof item.placementCompany === 'object' && item.placementCompany.name) {
       return item.placementCompany.name.trim();
     }
     if (typeof item.subsidiaryName === 'string' && item.subsidiaryName.trim()) {
       return item.subsidiaryName.trim();
+    }
+    if (typeof item.accountHead === 'string' && item.accountHead.trim()) {
+      return item.accountHead.trim();
+    }
+    if (item.indent?.companyId && typeof item.indent.companyId === 'object' && item.indent.companyId.name) {
+      return String(item.indent.companyId.name).trim();
     }
     if (item.indent?.company) {
       if (typeof item.indent.company === 'string' && item.indent.company.trim()) {
