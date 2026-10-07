@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -46,23 +46,49 @@ import { formatDate } from '../../utils/dateUtils';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import FinanceCompanySelector from '../../components/Finance/FinanceCompanySelector';
 
+/** Local YYYY-MM-DD (avoid UTC shift from toISOString). */
+const toYmd = (date = new Date()) => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+/** FBR / SGC financial year: 1 July → 30 June (same as Accounts Receivable). */
+const getFinancialYearStartYmd = (date = new Date()) => {
+  const fyStartYear = date.getMonth() >= 6 ? date.getFullYear() : date.getFullYear() - 1;
+  return toYmd(new Date(fyStartYear, 6, 1));
+};
+
 const GeneralLedger = () => {
   const navigate = useNavigate();
   const theme = useTheme();
   const { selectedCompanyId } = useFinanceCompany();
+
+  const initialFyStart = getFinancialYearStartYmd();
+  const initialToday = toYmd(new Date());
   
   const [entries, setEntries] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [openingBalance, setOpeningBalance] = useState(null);
+  const [closingBalance, setClosingBalance] = useState(null);
+  // Applied filters (drive API fetch) — same pattern as Accounts Payable
   const [filters, setFilters] = useState({
     accountId: '',
     department: '',
     module: '',
-    startDate: '',
-    endDate: '',
+    startDate: initialFyStart,
+    endDate: initialToday,
     search: ''
   });
+  // Local draft for dates/search so typing or opening calendar does not remount/refetch
+  const [startDateInput, setStartDateInput] = useState(initialFyStart);
+  const [endDateInput, setEndDateInput] = useState(initialToday);
+  const [searchInput, setSearchInput] = useState('');
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
@@ -70,18 +96,7 @@ const GeneralLedger = () => {
     limit: 100
   });
 
-  useEffect(() => {
-    if (!selectedCompanyId) {
-      setLoading(false);
-      setEntries([]);
-      setAccounts([]);
-      return;
-    }
-    fetchAccounts();
-    fetchGeneralLedger();
-  }, [filters, pagination.currentPage, selectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fetchAccounts = async () => {
+  const fetchAccounts = useCallback(async () => {
     if (!selectedCompanyId) return;
     try {
       const response = await api.get('/finance/accounts', {
@@ -93,9 +108,9 @@ const GeneralLedger = () => {
     } catch (error) {
       console.error('Error fetching accounts:', error);
     }
-  };
+  }, [selectedCompanyId]);
 
-  const fetchGeneralLedger = async () => {
+  const fetchGeneralLedger = useCallback(async () => {
     if (!selectedCompanyId) return;
     try {
       setLoading(true);
@@ -113,10 +128,17 @@ const GeneralLedger = () => {
 
       const response = await api.get(`/finance/general-ledger?${params}`);
       if (response.data.success) {
-        setEntries(response.data.data.entries || []);
+        const data = response.data.data || {};
+        setEntries(data.entries || []);
+        setOpeningBalance(
+          data.openingBalance != null && data.balanceAccountId ? Number(data.openingBalance) : null
+        );
+        setClosingBalance(
+          data.closingBalance != null && data.balanceAccountId ? Number(data.closingBalance) : null
+        );
         setPagination(prev => ({
           ...prev,
-          ...response.data.data.pagination
+          ...data.pagination
         }));
       }
     } catch (error) {
@@ -125,7 +147,52 @@ const GeneralLedger = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, pagination.currentPage, pagination.limit, selectedCompanyId]);
+
+  // Accounts only when company changes (not on every date keystroke)
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setAccounts([]);
+      return;
+    }
+    fetchAccounts();
+  }, [selectedCompanyId, fetchAccounts]);
+
+  // Debounce date drafts → applied filters (like AP search debounce)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) => {
+        if (prev.startDate === startDateInput && prev.endDate === endDateInput) return prev;
+        return { ...prev, startDate: startDateInput, endDate: endDateInput };
+      });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [startDateInput, endDateInput]);
+
+  // Debounce search draft → applied filters
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) => {
+        if (prev.search === searchInput) return prev;
+        return { ...prev, search: searchInput };
+      });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // Reset to page 1 when applied date/search/account filters change
+  useEffect(() => {
+    setPagination((prev) => (prev.currentPage === 1 ? prev : { ...prev, currentPage: 1 }));
+  }, [filters.startDate, filters.endDate, filters.search, filters.accountId]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setLoading(false);
+      setEntries([]);
+      return;
+    }
+    fetchGeneralLedger();
+  }, [fetchGeneralLedger, selectedCompanyId]);
 
   const handleFilterChange = (field) => (event) => {
     setFilters(prev => ({
@@ -133,6 +200,15 @@ const GeneralLedger = () => {
       [field]: event.target.value
     }));
     setPagination(prev => ({ ...prev, currentPage: 1 }));
+  };
+
+  const applyDateFiltersNow = () => {
+    setFilters((prev) => ({
+      ...prev,
+      startDate: startDateInput,
+      endDate: endDateInput
+    }));
+    setPagination((prev) => ({ ...prev, currentPage: 1 }));
   };
 
   const getDepartmentIcon = (department) => {
@@ -169,12 +245,12 @@ const GeneralLedger = () => {
   };
 
   const { totalDebits, totalCredits } = calculateTotals();
+  const showRunningBalance = Boolean(filters.accountId);
 
-  if (loading) {
+  if (!selectedCompanyId) {
     return (
       <Box sx={{ p: 3 }}>
-        <LinearProgress />
-        <Typography variant="h6" sx={{ mt: 2 }}>Loading General Ledger...</Typography>
+        <Alert severity="info">Select a finance company to view the General Ledger.</Alert>
       </Box>
     );
   }
@@ -203,6 +279,7 @@ const GeneralLedger = () => {
               variant="outlined"
               startIcon={<RefreshIcon />}
               onClick={fetchGeneralLedger}
+              disabled={loading}
             >
               Refresh
             </Button>
@@ -223,8 +300,9 @@ const GeneralLedger = () => {
               fullWidth
               type="date"
               label="Start Date"
-              value={filters.startDate}
-              onChange={handleFilterChange('startDate')}
+              value={startDateInput}
+              onChange={(e) => setStartDateInput(e.target.value)}
+              onBlur={applyDateFiltersNow}
               InputLabelProps={{ shrink: true }}
               size="small"
             />
@@ -234,8 +312,9 @@ const GeneralLedger = () => {
               fullWidth
               type="date"
               label="End Date"
-              value={filters.endDate}
-              onChange={handleFilterChange('endDate')}
+              value={endDateInput}
+              onChange={(e) => setEndDateInput(e.target.value)}
+              onBlur={applyDateFiltersNow}
               InputLabelProps={{ shrink: true }}
               size="small"
             />
@@ -301,14 +380,16 @@ const GeneralLedger = () => {
             <TextField
               fullWidth
               label="Search"
-              value={filters.search}
-              onChange={handleFilterChange('search')}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search entries"
               size="small"
             />
           </Grid>
         </Grid>
       </Paper>
+
+      {loading && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
 
       {/* Error Alert */}
       {error && (
@@ -319,7 +400,7 @@ const GeneralLedger = () => {
 
       {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={showRunningBalance ? 3 : 4}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -338,13 +419,13 @@ const GeneralLedger = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={showRunningBalance ? 3 : 4}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box>
                   <Typography color="textSecondary" gutterBottom variant="body2">
-                    Total Debits
+                    Period Debits
                   </Typography>
                   <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'success.main' }}>
                     {formatPKR(totalDebits)}
@@ -357,13 +438,13 @@ const GeneralLedger = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} md={showRunningBalance ? 3 : 4}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Box>
                   <Typography color="textSecondary" gutterBottom variant="body2">
-                    Total Credits
+                    Period Credits
                   </Typography>
                   <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'error.main' }}>
                     {formatPKR(totalCredits)}
@@ -376,14 +457,54 @@ const GeneralLedger = () => {
             </CardContent>
           </Card>
         </Grid>
+        {showRunningBalance && (
+          <Grid item xs={12} md={3}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box>
+                    <Typography color="textSecondary" gutterBottom variant="body2">
+                      Closing Balance
+                    </Typography>
+                    <Typography
+                      variant="h5"
+                      sx={{
+                        fontWeight: 'bold',
+                        color:
+                          (closingBalance || 0) > 0
+                            ? 'success.main'
+                            : (closingBalance || 0) < 0
+                              ? 'error.main'
+                              : 'textSecondary'
+                      }}
+                    >
+                      {formatPKR(closingBalance || 0)}
+                    </Typography>
+                    <Typography variant="caption" color="textSecondary">
+                      Opening {formatPKR(openingBalance || 0)}
+                    </Typography>
+                  </Box>
+                  <Avatar sx={{ bgcolor: theme.palette.info.main }}>
+                    <AccountBalanceIcon />
+                  </Avatar>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
       </Grid>
 
       {/* General Ledger Table */}
       <Card>
         <CardContent>
-          <Typography variant="h6" sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ mb: 1 }}>
             Ledger Entries
           </Typography>
+          {!showRunningBalance && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Select an <strong>Account</strong> to see a correct running Balance (opening as of start date + movements).
+            </Alert>
+          )}
           <TableContainer>
             <Table>
               <TableHead>
@@ -395,11 +516,49 @@ const GeneralLedger = () => {
                   <TableCell>Department</TableCell>
                   <TableCell align="right">Debit</TableCell>
                   <TableCell align="right">Credit</TableCell>
-                  <TableCell align="right">Balance</TableCell>
+                  {showRunningBalance && <TableCell align="right">Balance</TableCell>}
                   <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
+                {showRunningBalance && pagination.currentPage === 1 && (
+                  <TableRow sx={{ bgcolor: alpha(theme.palette.info.main, 0.06) }}>
+                    <TableCell>
+                      <Typography variant="body2" color="textSecondary">
+                        {filters.startDate ? formatDate(filters.startDate) : '—'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                        Opening
+                      </Typography>
+                    </TableCell>
+                    <TableCell colSpan={3}>
+                      <Typography variant="body2" color="textSecondary">
+                        Balance brought forward
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">—</TableCell>
+                    <TableCell align="right">—</TableCell>
+                    <TableCell align="right">
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontWeight: 'bold',
+                          color:
+                            (openingBalance || 0) > 0
+                              ? 'success.main'
+                              : (openingBalance || 0) < 0
+                                ? 'error.main'
+                                : 'textSecondary'
+                        }}
+                      >
+                        {formatPKR(openingBalance || 0)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                )}
                 {entries.map((entry) => (
                   <TableRow key={entry._id} hover>
                     <TableCell>
@@ -457,17 +616,19 @@ const GeneralLedger = () => {
                         {entry.credit > 0 ? formatPKR(entry.credit) : '-'}
                       </Typography>
                     </TableCell>
-                    <TableCell align="right">
-                      <Typography 
-                        variant="body2" 
-                        sx={{ 
-                          fontWeight: 'bold',
-                          color: entry.runningBalance > 0 ? 'success.main' : entry.runningBalance < 0 ? 'error.main' : 'textSecondary'
-                        }}
-                      >
-                        {formatPKR(entry.runningBalance)}
-                      </Typography>
-                    </TableCell>
+                    {showRunningBalance && (
+                      <TableCell align="right">
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            fontWeight: 'bold',
+                            color: entry.runningBalance > 0 ? 'success.main' : entry.runningBalance < 0 ? 'error.main' : 'textSecondary'
+                          }}
+                        >
+                          {formatPKR(entry.runningBalance)}
+                        </Typography>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Tooltip title="View Journal Entry">
                         <IconButton 

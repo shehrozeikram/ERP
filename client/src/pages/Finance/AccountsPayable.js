@@ -2289,7 +2289,7 @@ const AccountsPayable = () => {
                             site: selectedBill.site || getBillCompany(selectedBill),
                             provider: selectedBill.vendorName || selectedBill.vendor?.name
                           })}
-                        </Typography>
+                  </Typography>
                         <Typography
                           variant="h6"
                           sx={{

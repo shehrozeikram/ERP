@@ -46,6 +46,36 @@ const isDesignatedCeoApprover = (user) => {
   return false;
 };
 
+/**
+ * Resolve all designated CEO user ids (env + role=ceo).
+ * Used so PS/CEO can see Other-tab docs pending on the CEO office chain
+ * the same way Forwarded-to-CEO works for PO/CA.
+ */
+async function resolveDesignatedCeoUserIds() {
+  const mongoose = require('mongoose');
+  const User = require('../models/User');
+  const idSet = new Set(parseEnvList(process.env.CEO_USER_IDS).map(String));
+  const emails = parseEnvList(process.env.CEO_USER_EMAILS).map((e) => e.toLowerCase());
+
+  const or = [{ role: 'ceo' }];
+  const objectIds = [...idSet].filter((id) => mongoose.Types.ObjectId.isValid(id));
+  if (objectIds.length) {
+    or.push({ _id: { $in: objectIds } });
+  }
+  if (emails.length) {
+    or.push({ email: { $in: emails } });
+  }
+
+  try {
+    const users = await User.find({ $or: or, isActive: { $ne: false } }).select('_id').lean();
+    users.forEach((u) => idSet.add(String(u._id)));
+  } catch (err) {
+    console.error('[executiveAccess] resolveDesignatedCeoUserIds', err.message);
+  }
+
+  return [...idSet].filter(Boolean);
+}
+
 const collectRoleLabels = (user) => {
   const labels = [];
   const add = (value) => {
@@ -142,6 +172,7 @@ module.exports = {
   parseEnvList,
   isExecutiveOverride,
   isDesignatedCeoApprover,
+  resolveDesignatedCeoUserIds,
   isCeoSecretariatPsRole,
   hasCeoSecretariatCoordinatorAccess,
   hasCeoSecretariatAccess,

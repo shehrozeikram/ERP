@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Button, Chip, CircularProgress, Alert,
   Tooltip, Stack, Card, CardContent, Grid, TextField, FormControl, InputLabel, Select, MenuItem,
-  Dialog, DialogTitle, DialogContent, DialogActions, TablePagination, Divider, IconButton
+  Dialog, DialogTitle, DialogContent, DialogActions, Divider, IconButton, Checkbox
 } from '@mui/material';
 import {
   AccountBalance as BankIcon,
@@ -56,6 +56,47 @@ const isValidYmd = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').tri
 /** Stable string key per unpresented row (Dr/Cr on same voucher must differ). */
 const rowKey = (txn) => String(txn?._id ?? '');
 
+/** Virtual window inside scrollable recon tables — only mount visible rows. */
+const RECON_TABLE_MAX_H = 480;
+/** Keep in sync with data-row minHeight so scroll math stays accurate. */
+const RECON_ROW_H = 64;
+const RECON_OVERSCAN = 16;
+const RECON_DATA_ROW_SX = {
+  height: RECON_ROW_H,
+  '& > td': { py: 0.75, verticalAlign: 'middle' }
+};
+
+const getWindowRange = (rowCount, scrollTop, viewportH = RECON_TABLE_MAX_H) => {
+  if (!rowCount || rowCount <= 0) {
+    return { start: 0, end: 0, topPad: 0, bottomPad: 0 };
+  }
+  const start = Math.max(0, Math.floor(scrollTop / RECON_ROW_H) - RECON_OVERSCAN);
+  const end = Math.min(
+    rowCount,
+    Math.ceil((scrollTop + viewportH) / RECON_ROW_H) + RECON_OVERSCAN
+  );
+  return {
+    start,
+    end,
+    topPad: start * RECON_ROW_H,
+    bottomPad: Math.max(0, (rowCount - end) * RECON_ROW_H)
+  };
+};
+
+const scrollBucket = (scrollTop) => Math.floor(Math.max(0, scrollTop) / RECON_ROW_H);
+
+const ScrollPadRow = ({ height, colSpan }) => {
+  if (!height) return null;
+  return (
+    <TableRow aria-hidden>
+      <TableCell
+        colSpan={colSpan}
+        sx={{ height, p: 0, border: 0, lineHeight: 0 }}
+      />
+    </TableRow>
+  );
+};
+
 const buildReconcilePayload = (txn, clearanceStatus, clearedAt) => {
   const type = txn?.type || (Number(txn?.credit) > 0 ? 'Cr' : 'Dr');
   const amount = Number(txn?.amount) || 0;
@@ -83,11 +124,16 @@ export default function BankReconciliation() {
   const [bankAccounts, setBankAccounts] = useState([]);
   const [rowClearDates, setRowClearDates] = useState({});
   const [clearingLoading, setClearingLoading] = useState({});
-  const [unpresentedPage, setUnpresentedPage] = useState(0);
-  const [unpresentedRowsPerPage, setUnpresentedRowsPerPage] = useState(25);
-  const [periodPage, setPeriodPage] = useState(0);
-  const [periodRowsPerPage, setPeriodRowsPerPage] = useState(25);
-  
+  const [unpresentedScrollTop, setUnpresentedScrollTop] = useState(0);
+  const [periodScrollTop, setPeriodScrollTop] = useState(0);
+  const unpresentedScrollRef = useRef(null);
+  const periodScrollRef = useRef(null);
+  const unpresentedBucketRef = useRef(0);
+  const periodBucketRef = useRef(0);
+  const [selectedUnpresented, setSelectedUnpresented] = useState(() => new Set());
+  const [bulkClearDate, setBulkClearDate] = useState('');
+  const [bulkClearing, setBulkClearing] = useState(false);
+
   const [filters, setFilters] = useState({
     asOfDate: new Date().toISOString().split('T')[0],
     fromDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
@@ -320,14 +366,47 @@ export default function BankReconciliation() {
         }
       }
       setData(reportData);
-      setUnpresentedPage(0);
-      setPeriodPage(0);
+      setUnpresentedScrollTop(0);
+      setPeriodScrollTop(0);
+      setSelectedUnpresented(new Set());
+      unpresentedBucketRef.current = 0;
+      periodBucketRef.current = 0;
+      if (unpresentedScrollRef.current) unpresentedScrollRef.current.scrollTop = 0;
+      if (periodScrollRef.current) periodScrollRef.current.scrollTop = 0;
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load reconciliation data');
     } finally {
       setLoading(false);
     }
   }, [filters]);
+
+  const unpresentedRows = data?.unpresentedTransactions || [];
+  const periodRows = data?.periodTransactions || [];
+  const unpresentedWindow = useMemo(
+    () => getWindowRange(unpresentedRows.length, unpresentedScrollTop),
+    [unpresentedRows.length, unpresentedScrollTop]
+  );
+  // Opening-balance row sits above the virtualized list — offset scroll by one row.
+  const periodWindow = useMemo(
+    () => getWindowRange(periodRows.length, Math.max(0, periodScrollTop - RECON_ROW_H)),
+    [periodRows.length, periodScrollTop]
+  );
+
+  const handleUnpresentedScroll = (e) => {
+    const top = e.currentTarget.scrollTop;
+    const bucket = scrollBucket(top);
+    if (bucket === unpresentedBucketRef.current) return;
+    unpresentedBucketRef.current = bucket;
+    setUnpresentedScrollTop(top);
+  };
+
+  const handlePeriodScroll = (e) => {
+    const top = e.currentTarget.scrollTop;
+    const bucket = scrollBucket(top);
+    if (bucket === periodBucketRef.current) return;
+    periodBucketRef.current = bucket;
+    setPeriodScrollTop(top);
+  };
 
   useEffect(() => {
     loadBankAccounts();
@@ -413,6 +492,80 @@ export default function BankReconciliation() {
     } finally {
       setClearingLoading((prev) => ({ ...prev, [key]: false }));
     }
+  };
+
+  const toggleUnpresentedSelect = (key) => {
+    setSelectedUnpresented((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAllUnpresented = () => {
+    setSelectedUnpresented((prev) => {
+      if (unpresentedRows.length && prev.size === unpresentedRows.length) {
+        return new Set();
+      }
+      return new Set(unpresentedRows.map((t) => rowKey(t)).filter(Boolean));
+    });
+  };
+
+  const handleBulkClearSelected = async () => {
+    if (!selectedUnpresented.size) {
+      setError('Select at least one unpresented record.');
+      return;
+    }
+    const ymd = (bulkClearDate || filters.asOfDate || '').trim();
+    if (!isValidYmd(ymd)) {
+      setError('Please select a clearing date for the selected records.');
+      return;
+    }
+
+    const toClear = unpresentedRows.filter((t) => selectedUnpresented.has(rowKey(t)));
+    if (!toClear.length) {
+      setError('Selected records are no longer in the unpresented list. Refresh and try again.');
+      return;
+    }
+
+    const clearedAt = new Date(`${ymd}T12:00:00.000Z`).toISOString();
+    setBulkClearing(true);
+    setError('');
+    setSuccess('');
+
+    let ok = 0;
+    let fail = 0;
+    const dateUpdates = {};
+
+    for (const txn of toClear) {
+      const key = rowKey(txn);
+      try {
+        await api.post(
+          '/finance/reports/bank-reconciliation/reconcile',
+          buildReconcilePayload(txn, 'cleared', clearedAt)
+        );
+        ok += 1;
+        dateUpdates[key] = ymd;
+      } catch {
+        fail += 1;
+      }
+    }
+
+    if (Object.keys(dateUpdates).length) {
+      setRowClearDates((prev) => ({ ...prev, ...dateUpdates }));
+    }
+    setSelectedUnpresented(new Set());
+    if (ok && !fail) {
+      setSuccess(`Cleared ${ok} selected record${ok === 1 ? '' : 's'} with clearing date ${ymd}.`);
+    } else if (ok && fail) {
+      setSuccess(`Cleared ${ok} record(s); ${fail} failed.`);
+      setError(`${fail} selected record(s) could not be cleared.`);
+    } else {
+      setError('Could not clear the selected records.');
+    }
+    await load();
+    setBulkClearing(false);
   };
 
   const handleDirectUnclear = async (txn) => {
@@ -649,47 +802,129 @@ export default function BankReconciliation() {
             </Stack>
           </Box>
 
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
+          {unpresentedRows.length > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{
+                mb: 1.5,
+                px: 2,
+                py: 1.25,
+                bgcolor: selectedUnpresented.size ? 'success.50' : 'grey.50'
+              }}
+            >
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1.5}
+                alignItems={{ xs: 'stretch', sm: 'center' }}
+                justifyContent="space-between"
+              >
+                <Typography variant="body2" fontWeight={600}>
+                  {selectedUnpresented.size
+                    ? `${selectedUnpresented.size} selected`
+                    : 'Select rows, set clearing date, then Clear Selected'}
+                </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <TextField
+                    label="Clearing Date (bulk)"
+                    type="date"
+                    size="small"
+                    value={bulkClearDate || filters.asOfDate || ''}
+                    onChange={(e) => setBulkClearDate(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ width: { xs: '100%', sm: 180 } }}
+                  />
+                  <Button
+                    variant="contained"
+                    color="success"
+                    size="small"
+                    startIcon={bulkClearing ? <CircularProgress size={16} color="inherit" /> : <ReconcileIcon />}
+                    disabled={!selectedUnpresented.size || bulkClearing}
+                    onClick={handleBulkClearSelected}
+                    sx={{ whiteSpace: 'nowrap' }}
+                  >
+                    Clear Selected{selectedUnpresented.size ? ` (${selectedUnpresented.size})` : ''}
+                  </Button>
+                </Stack>
+              </Stack>
+            </Paper>
+          )}
+
+          <TableContainer
+            ref={unpresentedScrollRef}
+            component={Paper}
+            variant="outlined"
+            sx={{ maxHeight: RECON_TABLE_MAX_H, overflow: 'auto' }}
+            onScroll={handleUnpresentedScroll}
+          >
+            <Table size="small" stickyHeader>
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>VrNo</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Narration</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700 }}>Attachment</TableCell>
-                  <TableCell sx={{ fontWeight: 700, minWidth: 130 }}>Signed Document</TableCell>
-                  <TableCell sx={{ fontWeight: 700, minWidth: 160 }}>Signed By</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Signed Date</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, minWidth: 155 }}>Clearing.Date</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700, minWidth: 100 }}>Action</TableCell>
+                <TableRow>
+                  <TableCell padding="checkbox" sx={{ bgcolor: 'grey.50', width: 48 }}>
+                    <Checkbox
+                      size="small"
+                      indeterminate={
+                        selectedUnpresented.size > 0
+                        && selectedUnpresented.size < unpresentedRows.length
+                      }
+                      checked={
+                        unpresentedRows.length > 0
+                        && selectedUnpresented.size === unpresentedRows.length
+                      }
+                      onChange={toggleSelectAllUnpresented}
+                      disabled={!unpresentedRows.length || bulkClearing}
+                      inputProps={{ 'aria-label': 'Select all unpresented' }}
+                    />
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Date</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>VrNo</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Narration</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Reference</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Amount</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Attachment</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 130, bgcolor: 'grey.50' }}>Signed Document</TableCell>
+                  <TableCell sx={{ fontWeight: 700, minWidth: 160, bgcolor: 'grey.50' }}>Signed By</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Signed Date</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, minWidth: 155, bgcolor: 'grey.50' }}>Clearing.Date</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, minWidth: 100, bgcolor: 'grey.50' }}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {(data.unpresentedTransactions || []).length === 0 ? (
+                {unpresentedRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} align="center" sx={{ py: 3, color: 'text.secondary' }}>
+                    <TableCell colSpan={12} align="center" sx={{ py: 3, color: 'text.secondary' }}>
                       No unpresented/uncleared cheques found up to {formatDate(filters.asOfDate)}.
                     </TableCell>
                   </TableRow>
                 ) : (
                   <>
-                    {(data.unpresentedTransactions || [])
-                      .slice(unpresentedPage * unpresentedRowsPerPage, unpresentedPage * unpresentedRowsPerPage + unpresentedRowsPerPage)
-                      .map((t, idx) => {
-                      const key = rowKey(t) || `row-${idx}`;
-                      const hasAttachment = (t.attachments || []).length > 0;
+                    <ScrollPadRow height={unpresentedWindow.topPad} colSpan={12} />
+                    {unpresentedRows.slice(unpresentedWindow.start, unpresentedWindow.end).map((t, idx) => {
+                      const absIdx = unpresentedWindow.start + idx;
+                      const key = rowKey(t) || `row-${absIdx}`;
                       const isSigned = t.signedDocumentStatus === 'signed';
+                      const isSelected = selectedUnpresented.has(key);
                       const defaultClearDate = rowClearDates[key] ?? (t.clearingDate ? clearedAtToYmd(t.clearingDate) : (filters.asOfDate || new Date().toISOString().split('T')[0]));
                       return (
-                        <TableRow key={key} hover>
+                        <TableRow key={key} hover selected={isSelected} sx={RECON_DATA_ROW_SX}>
+                          <TableCell padding="checkbox">
+                            <Checkbox
+                              size="small"
+                              checked={isSelected}
+                              onChange={() => toggleUnpresentedSelect(key)}
+                              disabled={bulkClearing}
+                              inputProps={{ 'aria-label': `Select ${t.vrNo || key}` }}
+                            />
+                          </TableCell>
                           <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                           <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
-                          <TableCell>{t.narration}</TableCell>
+                          <TableCell sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <Tooltip title={t.narration || ''} enterDelay={500}>
+                              <span>{t.narration}</span>
+                            </Tooltip>
+                          </TableCell>
                           <TableCell sx={{ minWidth: 120 }}>
                             <Stack direction="row" alignItems="center" gap={0.5}>
-                              <Typography variant="body2">{t.reference || '—'}</Typography>
+                              <Typography variant="body2" noWrap>{t.reference || '—'}</Typography>
                               <IconButton size="small" onClick={() => openRefDlg(t)} sx={{ opacity: 0.3, '&:hover': { opacity: 1 } }}>
                                 <EditIcon fontSize="small" />
                               </IconButton>
@@ -812,9 +1047,18 @@ export default function BankReconciliation() {
                         </TableRow>
                       );
                     })}
+                    <ScrollPadRow height={unpresentedWindow.bottomPad} colSpan={12} />
                     {/* Total Row */}
-                    <TableRow sx={{ bgcolor: 'grey.100' }}>
-                      <TableCell colSpan={4} sx={{ fontWeight: 800, fontSize: '0.95rem' }}>
+                    <TableRow
+                      sx={{
+                        bgcolor: 'grey.100',
+                        position: 'sticky',
+                        bottom: 0,
+                        zIndex: 1,
+                        '& td': { bgcolor: 'grey.100' }
+                      }}
+                    >
+                      <TableCell colSpan={5} sx={{ fontWeight: 800, fontSize: '0.95rem' }}>
                         Total
                       </TableCell>
                       <TableCell align="right" sx={{ fontWeight: 800, fontSize: '0.95rem', color: data.differenceType === 'Cr' ? 'error.main' : 'success.main' }}>
@@ -827,18 +1071,6 @@ export default function BankReconciliation() {
               </TableBody>
             </Table>
           </TableContainer>
-          <TablePagination
-            component="div"
-            count={(data.unpresentedTransactions || []).length}
-            page={unpresentedPage}
-            onPageChange={(e, newPage) => setUnpresentedPage(newPage)}
-            rowsPerPage={unpresentedRowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setUnpresentedRowsPerPage(parseInt(e.target.value, 10));
-              setUnpresentedPage(0);
-            }}
-            rowsPerPageOptions={[25, 50, 100, 250]}
-          />
         </Box>
       )}
 
@@ -910,17 +1142,23 @@ export default function BankReconciliation() {
             </Stack>
           </Stack>
 
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
+          <TableContainer
+            ref={periodScrollRef}
+            component={Paper}
+            variant="outlined"
+            sx={{ maxHeight: RECON_TABLE_MAX_H, overflow: 'auto' }}
+            onScroll={handlePeriodScroll}
+          >
+            <Table size="small" stickyHeader>
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>VrNo</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Narration</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700 }}>Clearing.Date</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 700 }}>Action</TableCell>
+                <TableRow>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Date</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>VrNo</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Narration</TableCell>
+                  <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Reference</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Amount</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Clearing.Date</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>Action</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -940,17 +1178,20 @@ export default function BankReconciliation() {
                   <TableCell align="center">—</TableCell>
                 </TableRow>
 
-                {/* Period Transactions */}
-                {(data.periodTransactions || [])
-                  .slice(periodPage * periodRowsPerPage, periodPage * periodRowsPerPage + periodRowsPerPage)
-                  .map((t, idx) => (
-                  <TableRow key={t._id || idx} hover>
+                {/* Period Transactions (windowed) */}
+                <ScrollPadRow height={periodWindow.topPad} colSpan={7} />
+                {periodRows.slice(periodWindow.start, periodWindow.end).map((t, idx) => (
+                  <TableRow key={t._id || `period-${periodWindow.start + idx}`} hover sx={RECON_DATA_ROW_SX}>
                     <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatDate(t.date)}</TableCell>
                     <TableCell sx={{ fontWeight: 600 }}>{t.vrNo}</TableCell>
-                    <TableCell>{t.narration}</TableCell>
+                    <TableCell sx={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <Tooltip title={t.narration || ''} enterDelay={500}>
+                        <span>{t.narration}</span>
+                      </Tooltip>
+                    </TableCell>
                     <TableCell sx={{ minWidth: 120 }}>
                       <Stack direction="row" alignItems="center" gap={0.5}>
-                        <Typography variant="body2">{t.reference || '—'}</Typography>
+                        <Typography variant="body2" noWrap>{t.reference || '—'}</Typography>
                         <IconButton size="small" onClick={() => openRefDlg(t)} sx={{ opacity: 0.3, '&:hover': { opacity: 1 } }}>
                           <EditIcon fontSize="small" />
                         </IconButton>
@@ -990,9 +1231,18 @@ export default function BankReconciliation() {
                     </TableCell>
                   </TableRow>
                 ))}
+                <ScrollPadRow height={periodWindow.bottomPad} colSpan={7} />
 
                 {/* Total Closing Statement Balance Row */}
-                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableRow
+                  sx={{
+                    bgcolor: 'grey.100',
+                    position: 'sticky',
+                    bottom: 0,
+                    zIndex: 1,
+                    '& td': { bgcolor: 'grey.100' }
+                  }}
+                >
                   <TableCell colSpan={4} sx={{ fontWeight: 800, fontSize: '0.95rem' }}>
                     Total
                   </TableCell>
@@ -1007,18 +1257,6 @@ export default function BankReconciliation() {
               </TableBody>
             </Table>
           </TableContainer>
-          <TablePagination
-            component="div"
-            count={(data.periodTransactions || []).length}
-            page={periodPage}
-            onPageChange={(e, newPage) => setPeriodPage(newPage)}
-            rowsPerPage={periodRowsPerPage}
-            onRowsPerPageChange={(e) => {
-              setPeriodRowsPerPage(parseInt(e.target.value, 10));
-              setPeriodPage(0);
-            }}
-            rowsPerPageOptions={[25, 50, 100, 250]}
-          />
         </Box>
       )}
 

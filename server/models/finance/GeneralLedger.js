@@ -241,6 +241,66 @@ generalLedgerSchema.statics.buildLedgerRowsFromJournalEntries = async function(a
 };
 
 // Static methods for ledger operations
+/**
+ * Net movement (debit - credit) for an account before a date.
+ * Prefers GeneralLedger rows; falls back to JournalEntry lines (same as period ledger).
+ */
+generalLedgerSchema.statics.getAccountOpeningBalance = async function(accountId, beforeDate, companyId = null) {
+  if (!beforeDate) return 0;
+  const accOid = mongoose.Types.ObjectId.isValid(String(accountId))
+    ? new mongoose.Types.ObjectId(String(accountId))
+    : accountId;
+
+  const glMatch = {
+    account: accOid,
+    status: 'posted',
+    date: { $lt: beforeDate }
+  };
+  if (companyId && mongoose.Types.ObjectId.isValid(String(companyId))) {
+    glMatch.companyId = new mongoose.Types.ObjectId(String(companyId));
+  }
+
+  const glAgg = await this.aggregate([
+    { $match: glMatch },
+    {
+      $group: {
+        _id: null,
+        net: { $sum: { $subtract: [{ $ifNull: ['$debit', 0] }, { $ifNull: ['$credit', 0] }] } },
+        n: { $sum: 1 }
+      }
+    }
+  ]);
+  if (glAgg[0] && (glAgg[0].n || 0) > 0) {
+    return Math.round((Number(glAgg[0].net) || 0) * 100) / 100;
+  }
+
+  // JE fallback (trial-balance aligned)
+  const JournalEntry = require('./JournalEntry');
+  const jeMatch = {
+    status: 'posted',
+    date: { $lt: beforeDate }
+  };
+  if (companyId && mongoose.Types.ObjectId.isValid(String(companyId))) {
+    jeMatch.companyId = new mongoose.Types.ObjectId(String(companyId));
+  }
+  const jeAgg = await JournalEntry.aggregate([
+    { $match: jeMatch },
+    { $unwind: '$lines' },
+    { $match: { 'lines.account': accOid } },
+    {
+      $group: {
+        _id: null,
+        net: {
+          $sum: {
+            $subtract: [{ $ifNull: ['$lines.debit', 0] }, { $ifNull: ['$lines.credit', 0] }]
+          }
+        }
+      }
+    }
+  ]);
+  return Math.round((Number(jeAgg[0]?.net) || 0) * 100) / 100;
+};
+
 generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDate, endDate, companyId = null) {
   const accOid = mongoose.Types.ObjectId.isValid(String(accountId))
     ? new mongoose.Types.ObjectId(String(accountId))
@@ -319,13 +379,35 @@ generalLedgerSchema.statics.getAccountLedger = async function(accountId, startDa
     }
   }
 
-  let runningBalance = 0;
+  // Ensure account is populated on every row (JE fallback rows lack it)
+  const Account = mongoose.model('Account');
+  const accDoc = await Account.findById(accOid).select('accountNumber name type').lean();
+  if (accDoc) {
+    entries.forEach((entry) => {
+      if (!entry.account || typeof entry.account !== 'object' || !entry.account.accountNumber) {
+        entry.account = accDoc;
+      }
+    });
+  }
+
+  // Opening = net of all activity before period start (so FY filter balance is correct)
+  const openingBalance = startDate
+    ? await this.getAccountOpeningBalance(accOid, startDate, companyId)
+    : 0;
+
+  let runningBalance = Math.round((Number(openingBalance) || 0) * 100) / 100;
   entries.forEach((entry) => {
-    runningBalance += (Number(entry.debit) || 0) - (Number(entry.credit) || 0);
+    runningBalance = Math.round(
+      (runningBalance + (Number(entry.debit) || 0) - (Number(entry.credit) || 0)) * 100
+    ) / 100;
     entry.runningBalance = runningBalance;
   });
 
-  return entries;
+  return {
+    entries,
+    openingBalance,
+    closingBalance: runningBalance
+  };
 };
 
 generalLedgerSchema.statics.getGeneralLedger = async function(filters = {}) {

@@ -27,7 +27,9 @@ import {
   Select,
   MenuItem,
   Pagination,
-  Snackbar
+  Snackbar,
+  Checkbox,
+  Stack
 } from '@mui/material';
 import {
   AccountBalance as AccountBalanceIcon,
@@ -88,6 +90,15 @@ const Banking = () => {
     totalCr: 0,
     netBalance: 0,
     netBalanceType: 'Dr'
+  });
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkValues, setBulkValues] = useState({
+    paymentType: '',
+    mainAccountHead: '',
+    subAccountHead: '',
+    companies: '',
+    project: ''
   });
 
   useEffect(() => {
@@ -195,6 +206,7 @@ const Banking = () => {
       const response = await api.get(`/finance/banking/transactions?${params}`);
       if (response.data.success) {
         setTransactions(response.data.data.transactions || []);
+        setSelectedIds(new Set());
         setSummary(response.data.data.summary || summary);
         setPagination(prev => ({
           ...prev,
@@ -264,10 +276,14 @@ const Banking = () => {
     setPagination(prev => ({ ...prev, currentPage: page }));
   };
 
-  const handleSaveRow = async (t) => {
+  const rowId = (t, idx = 0) => String(t?._id || t?.journalEntryId || `row-${idx}`);
+
+  const handleSaveRow = async (t, { silent = false } = {}) => {
     if (!t.journalEntryId) {
-      setToast({ open: true, message: 'Cannot save: No linked Journal Entry found.', severity: 'error' });
-      return;
+      if (!silent) {
+        setToast({ open: true, message: 'Cannot save: No linked Journal Entry found.', severity: 'error' });
+      }
+      return false;
     }
     try {
       const payload = {
@@ -281,15 +297,169 @@ const Banking = () => {
 
       const res = await api.put(`/finance/banking/transactions/${t.journalEntryId}/custom-meta`, payload);
       if (res.data.success) {
-        setToast({ open: true, message: 'Row saved successfully!', severity: 'success' });
+        if (!silent) {
+          setToast({ open: true, message: 'Row saved successfully!', severity: 'success' });
+        }
+        return true;
       }
+      return false;
     } catch (err) {
       console.error('Failed to save row custom meta:', err);
-      setToast({ open: true, message: err.response?.data?.message || 'Failed to save changes.', severity: 'error' });
+      if (!silent) {
+        setToast({ open: true, message: err.response?.data?.message || 'Failed to save changes.', severity: 'error' });
+      }
+      return false;
+    }
+  };
+
+  const toggleSelectRow = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => {
+      if (transactions.length && prev.size === transactions.length) return new Set();
+      return new Set(transactions.map((t, i) => rowId(t, i)));
+    });
+  };
+
+  const updateRowField = (id, field, value) => {
+    setTransactions((prev) =>
+      prev.map((item, i) => (rowId(item, i) === id ? { ...item, [field]: value } : item))
+    );
+  };
+
+  /** When rows are selected, changing a dropdown on one selected row applies to all selected. */
+  const handleEditableChange = (t, idx, field, value) => {
+    const id = rowId(t, idx);
+    if (selectedIds.size > 1 && selectedIds.has(id)) {
+      setTransactions((prev) =>
+        prev.map((item, i) => (selectedIds.has(rowId(item, i)) ? { ...item, [field]: value } : item))
+      );
+      return;
+    }
+    updateRowField(id, field, value);
+  };
+
+  const applyBulkValuesToSelected = (rows) => {
+    const patch = {};
+    if (bulkValues.paymentType !== '') patch.paymentType = bulkValues.paymentType;
+    if (bulkValues.mainAccountHead !== '') patch.mainAccountHead = bulkValues.mainAccountHead;
+    if (bulkValues.subAccountHead !== '') patch.subAccountHead = bulkValues.subAccountHead;
+    if (bulkValues.companies !== '') patch.companies = bulkValues.companies;
+    if (bulkValues.project !== '') patch.project = bulkValues.project;
+    if (!Object.keys(patch).length) return rows;
+    return rows.map((t, i) =>
+      selectedIds.has(rowId(t, i)) ? { ...t, ...patch } : t
+    );
+  };
+
+  const handleUpdateSelected = async () => {
+    if (!selectedIds.size) {
+      setToast({ open: true, message: 'Select at least one row to update.', severity: 'warning' });
+      return;
+    }
+
+    const nextRows = applyBulkValuesToSelected(transactions);
+    if (nextRows !== transactions) {
+      setTransactions(nextRows);
+    }
+
+    const toSave = nextRows.filter((t, i) => selectedIds.has(rowId(t, i)));
+    setBulkSaving(true);
+    let ok = 0;
+    let fail = 0;
+    for (const t of toSave) {
+      const saved = await handleSaveRow(t, { silent: true });
+      if (saved) ok += 1;
+      else fail += 1;
+    }
+    setBulkSaving(false);
+    setSelectedIds(new Set());
+    if (ok && !fail) {
+      setToast({ open: true, message: `Updated ${ok} selected row${ok === 1 ? '' : 's'}.`, severity: 'success' });
+    } else if (ok && fail) {
+      setToast({ open: true, message: `Updated ${ok}; ${fail} failed.`, severity: 'warning' });
+    } else {
+      setToast({ open: true, message: 'Could not update the selected rows.', severity: 'error' });
     }
   };
 
   const fmt = (n) => Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  /** Always quote CSV cells so commas/newlines in dates/narration cannot shift columns. */
+  const csvEscape = (value) => {
+    const text = value == null ? '' : String(value);
+    return `"${text.replace(/"/g, '""').replace(/\r\n/g, '\n').replace(/\r/g, '\n')}"`;
+  };
+
+  const csvDate = (value) => {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+  };
+
+  const exportBankingCsv = () => {
+    if (!transactions.length) {
+      setToast({ open: true, message: 'No rows to export.', severity: 'warning' });
+      return;
+    }
+
+    const headers = [
+      'V Date',
+      'V No',
+      'Narration',
+      'Inst No',
+      'AMOUNT',
+      'DR/CR',
+      'Clearing Date',
+      'BANK',
+      'Payment Type',
+      'MAIN ACCOUNT HEADS',
+      'SUB ACCOUNT HEAD',
+      'COMPANIES',
+      'PROJECT'
+    ];
+
+    const lines = [
+      headers.map(csvEscape).join(','),
+      ...transactions.map((t) => {
+        const amount = t.drCr === 'Cr' ? -Number(t.amount || 0) : Number(t.amount || 0);
+        return [
+          csvDate(t.vDate),
+          t.vNo || '',
+          t.narration || '',
+          t.instNo && t.instNo !== '—' ? t.instNo : '',
+          amount.toFixed(2),
+          t.drCr || '',
+          csvDate(t.clearingDate),
+          t.bank || '',
+          t.paymentType || '',
+          t.mainAccountHead || '',
+          t.subAccountHead || '',
+          t.companies || '',
+          t.project || ''
+        ].map(csvEscape).join(',');
+      })
+    ];
+
+    // BOM helps Excel open UTF-8 correctly
+    const blob = new Blob([`\uFEFF${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Reconciled_Banking_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <Box sx={{ p: 3 }}>
@@ -329,34 +499,8 @@ const Banking = () => {
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
-              onClick={() => {
-                // Export table data to CSV
-                if (!transactions.length) return;
-                const headers = ['V Date', 'V No', 'Narration', 'Inst No', 'AMOUNT', 'DR/CR', 'Clearing Date', 'BANK', 'Payment Type', 'MAIN ACCOUNT HEADS', 'SUB ACCOUNT HEAD', 'COMPANIES', 'PROJECT'];
-                const rows = transactions.map(t => [
-                  t.vDate ? formatDate(t.vDate) : '',
-                  `"${(t.vNo || '').replace(/"/g, '""')}"`,
-                  `"${(t.narration || '').replace(/"/g, '""')}"`,
-                  `"${(t.instNo || '').replace(/"/g, '""')}"`,
-                  t.drCr === 'Cr' ? -t.amount : t.amount,
-                  t.drCr,
-                  t.clearingDate ? formatDate(t.clearingDate) : '',
-                  `"${(t.bank || '').replace(/"/g, '""')}"`,
-                  `"${(t.paymentType || '').replace(/"/g, '""')}"`,
-                  `"${(t.mainAccountHead || '').replace(/"/g, '""')}"`,
-                  `"${(t.subAccountHead || '').replace(/"/g, '""')}"`,
-                  `"${(t.companies || '').replace(/"/g, '""')}"`,
-                  `"${(t.project || '').replace(/"/g, '""')}"`
-                ]);
-                const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-                const encodedUri = encodeURI(csvContent);
-                const link = document.createElement('a');
-                link.setAttribute('href', encodedUri);
-                link.setAttribute('download', `Reconciled_Banking_${new Date().toISOString().split('T')[0]}.csv`);
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-              }}
+              onClick={exportBankingCsv}
+              disabled={!transactions.length}
             >
               Export CSV
             </Button>
@@ -499,6 +643,121 @@ const Banking = () => {
             </Grid>
           </Grid>
 
+          {!loading && transactions.length > 0 && (
+            <Paper
+              variant="outlined"
+              sx={{
+                mb: 2,
+                px: 2,
+                py: 1.5,
+                bgcolor: selectedIds.size ? 'primary.50' : 'grey.50'
+              }}
+            >
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1.5}
+                  alignItems={{ xs: 'stretch', md: 'center' }}
+                  justifyContent="space-between"
+                >
+                  <Typography variant="body2" fontWeight={600}>
+                    {selectedIds.size
+                      ? `${selectedIds.size} selected — set columns below (optional) or edit any selected row, then Update Selected`
+                      : 'Select rows, set Payment Type / Heads / Company / Project, then Update Selected'}
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    size="small"
+                    startIcon={bulkSaving ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+                    disabled={!selectedIds.size || bulkSaving}
+                    onClick={handleUpdateSelected}
+                    sx={{ whiteSpace: 'nowrap', alignSelf: { xs: 'stretch', md: 'center' } }}
+                  >
+                    Update Selected{selectedIds.size ? ` (${selectedIds.size})` : ''}
+                  </Button>
+                </Stack>
+                <Grid container spacing={1.5}>
+                  <Grid item xs={12} sm={6} md={2}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Payment Type</InputLabel>
+                      <Select
+                        label="Payment Type"
+                        value={bulkValues.paymentType}
+                        onChange={(e) => setBulkValues((p) => ({ ...p, paymentType: e.target.value }))}
+                      >
+                        <MenuItem value=""><em>Keep current</em></MenuItem>
+                        {(bankingSetup.paymentTypes || []).map((pt, i) => (
+                          <MenuItem key={i} value={pt}>{pt}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Main Account Head</InputLabel>
+                      <Select
+                        label="Main Account Head"
+                        value={bulkValues.mainAccountHead}
+                        onChange={(e) => setBulkValues((p) => ({ ...p, mainAccountHead: e.target.value }))}
+                      >
+                        <MenuItem value=""><em>Keep current</em></MenuItem>
+                        {(bankingSetup.mainAccountHeads || []).map((mh, i) => (
+                          <MenuItem key={i} value={mh}>{mh}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Sub Account Head</InputLabel>
+                      <Select
+                        label="Sub Account Head"
+                        value={bulkValues.subAccountHead}
+                        onChange={(e) => setBulkValues((p) => ({ ...p, subAccountHead: e.target.value }))}
+                      >
+                        <MenuItem value=""><em>Keep current</em></MenuItem>
+                        {(bankingSetup.subAccountHeads || []).map((sh, i) => (
+                          <MenuItem key={i} value={sh}>{sh}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Company</InputLabel>
+                      <Select
+                        label="Company"
+                        value={bulkValues.companies}
+                        onChange={(e) => setBulkValues((p) => ({ ...p, companies: e.target.value }))}
+                      >
+                        <MenuItem value=""><em>Keep current</em></MenuItem>
+                        {(Array.isArray(companiesList) ? companiesList : []).map((c) => (
+                          <MenuItem key={c._id || c.name} value={c.name}>{c.name}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Project</InputLabel>
+                      <Select
+                        label="Project"
+                        value={bulkValues.project}
+                        onChange={(e) => setBulkValues((p) => ({ ...p, project: e.target.value }))}
+                      >
+                        <MenuItem value=""><em>Keep current</em></MenuItem>
+                        {(Array.isArray(projectsList) ? projectsList : []).map((p) => (
+                          <MenuItem key={p._id || p.name} value={p.name}>{p.name}</MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
+              </Stack>
+            </Paper>
+          )}
+
           {loading ? (
             <Box sx={{ py: 6, textAlign: 'center' }}>
               <LinearProgress sx={{ mb: 2 }} />
@@ -509,6 +768,15 @@ const Banking = () => {
               <Table size="small" stickyHeader>
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'grey.100' }}>
+                    <TableCell padding="checkbox" sx={{ bgcolor: 'grey.100' }}>
+                      <Checkbox
+                        size="small"
+                        indeterminate={selectedIds.size > 0 && selectedIds.size < transactions.length}
+                        checked={transactions.length > 0 && selectedIds.size === transactions.length}
+                        onChange={toggleSelectAll}
+                        disabled={!transactions.length || bulkSaving}
+                      />
+                    </TableCell>
                     <TableCell sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>V Date</TableCell>
                     <TableCell sx={{ fontWeight: 800, whiteSpace: 'nowrap', bgcolor: 'grey.100' }}>V No</TableCell>
                     <TableCell sx={{ fontWeight: 800, minWidth: 260, bgcolor: 'grey.100' }}>Narration</TableCell>
@@ -528,8 +796,23 @@ const Banking = () => {
                 <TableBody>
                   {transactions.map((t, idx) => {
                     const isCredit = t.drCr === 'Cr';
+                    const id = rowId(t, idx);
+                    const isSelected = selectedIds.has(id);
                     return (
-                      <TableRow key={t._id || idx} hover sx={{ '&:nth-of-type(odd)': { bgcolor: 'action.hover' } }}>
+                      <TableRow
+                        key={id}
+                        hover
+                        selected={isSelected}
+                        sx={{ '&:nth-of-type(odd)': { bgcolor: 'action.hover' } }}
+                      >
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            checked={isSelected}
+                            onChange={() => toggleSelectRow(id)}
+                            disabled={bulkSaving}
+                          />
+                        </TableCell>
                         <TableCell sx={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
                           {formatDate(t.vDate)}
                         </TableCell>
@@ -574,10 +857,7 @@ const Banking = () => {
                           <FormControl fullWidth size="small" variant="standard">
                             <Select
                               value={t.paymentType || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, paymentType: val } : item));
-                              }}
+                              onChange={(e) => handleEditableChange(t, idx, 'paymentType', e.target.value)}
                               displayEmpty
                               sx={{ fontSize: '0.8125rem' }}
                             >
@@ -596,10 +876,7 @@ const Banking = () => {
                           <FormControl fullWidth size="small" variant="standard">
                             <Select
                               value={t.mainAccountHead || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, mainAccountHead: val } : item));
-                              }}
+                              onChange={(e) => handleEditableChange(t, idx, 'mainAccountHead', e.target.value)}
                               displayEmpty
                               sx={{ fontSize: '0.8125rem' }}
                             >
@@ -618,10 +895,7 @@ const Banking = () => {
                           <FormControl fullWidth size="small" variant="standard">
                             <Select
                               value={t.subAccountHead || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, subAccountHead: val } : item));
-                              }}
+                              onChange={(e) => handleEditableChange(t, idx, 'subAccountHead', e.target.value)}
                               displayEmpty
                               sx={{ fontSize: '0.8125rem', fontWeight: 500 }}
                             >
@@ -640,10 +914,7 @@ const Banking = () => {
                           <FormControl fullWidth size="small" variant="standard">
                             <Select
                               value={t.companies || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, companies: val } : item));
-                              }}
+                              onChange={(e) => handleEditableChange(t, idx, 'companies', e.target.value)}
                               displayEmpty
                               sx={{ fontSize: '0.8125rem' }}
                             >
@@ -651,8 +922,8 @@ const Banking = () => {
                               {Array.from(new Set([
                                 ...(Array.isArray(companiesList) ? companiesList : []).map(c => c?.name).filter(Boolean),
                                 ...(t.companies ? [t.companies] : [])
-                              ])).map((cName, idx) => (
-                                <MenuItem key={idx} value={cName}>{cName}</MenuItem>
+                              ])).map((cName, cIdx) => (
+                                <MenuItem key={cIdx} value={cName}>{cName}</MenuItem>
                               ))}
                             </Select>
                           </FormControl>
@@ -662,10 +933,7 @@ const Banking = () => {
                           <FormControl fullWidth size="small" variant="standard">
                             <Select
                               value={t.project || ''}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setTransactions(prev => prev.map(item => item._id === t._id ? { ...item, project: val } : item));
-                              }}
+                              onChange={(e) => handleEditableChange(t, idx, 'project', e.target.value)}
                               displayEmpty
                               sx={{ fontSize: '0.8125rem' }}
                             >
@@ -673,8 +941,8 @@ const Banking = () => {
                               {Array.from(new Set([
                                 ...(Array.isArray(projectsList) ? projectsList : []).map(p => p?.name).filter(Boolean),
                                 ...(t.project ? [t.project] : [])
-                              ])).map((pName, idx) => (
-                                <MenuItem key={idx} value={pName}>{pName}</MenuItem>
+                              ])).map((pName, pIdx) => (
+                                <MenuItem key={pIdx} value={pName}>{pName}</MenuItem>
                               ))}
                             </Select>
                           </FormControl>
@@ -696,6 +964,7 @@ const Banking = () => {
                               <IconButton
                                 size="small"
                                 color="success"
+                                disabled={bulkSaving}
                                 onClick={() => handleSaveRow(t)}
                               >
                                 <SaveIcon fontSize="small" />
@@ -709,7 +978,7 @@ const Banking = () => {
 
                   {transactions.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={14} align="center" sx={{ py: 6 }}>
+                      <TableCell colSpan={15} align="center" sx={{ py: 6 }}>
                         <Box sx={{ color: 'text.disabled', textAlign: 'center' }}>
                           <ClearedIcon sx={{ fontSize: 48, mb: 1, opacity: 0.5 }} />
                           <Typography variant="h6" color="text.secondary">

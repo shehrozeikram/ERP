@@ -14,6 +14,8 @@ const {
   isDesignatedCeoApprover,
   isCeoSecretariatPsRole,
   canViewCeoForwardedQueue,
+  isExecutiveOverride,
+  resolveDesignatedCeoUserIds,
   getUserIdentityTokens,
   userMatchesText,
   sameUserId
@@ -74,6 +76,40 @@ const userPendingInChain = (chain, user) => {
     if (String(step.status || '').toLowerCase() !== 'pending') return false;
     return sameUserId(step.approver, uid);
   });
+};
+
+/** First pending approver id on a chain (string), or ''. */
+const firstPendingApproverId = (chain) => {
+  if (!Array.isArray(chain)) return '';
+  const step = chain.find((s) => String(s.status || '').toLowerCase() === 'pending');
+  if (!step) return '';
+  return String(step.approver?._id || step.approver || '');
+};
+
+/**
+ * CEO office ids for Other-tab queue (Indent / Utility / Vendor).
+ * Includes env + role=ceo; also the logged-in designated CEO (non-override).
+ */
+async function getCeoOfficeApproverIds(user) {
+  if (!canViewCeoForwardedQueue(user)) return [];
+  const mongoose = require('mongoose');
+  const ids = await resolveDesignatedCeoUserIds();
+  const uid = String(user._id || user.id || '');
+  if (
+    uid
+    && isDesignatedCeoApprover(user)
+    && !isExecutiveOverride(user)
+    && !ids.includes(uid)
+  ) {
+    ids.push(uid);
+  }
+  return ids.filter((id) => mongoose.Types.ObjectId.isValid(id));
+}
+
+const isPendingOnCeoOffice = (chain, ceoIds) => {
+  if (!ceoIds?.length) return false;
+  const pendingId = firstPendingApproverId(chain);
+  return Boolean(pendingId && ceoIds.some((id) => String(id) === pendingId));
 };
 
 async function fetchPurchaseOrdersForUser(user) {
@@ -363,12 +399,24 @@ async function fetchOnboardingForUser(user) {
   });
 }
 
-async function fetchIndentsForUser(user) {
+async function fetchIndentsForUser(user, ceoIds = []) {
   const uid = String(user._id || user.id || '');
+  const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
+
+  const or = [
+    { approvalChain: { $elemMatch: { approver: uid, status: 'pending' } } }
+  ];
+  if (canViewCeoQueue && ceoIds.length) {
+    or.push({
+      approvalChain: {
+        $elemMatch: { approver: { $in: ceoIds }, status: 'pending' }
+      }
+    });
+  }
+
   const docs = await Indent.find({
-    approvalChain: {
-      $elemMatch: { approver: uid, status: 'pending' }
-    },
+    $or: or,
     status: { $nin: ['Draft', 'Cancelled', 'Rejected', 'Fulfilled'] }
   })
     .populate('requestedBy', 'firstName lastName')
@@ -377,31 +425,54 @@ async function fetchIndentsForUser(user) {
     .limit(100)
     .lean();
 
-  return docs.map((ind) => card({
-    id: ind._id,
-    type: 'indent',
-    itemType: 'Indent',
-    number: ind.indentNumber,
-    status: ind.status,
-    date: ind.requestedDate || ind.updatedAt,
-    amount: ind.estimatedTotal || null,
-    party: ind.requestedBy
-      ? `${ind.requestedBy.firstName || ''} ${ind.requestedBy.lastName || ''}`.trim()
-      : null,
-    subtitle: ind.title || 'Indent pending approval',
-    department: ind.department?.name || 'Indent',
-    company: null,
-    path: `/general/indents/${ind._id}`,
-    raw: ind
-  }));
+  const seen = new Set();
+  return docs.filter((ind) => {
+    const id = String(ind._id);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  }).map((ind) => {
+    const onCeoQueue = isPendingOnCeoOffice(ind.approvalChain, ceoIds);
+    const iAmPending = userPendingInChain(ind.approvalChain, user);
+    return card({
+      id: ind._id,
+      type: 'indent',
+      itemType: 'Indent',
+      number: ind.indentNumber,
+      status: ind.status,
+      date: ind.requestedDate || ind.updatedAt,
+      amount: ind.estimatedTotal || null,
+      party: ind.requestedBy
+        ? `${ind.requestedBy.firstName || ''} ${ind.requestedBy.lastName || ''}`.trim()
+        : null,
+      subtitle: ind.title || 'Indent pending approval',
+      department: ind.department?.name || 'Indent',
+      company: null,
+      path: `/general/indents/${ind._id}`,
+      ceoViewOnly: onCeoQueue && !isCeo && !iAmPending,
+      raw: ind
+    });
+  });
 }
 
-async function fetchUtilityBillsForUser(user) {
+async function fetchUtilityBillsForUser(user, ceoIds = []) {
   const uid = String(user._id || user.id || '');
+  const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
+
+  const or = [
+    { approvalChain: { $elemMatch: { approver: uid, status: 'pending' } } }
+  ];
+  if (canViewCeoQueue && ceoIds.length) {
+    or.push({
+      approvalChain: {
+        $elemMatch: { approver: { $in: ceoIds }, status: 'pending' }
+      }
+    });
+  }
+
   const docs = await UtilityBill.find({
-    approvalChain: {
-      $elemMatch: { approver: uid, status: 'pending' }
-    },
+    $or: or,
     approvalStatus: { $in: ['Submitted', 'Draft'] }
   })
     .populate('createdBy', 'firstName lastName')
@@ -409,30 +480,54 @@ async function fetchUtilityBillsForUser(user) {
     .limit(100)
     .lean();
 
-  return docs.map((b) => card({
-    id: b._id,
-    type: 'utility_bill',
-    itemType: 'Store / Utility Bill',
-    number: b.billId || b.billNumber || String(b._id),
-    status: b.approvalStatus || b.status,
-    date: b.billDate || b.updatedAt,
-    amount: b.totalAmount,
-    party: b.provider || b.vendorName,
-    subtitle: b.forWhat || b.notes || 'Bill pending approval',
-    department: 'Centralized Store',
-    path: `/general/centralized-store/bills`,
-    raw: b
-  }));
+  const seen = new Set();
+  return docs.filter((b) => {
+    const id = String(b._id);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  }).map((b) => {
+    const onCeoQueue = isPendingOnCeoOffice(b.approvalChain, ceoIds);
+    const iAmPending = userPendingInChain(b.approvalChain, user);
+    return card({
+      id: b._id,
+      type: 'utility_bill',
+      itemType: 'Store / Utility Bill',
+      number: b.billId || b.billNumber || String(b._id),
+      status: b.approvalStatus || b.status,
+      date: b.billDate || b.updatedAt,
+      amount: b.totalAmount,
+      party: b.provider || b.vendorName,
+      subtitle: b.forWhat || b.notes || 'Bill pending approval',
+      department: 'Centralized Store',
+      path: `/general/centralized-store/bills`,
+      ceoViewOnly: onCeoQueue && !isCeo && !iAmPending,
+      raw: b
+    });
+  });
 }
 
-async function fetchVendorBillsForUser(user) {
+async function fetchVendorBillsForUser(user, ceoIds = []) {
   const uid = String(user._id || user.id || '');
+  const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
+  const ceoIdSet = new Set((ceoIds || []).map(String));
+
   // Chart of Accounts bills: department approvalChain (Sr Manager Finance → GM Finance), sequential pending step
+  const or = [
+    { approvalChain: { $elemMatch: { approver: uid, status: 'pending' } } }
+  ];
+  if (canViewCeoQueue && ceoIds.length) {
+    or.push({
+      approvalChain: {
+        $elemMatch: { approver: { $in: ceoIds }, status: 'pending' }
+      }
+    });
+  }
+
   const docs = await AccountsPayable.find({
     approvalStatus: 'Submitted',
-    approvalChain: {
-      $elemMatch: { approver: uid, status: 'pending' }
-    },
+    $or: or,
     status: { $nin: ['paid', 'cancelled', 'void', 'approved', 'partial'] }
   })
     .select('billNumber billDate totalAmount status approvalStatus vendor vendorName company companyId notes approvalChain module referenceType')
@@ -441,27 +536,40 @@ async function fetchVendorBillsForUser(user) {
     .lean()
     .catch(() => []);
 
+  const seen = new Set();
   return (docs || [])
     .filter((b) => {
-      // Only surface when this user is the first pending step (sequential like Centralized Store)
+      const id = String(b._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      // Only surface when this user (or CEO office) is the first pending step
       const chain = Array.isArray(b.approvalChain) ? b.approvalChain : [];
       const firstPending = chain.find((s) => s.status === 'pending');
-      return firstPending && String(firstPending.approver) === uid;
+      if (!firstPending) return false;
+      const pendingId = String(firstPending.approver?._id || firstPending.approver || '');
+      if (pendingId === uid) return true;
+      if (canViewCeoQueue && ceoIdSet.has(pendingId)) return true;
+      return false;
     })
-    .map((b) => card({
-      id: b._id,
-      type: 'vendor_bill',
-      itemType: 'Chart of Accounts Bill',
-      number: b.billNumber,
-      status: b.approvalStatus || b.status,
-      date: b.billDate || b.updatedAt,
-      amount: b.totalAmount,
-      party: b.vendorName || b.vendor?.name,
-      subtitle: b.notes || 'Pending department approval (Finance)',
-      department: 'Finance',
-      path: `/finance/accounts-payable`,
-      raw: b
-    }));
+    .map((b) => {
+      const onCeoQueue = isPendingOnCeoOffice(b.approvalChain, ceoIds);
+      const iAmPending = userPendingInChain(b.approvalChain, user);
+      return card({
+        id: b._id,
+        type: 'vendor_bill',
+        itemType: 'Chart of Accounts Bill',
+        number: b.billNumber,
+        status: b.approvalStatus || b.status,
+        date: b.billDate || b.updatedAt,
+        amount: b.totalAmount,
+        party: b.vendorName || b.vendor?.name,
+        subtitle: b.notes || 'Pending department approval (Finance)',
+        department: 'Finance',
+        path: `/finance/accounts-payable`,
+        ceoViewOnly: onCeoQueue && !isCeo && !iAmPending,
+        raw: b
+      });
+    });
 }
 
 /**
@@ -479,6 +587,11 @@ async function buildExecutiveMyApprovals(user) {
       canViewCeoForwardedQueue: false
     };
   }
+
+  const ceoIds = await getCeoOfficeApproverIds(user).catch((e) => {
+    console.error('[executiveMyApprovals] ceoIds', e.message);
+    return [];
+  });
 
   const [
     purchaseOrders,
@@ -505,15 +618,15 @@ async function buildExecutiveMyApprovals(user) {
       console.error('[executiveMyApprovals] Onboarding', e.message);
       return [];
     }),
-    fetchIndentsForUser(user).catch((e) => {
+    fetchIndentsForUser(user, ceoIds).catch((e) => {
       console.error('[executiveMyApprovals] Indent', e.message);
       return [];
     }),
-    fetchUtilityBillsForUser(user).catch((e) => {
+    fetchUtilityBillsForUser(user, ceoIds).catch((e) => {
       console.error('[executiveMyApprovals] UtilityBill', e.message);
       return [];
     }),
-    fetchVendorBillsForUser(user).catch((e) => {
+    fetchVendorBillsForUser(user, ceoIds).catch((e) => {
       console.error('[executiveMyApprovals] VendorBill', e.message);
       return [];
     })

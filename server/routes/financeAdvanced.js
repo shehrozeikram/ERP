@@ -1856,32 +1856,109 @@ router.get('/general-ledger',
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const [entries, totalCount] = await Promise.all([
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 20;
+
+    // Per-account view: recompute running balance from opening (FY-correct).
+    // All-accounts view: do not expose stored runningBalance (misleading across accounts).
+    if (accountId) {
+      let start = null;
+      let end = null;
+      if (startDate) {
+        start = new Date(startDate);
+        if (!Number.isNaN(start.getTime())) start.setHours(0, 0, 0, 0);
+        else start = null;
+      }
+      if (endDate) {
+        end = new Date(endDate);
+        if (!Number.isNaN(end.getTime())) end.setHours(23, 59, 59, 999);
+        else end = null;
+      }
+
+      const ledger = await GeneralLedger.getAccountLedger(
+        accountId,
+        start,
+        end,
+        company?._id || null
+      );
+      let entries = Array.isArray(ledger?.entries) ? ledger.entries : [];
+
+      // Optional secondary filters on the account ledger
+      if (department) {
+        entries = entries.filter((e) => String(e.department || '').toLowerCase() === String(department).toLowerCase());
+      }
+      if (module) {
+        entries = entries.filter((e) => String(e.module || '').toLowerCase() === String(module).toLowerCase());
+      }
+      if (search) {
+        const q = String(search).toLowerCase();
+        entries = entries.filter((e) => {
+          const hay = `${e.entryNumber || ''} ${e.description || ''} ${e.reference || ''}`.toLowerCase();
+          return hay.includes(q);
+        });
+        // Recompute running balance after search filter would break continuity —
+        // search on account ledger still keeps chronological running from opening.
+      }
+
+      const totalCount = entries.length;
+      const totalPages = Math.max(1, Math.ceil(totalCount / limitNum));
+      const pageEntries = entries.slice(skip, skip + limitNum);
+
+      return res.json({
+        success: true,
+        data: {
+          company,
+          entries: pageEntries,
+          openingBalance: ledger.openingBalance || 0,
+          closingBalance: ledger.closingBalance || 0,
+          balanceAccountId: accountId,
+          pagination: {
+            currentPage: pageNum,
+            totalPages,
+            totalCount,
+            hasNextPage: pageNum < totalPages,
+            hasPrevPage: pageNum > 1,
+            limit: limitNum
+          }
+        }
+      });
+    }
+
+    const [entriesRaw, totalCount] = await Promise.all([
       GeneralLedger.find(filters)
         .populate('account', 'accountNumber name type')
         .populate('journalEntry', 'entryNumber reference description')
         .populate('createdBy', 'firstName lastName')
         .sort({ date: 1, entryNumber: 1 })
         .skip(skip)
-        .limit(parseInt(limit)),
+        .limit(limitNum)
+        .lean(),
       GeneralLedger.countDocuments(filters)
     ]);
 
-    const totalPages = Math.ceil(totalCount / parseInt(limit));
+    // Strip misleading stored balances on mixed-account list
+    const entries = (entriesRaw || []).map((e) => {
+      const { runningBalance, ...rest } = e;
+      return { ...rest, runningBalance: null };
+    });
+
+    const totalPages = Math.ceil(totalCount / limitNum) || 1;
 
     res.json({
       success: true,
       data: {
         company,
         entries,
+        openingBalance: null,
+        closingBalance: null,
+        balanceAccountId: null,
         pagination: {
-          currentPage: parseInt(page),
+          currentPage: pageNum,
           totalPages,
           totalCount,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-          limit: parseInt(limit)
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1,
+          limit: limitNum
         }
       }
     });
@@ -1919,11 +1996,14 @@ router.get('/general-ledger/account/:id',
       }
     }
 
-    const entries = await GeneralLedger.getAccountLedger(req.params.id, start, end, companyId);
+    const ledger = await GeneralLedger.getAccountLedger(req.params.id, start, end, companyId);
+    const entries = Array.isArray(ledger?.entries) ? ledger.entries : [];
 
     res.json({
       success: true,
-      data: entries
+      data: entries,
+      openingBalance: ledger?.openingBalance || 0,
+      closingBalance: ledger?.closingBalance || 0
     });
   })
 );
@@ -4279,7 +4359,7 @@ router.get('/accounts-payable',
     const filters = companyQuery(baseFilters, company);
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
+    
     // Pending utility / centralized-store bills across ALL pages (not just current page)
     const pendingUtilityFilters = companyQuery({
       $or: [
@@ -7668,8 +7748,11 @@ router.get('/reports/bank-reconciliation',
       // multiple book lines; clearing one must not hide/clear siblings).
       // Historical as-of: only treat as cleared if clearance date is on/before asOf,
       // otherwise later-month clears rewrite prior month statement balances.
+      // Legacy rows marked cleared/reconciled without clearedAt used to stay in
+      // Unpresented forever — fall back to book date so reconciled leaves the list.
       const markedCleared = Boolean(gle.clearanceStatus === 'cleared' || gle.isReconciled);
-      const clearDate = gle.clearedAt || gle.reconciledAt || null;
+      const clearDateRaw = gle.clearedAt || gle.reconciledAt || null;
+      const clearDate = clearDateRaw || (markedCleared && gle.date ? gle.date : null);
       const clearedAtTime = clearDate ? new Date(clearDate).getTime() : NaN;
       const isCleared = Boolean(
         markedCleared &&
@@ -7869,9 +7952,12 @@ router.post('/reports/bank-reconciliation/reconcile',
       journalEntryId,
       accountId
     } = req.body;
-    const isCleared = clearanceStatus === 'cleared' || !clearanceStatus;
+    const isCleared = clearanceStatus === 'cleared';
     const hasValidDate = clearedAt && !Number.isNaN(new Date(clearedAt).getTime());
-    const clearDate = hasValidDate ? new Date(clearedAt) : new Date();
+    // Always persist a clearance date when marking cleared (never leave null → Unpresented ghost)
+    const clearDate = isCleared
+      ? (hasValidDate ? new Date(clearedAt) : new Date())
+      : null;
     const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
     const mongoose = require('mongoose');
 
@@ -7888,16 +7974,19 @@ router.post('/reports/bank-reconciliation/reconcile',
     const wantAmt = Number(amount) || 0;
     const wantType = String(type || '').trim();
 
-    const glUpdate = {
-      isReconciled: isCleared,
-      reconciledAt: isCleared ? clearDate : null,
-      clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-      clearedAt: isCleared || hasValidDate ? clearDate : null
-    };
-    if (!isCleared) {
-      glUpdate.clearedAt = null;
-      glUpdate.reconciledAt = null;
-    }
+    const glUpdate = isCleared
+      ? {
+          isReconciled: true,
+          reconciledAt: clearDate,
+          clearanceStatus: 'cleared',
+          clearedAt: clearDate
+        }
+      : {
+          isReconciled: false,
+          reconciledAt: null,
+          clearanceStatus: clearanceStatus || 'pending',
+          clearedAt: null
+        };
 
     const pickGlAmong = (candidates = []) => {
       if (!candidates.length) return null;
@@ -8134,8 +8223,8 @@ router.post('/reports/bank-reconciliation/reconcile',
       const bankingUpdate = {
         'transactions.$[elem].isReconciled': isCleared,
         'transactions.$[elem].reconciledDate': isCleared ? clearDate : null,
-        'transactions.$[elem].clearanceStatus': clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-        'transactions.$[elem].clearedAt': isCleared || hasValidDate ? clearDate : null
+        'transactions.$[elem].clearanceStatus': isCleared ? 'cleared' : (clearanceStatus || 'pending'),
+        'transactions.$[elem].clearedAt': isCleared ? clearDate : null
       };
     await Banking.updateMany(
         { 'transactions._id': { $in: bankingIds } },
@@ -8149,8 +8238,8 @@ router.post('/reports/bank-reconciliation/reconcile',
             isReconciled: isCleared,
             reconciledAt: isCleared ? clearDate : null,
             reconciledBy: req.user.id,
-            clearanceStatus: clearanceStatus || (isCleared ? 'cleared' : 'pending'),
-            clearedAt: isCleared || hasValidDate ? clearDate : null
+            clearanceStatus: isCleared ? 'cleared' : (clearanceStatus || 'pending'),
+            clearedAt: isCleared ? clearDate : null
           }
         }
       );
