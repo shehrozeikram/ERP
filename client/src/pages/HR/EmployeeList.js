@@ -61,6 +61,10 @@ import {
   formatProbationDaysLeftLabel
 } from '../../utils/probationAlerts';
 import { getEmployeeStatusLabel, getEmployeeStatusColor, isEmployedEmployee } from '../../utils/employeeStatus';
+import {
+  resolveEmployeeCategory,
+  getEmployeeCategoryLabel
+} from '../../utils/employeeCategory';
 
 const EmployeeList = () => {
   const { employees, departments, projects, companies, loading: dataLoading, fetchEmployees, fetchDepartments, fetchProjects, fetchCompanies, errors } = useData();
@@ -197,6 +201,10 @@ const EmployeeList = () => {
 
   const handleCategoryFilterChange = useCallback((value) => {
     setCategoryFilter(value);
+    // Category filter is scoped to active employees
+    if (value) {
+      setStatusFilter('active');
+    }
     setPage(0);
   }, []);
 
@@ -270,19 +278,22 @@ const EmployeeList = () => {
       const matchesCompany = !companyFilter || employeeCompany === companyFilter;
       
       // Handle status filter
+      // Category filter always uses active employees only
+      const effectiveStatus = categoryFilter ? 'active' : statusFilter;
       let matchesStatus = true;
-      if (statusFilter) {
-        if (statusFilter === 'active') {
+      if (effectiveStatus) {
+        if (effectiveStatus === 'active') {
           matchesStatus = isEmployedEmployee(employee);
-        } else if (statusFilter === 'draft') {
+        } else if (effectiveStatus === 'draft') {
           matchesStatus = employee.employmentStatus === 'Draft';
-        } else if (statusFilter === 'inactive') {
+        } else if (effectiveStatus === 'inactive') {
           matchesStatus = !isEmployedEmployee(employee) && employee.employmentStatus !== 'Draft';
         }
       }
 
-      // Employee category (White / Blue collar) — applied to full list, then paginated
-      const matchesCategory = !categoryFilter || employee.employeeCategory === categoryFilter;
+      // Resolve category from stored field or designation (many older records lack employeeCategory)
+      const resolvedCategory = resolveEmployeeCategory(employee);
+      const matchesCategory = !categoryFilter || resolvedCategory === categoryFilter;
 
       return matchesSearch && matchesDepartment && matchesProject && matchesCompany && matchesStatus && matchesCategory;
     });
@@ -774,9 +785,10 @@ const EmployeeList = () => {
             <FormControl fullWidth>
               <InputLabel>Status</InputLabel>
               <Select
-                value={statusFilter}
+                value={categoryFilter ? 'active' : statusFilter}
                 onChange={(e) => handleStatusFilterChange(e.target.value)}
                 label="Status"
+                disabled={Boolean(categoryFilter)}
                 sx={{
                   '& .MuiSelect-select': {
                     paddingRight: '32px',
@@ -841,8 +853,10 @@ const EmployeeList = () => {
               {departmentFilter && ` • Department: ${departmentFilter}`}
               {projectFilter && ` • Project: ${projectFilter}`}
               {companyFilter && ` • Company: ${companyFilter}`}
-              {statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : statusFilter === 'draft' ? 'Draft' : 'Inactive'}`}
-              {categoryFilter && ` • Category: ${categoryFilter === 'white_collar' ? 'White Collar' : 'Blue Collar'}`}
+              {categoryFilter
+                ? ' • Status: Active'
+                : (statusFilter && ` • Status: ${statusFilter === 'active' ? 'Active' : statusFilter === 'draft' ? 'Draft' : 'Inactive'}`)}
+              {categoryFilter && ` • Category: ${getEmployeeCategoryLabel(categoryFilter)} (active only)`}
             </Typography>
           </Box>
         )}
