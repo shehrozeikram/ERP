@@ -2677,6 +2677,12 @@ router.put('/accounts-payable/:id',
     }
 
     Object.assign(bill, req.body);
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'companyId')) {
+      bill.companyId = req.body.companyId || null;
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'company')) {
+      bill.company = req.body.company || '';
+    }
     await bill.save();
 
     // If bill line items or total amount updated, sync linked posted journal entry & GL
@@ -2688,6 +2694,15 @@ router.put('/accounts-payable/:id',
         ],
         status: 'posted'
       });
+
+      if (linkedJournal) {
+        const nextCompanyId = co(bill) || linkedJournal.companyId;
+        if (nextCompanyId && String(linkedJournal.companyId || '') !== String(nextCompanyId)) {
+          linkedJournal.companyId = nextCompanyId;
+          if (bill.company) linkedJournal.customCompany = bill.company;
+          await linkedJournal.save();
+        }
+      }
 
       if (linkedJournal && Array.isArray(bill.lineItems) && bill.lineItems.length > 0) {
         const companyId = co(bill) || linkedJournal.companyId;

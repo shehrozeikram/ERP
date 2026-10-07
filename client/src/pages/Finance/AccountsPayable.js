@@ -321,7 +321,9 @@ const AccountsPayable = () => {
     billNumber: '',
     totalAmount: 0,
     billDate: '',
-    dueDate: ''
+    dueDate: '',
+    companyId: '',
+    company: ''
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [billToDelete, setBillToDelete] = useState(null);
@@ -1319,19 +1321,54 @@ const AccountsPayable = () => {
     }
   };
 
+  const resolveBillCompanyId = (bill) => {
+    if (!bill) return '';
+    if (bill.companyId && typeof bill.companyId === 'object') {
+      return String(bill.companyId._id || '');
+    }
+    if (bill.companyId) return String(bill.companyId);
+    if (typeof bill.company === 'string' && bill.company.trim()) {
+      const match = (financeCompanies || []).find(
+        (c) => String(c.name || '').trim().toLowerCase() === bill.company.trim().toLowerCase()
+      );
+      if (match?._id) return String(match._id);
+    }
+    return '';
+  };
+
+  const loadExpenseAccountsForCompany = useCallback((companyId) => {
+    const params = { limit: 500 };
+    if (companyId && String(companyId).toLowerCase() !== 'all') {
+      params.companyId = companyId;
+    }
+    api.get('/finance/accounts', { params })
+      .then((res) => {
+        const accs = res.data?.data?.accounts || res.data?.data || [];
+        setExpenseAccounts(accs.filter((a) => String(a.type).toLowerCase().includes('expense')));
+      })
+      .catch(() => setExpenseAccounts([]));
+  }, []);
+
   const handleOpenEdit = (bill) => {
     if (!canEditVendorBill(bill)) {
       toast.error('This bill cannot be edited after payment has been recorded or is pending');
       return;
     }
     setSelectedBill(bill);
+    const companyId = resolveBillCompanyId(bill);
+    const companyName = (bill.companyId && typeof bill.companyId === 'object' && bill.companyId.name)
+      ? bill.companyId.name
+      : (bill.company || '');
     setEditData({
       billNumber: bill.billNumber,
       totalAmount: bill.totalAmount,
       billDate: new Date(bill.billDate).toISOString().split('T')[0],
       dueDate: new Date(bill.dueDate).toISOString().split('T')[0],
+      companyId,
+      company: companyName,
       lineItems: bill.lineItems ? JSON.parse(JSON.stringify(bill.lineItems)) : []
     });
+    loadExpenseAccountsForCompany(companyId || selectedCompanyId);
     setEditDialogOpen(true);
   };
 
@@ -1348,7 +1385,13 @@ const AccountsPayable = () => {
 
   const handleUpdateBill = async () => {
     try {
-      const response = await api.put(`/finance/accounts-payable/${selectedBill._id}`, editData);
+      const companyMeta = (financeCompanies || []).find((c) => String(c._id) === String(editData.companyId));
+      const payload = {
+        ...editData,
+        companyId: editData.companyId || null,
+        company: companyMeta?.name || editData.company || ''
+      };
+      const response = await api.put(`/finance/accounts-payable/${selectedBill._id}`, payload);
       if (response.data.success) {
         toast.success('Bill updated successfully');
         setEditDialogOpen(false);
@@ -3993,7 +4036,35 @@ const AccountsPayable = () => {
         <DialogTitle>Edit Bill: {selectedBill?.billNumber}</DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={2} sx={{ mb: 4 }}>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Company</InputLabel>
+                <Select
+                  label="Company"
+                  value={editData.companyId || ''}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    const companyMeta = (financeCompanies || []).find((c) => String(c._id) === String(nextId));
+                    setEditData({
+                      ...editData,
+                      companyId: nextId,
+                      company: companyMeta?.name || ''
+                    });
+                    loadExpenseAccountsForCompany(nextId);
+                  }}
+                >
+                  <MenuItem value=""><em>— Select company —</em></MenuItem>
+                  {(financeCompanies || [])
+                    .filter((c) => c && c._id && String(c._id).toLowerCase() !== 'all')
+                    .map((c) => (
+                      <MenuItem key={c._id} value={c._id}>
+                        {c.name}{c.companyCode ? ` (${c.companyCode})` : ''}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 label="Bill Number"
@@ -4002,7 +4073,7 @@ const AccountsPayable = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 label="Total Amount"
@@ -4012,7 +4083,7 @@ const AccountsPayable = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
                 label="Bill Date"
@@ -4023,7 +4094,7 @@ const AccountsPayable = () => {
                 size="small"
               />
             </Grid>
-            <Grid item xs={12} md={3}>
+            <Grid item xs={12} md={6}>
               <TextField
                 fullWidth
                 label="Due Date"
