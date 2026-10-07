@@ -16,10 +16,16 @@ const {
   canViewCeoForwardedQueue,
   isExecutiveOverride,
   resolveDesignatedCeoUserIds,
-  getUserIdentityTokens,
   userMatchesText,
   sameUserId
 } = require('./executiveAccess');
+const {
+  isAssignedByAuthorityText: isAssignedByPoAuthorityText,
+  userHasPendingAuthoritySlots,
+  getAssignedIndentIdsForUser
+} = require('./purchaseOrderAuthority');
+const { getActorPendingDepartmentStepIndex, isGeneralCashApproval } = require('./generalCashApproval');
+const { getWorkflowStatusForUserAndRole } = require('./paymentSettlementWorkflow');
 
 /** Resolve a human-readable company label from common document shapes. */
 const resolveCompanyLabel = (...sources) => {
@@ -79,6 +85,8 @@ const card = (partial) => ({
   workflowStatus: partial.status,
   /** PS / secretariat may see CEO queue but must not approve as CEO */
   ceoViewOnly: Boolean(partial.ceoViewOnly),
+  /** User may use Approve/Reject on the executive desk right now */
+  canAct: Boolean(partial.canAct),
   raw: partial.raw || null
 });
 
@@ -141,55 +149,41 @@ const isPendingOnCeoOffice = (chain, ceoIds) => {
   return Boolean(pendingId && ceoIds.some((id) => String(id) === pendingId));
 };
 
+/**
+ * Sequential approvalChain: only the first pending step may act (matches AP / indent APIs).
+ */
+function resolveSequentialChainAction(chain, user, ceoIds = []) {
+  const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
+  const uid = String(user._id || user.id || '');
+  const pendingId = firstPendingApproverId(chain);
+  if (!pendingId) {
+    return { include: false, canAct: false, ceoViewOnly: false };
+  }
+  const onCeoQueue = (ceoIds || []).some((id) => String(id) === pendingId);
+  if (pendingId === uid) {
+    return { include: true, canAct: true, ceoViewOnly: false };
+  }
+  if (onCeoQueue && canViewCeoQueue) {
+    return { include: true, canAct: isCeo, ceoViewOnly: !isCeo };
+  }
+  return { include: false, canAct: false, ceoViewOnly: false };
+}
+
 async function fetchPurchaseOrdersForUser(user) {
   const uid = String(user._id || user.id || '');
   const isCeo = isDesignatedCeoApprover(user);
   const canViewCeoQueue = canViewCeoForwardedQueue(user);
-  const tokens = getUserIdentityTokens(user);
 
   const or = [];
   if (canViewCeoQueue) {
     or.push({ status: 'Forwarded to CEO' });
   }
 
-  // Comparative statement authority user ids on linked indent
-  const indents = await Indent.find({
-    $or: [
-      { 'comparativeStatementApprovals.preparedByUser': uid },
-      { 'comparativeStatementApprovals.verifiedByUser': uid },
-      { 'comparativeStatementApprovals.authorisedRepUser': uid },
-      { 'comparativeStatementApprovals.financeRepUser': uid },
-      { 'comparativeStatementApprovals.managerProcurementUser': uid }
-    ]
-  }).select('_id').lean();
-  const indentIds = indents.map((i) => i._id);
+  const indentIds = await getAssignedIndentIdsForUser(uid);
   if (indentIds.length) {
-    or.push({
-      indent: { $in: indentIds },
-      status: {
-        $in: [
-          'Pending Approval',
-          'Pending Audit',
-          'Send to CEO Office',
-          'Forwarded to CEO',
-          'Returned from CEO Office',
-          'Pending Finance'
-        ]
-      }
-    });
+    or.push({ status: 'Pending Approval', indent: { $in: indentIds } });
   }
-
-  // Authority text match — fetch recent open POs and filter in memory (text fields)
-  const openStatuses = [
-    'Pending Approval',
-    'Pending Audit',
-    'Forwarded to Audit Director',
-    'Send to CEO Office',
-    'Forwarded to CEO',
-    'Returned from CEO Office',
-    'Returned from Audit',
-    'Pending Finance'
-  ];
 
   const populatePoCompany = (q) => q
     .populate('vendor', 'name')
@@ -210,73 +204,127 @@ async function fetchPurchaseOrdersForUser(user) {
       .lean();
   }
 
-  // Supplement with authority-text matches
-  if (tokens.length) {
-    const candidates = await populatePoCompany(
-      PurchaseOrder.find({
-        status: { $in: openStatuses },
-        _id: { $nin: docs.map((d) => d._id) }
-      })
-    )
-      .sort({ updatedAt: -1 })
-      .limit(80)
-      .lean();
+  const candidates = await populatePoCompany(
+    PurchaseOrder.find({
+      status: 'Pending Approval',
+      _id: { $nin: docs.map((d) => d._id) }
+    })
+  )
+    .sort({ updatedAt: -1 })
+    .limit(80)
+    .lean();
 
-    const matched = candidates.filter((po) => {
-      if (po.status === 'Forwarded to CEO') return canViewCeoQueue;
-      return isAssignedByAuthorityText(po.approvalAuthorities, user);
-    });
-    docs = [...docs, ...matched];
+  docs = [
+    ...docs,
+    ...candidates.filter((po) => isAssignedByPoAuthorityText(po.approvalAuthorities, user))
+  ];
+
+  const seen = new Set();
+  const cards = [];
+
+  for (const po of docs) {
+    const id = String(po._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const status = po.status;
+    let canAct = false;
+    let ceoViewOnly = false;
+
+    if (status === 'Forwarded to CEO') {
+      if (!canViewCeoQueue) continue;
+      canAct = isCeo;
+      ceoViewOnly = !isCeo;
+    } else if (status === 'Pending Approval') {
+      const pending = await userHasPendingAuthoritySlots(
+        po.indent?._id || po.indent,
+        po.approvalAuthorities,
+        po.authorityApprovals,
+        user
+      );
+      if (!pending) continue;
+      canAct = true;
+    } else {
+      continue;
+    }
+
+    if (!canAct && !ceoViewOnly) continue;
+
+    cards.push(card({
+      id: po._id,
+      type: 'purchase_order',
+      itemType: 'Purchase Order',
+      number: po.orderNumber || po.poNumber,
+      status: po.status,
+      date: po.orderDate || po.updatedAt,
+      amount: po.totalAmount,
+      party: po.vendor?.name,
+      company: resolveCompanyLabel(po, po.indent),
+      subtitle: po.notes || (po.indent?.title ? `PR: ${po.indent.title}` : 'Purchase Order'),
+      department: 'Procurement',
+      path: `/procurement/purchase-orders/${po._id}`,
+      ceoViewOnly,
+      canAct,
+      raw: po
+    }));
   }
 
-  // Deduplicate + CEO isolation: only CEO/PS-coordinator may see Forwarded to CEO
-  const seen = new Set();
-  return docs.filter((po) => {
-    const id = String(po._id);
-    if (seen.has(id)) return false;
-    seen.add(id);
-    if (po.status === 'Forwarded to CEO' && !canViewCeoQueue) return false;
-    return true;
-  }).map((po) => card({
-    id: po._id,
-    type: 'purchase_order',
-    itemType: 'Purchase Order',
-    number: po.orderNumber || po.poNumber,
-    status: po.status,
-    date: po.orderDate || po.updatedAt,
-    amount: po.totalAmount,
-    party: po.vendor?.name,
-    company: resolveCompanyLabel(po, po.indent),
-    subtitle: po.notes || (po.indent?.title ? `PR: ${po.indent.title}` : 'Purchase Order'),
-    department: 'Procurement',
-    path: `/procurement/purchase-orders/${po._id}`,
-    ceoViewOnly: po.status === 'Forwarded to CEO' && !isCeo,
-    raw: po
-  }));
+  return cards;
 }
 
-async function fetchCashApprovalsForUser(user) {
+async function resolveCashApprovalCanAct(ca, user) {
   const isCeo = isDesignatedCeoApprover(user);
   const canViewCeoQueue = canViewCeoForwardedQueue(user);
   const uid = String(user._id || user.id || '');
-  const tokens = getUserIdentityTokens(user);
+  const status = ca.status || ca.workflowStatus;
+
+  if (status === 'Forwarded to CEO') {
+    if (!canViewCeoQueue) return { include: false, canAct: false, ceoViewOnly: false };
+    return { include: true, canAct: isCeo, ceoViewOnly: !isCeo };
+  }
+
+  if (status !== 'Pending Approval') {
+    return { include: false, canAct: false, ceoViewOnly: false };
+  }
+
+  if (isGeneralCashApproval(ca)) {
+    const stepIndex = getActorPendingDepartmentStepIndex(ca.departmentApprovalChain, uid);
+    if (stepIndex >= 0) {
+      return { include: true, canAct: true, ceoViewOnly: false };
+    }
+    return { include: false, canAct: false, ceoViewOnly: false };
+  }
+
+  const pending = await userHasPendingAuthoritySlots(
+    ca.indent?._id || ca.indent,
+    ca.approvalAuthorities,
+    ca.authorityApprovals,
+    user
+  );
+  if (pending) {
+    return { include: true, canAct: true, ceoViewOnly: false };
+  }
+  return { include: false, canAct: false, ceoViewOnly: false };
+}
+
+async function fetchCashApprovalsForUser(user) {
+  const uid = String(user._id || user.id || '');
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
 
   const or = [];
   if (canViewCeoQueue) or.push({ status: 'Forwarded to CEO' });
 
-  // Pending department approval chain
   or.push({
+    status: 'Pending Approval',
     'departmentApprovalChain.approver': uid,
     'departmentApprovalChain.status': 'pending',
     departmentApprovalStatus: { $in: ['Submitted', 'Pending'] }
   });
 
-  // Finance authority user refs
-  or.push(
-    { 'financeApprovalAuthorities.accountsOfficerUser': uid, status: { $in: ['Pending Finance', 'Advance Issued'] } },
-    { 'financeApprovalAuthorities.accountsManagerUser': uid, status: { $in: ['Pending Finance', 'Advance Issued'] } },
-    { 'financeApprovalAuthorities.financeControllerUser': uid, status: { $in: ['Pending Finance', 'Advance Issued'] } }
-  );
+  const indentIds = await getAssignedIndentIdsForUser(uid);
+  if (indentIds.length) {
+    or.push({ status: 'Pending Approval', indent: { $in: indentIds } });
+  }
 
   let docs = await CashApproval.find({ $or: or })
     .populate('vendor', 'name')
@@ -286,111 +334,166 @@ async function fetchCashApprovalsForUser(user) {
     .limit(100)
     .lean();
 
-  if (tokens.length) {
-    const candidates = await CashApproval.find({
-      status: {
-        $in: [
-          'Pending Audit',
-          'Send to CEO Office',
-          'Forwarded to CEO',
-          'Returned from CEO Office',
-          'Pending Finance',
-          'Draft',
-          'Submitted'
-        ]
-      },
-      _id: { $nin: docs.map((d) => d._id) }
-    })
-      .populate('vendor', 'name')
-      .populate('companyId', 'name companyCode')
-      .sort({ updatedAt: -1 })
-      .limit(80)
-      .lean();
+  const candidates = await CashApproval.find({
+    status: 'Pending Approval',
+    _id: { $nin: docs.map((d) => d._id) }
+  })
+    .populate('vendor', 'name')
+    .populate('companyId', 'name companyCode')
+    .sort({ updatedAt: -1 })
+    .limit(80)
+    .lean();
 
-    const matched = candidates.filter((ca) => {
-      if (ca.status === 'Forwarded to CEO') return canViewCeoQueue;
-      return isAssignedByAuthorityText(ca.approvalAuthorities, user);
-    });
-    docs = [...docs, ...matched];
-  }
+  docs = [
+    ...docs,
+    ...candidates.filter((ca) => isAssignedByPoAuthorityText(ca.approvalAuthorities, user))
+  ];
 
   const seen = new Set();
-  return docs.filter((ca) => {
+  const cards = [];
+
+  for (const ca of docs) {
     const id = String(ca._id);
-    if (seen.has(id)) return false;
+    if (seen.has(id)) continue;
     seen.add(id);
-    if (ca.status === 'Forwarded to CEO' && !canViewCeoQueue) return false;
-    return true;
-  }).map((ca) => card({
-    id: ca._id,
-    type: 'cash_approval',
-    itemType: 'Cash Approval',
-    number: ca.caNumber,
-    status: ca.status || ca.workflowStatus,
-    date: ca.approvalDate || ca.updatedAt,
-    amount: ca.totalAmount || ca.advanceAmount,
-    party: ca.advanceToName || ca.vendor?.name || ca.requestingDepartment,
-    company: resolveCompanyLabel(ca),
-    subtitle: ca.purpose || 'Cash Approval',
-    department: ca.requestingDepartment || 'Cash Approval',
-    path: `/procurement/cash-approvals/${ca._id}`,
-    ceoViewOnly: (ca.status || ca.workflowStatus) === 'Forwarded to CEO' && !isCeo,
-    raw: ca
-  }));
+
+    const { include, canAct, ceoViewOnly } = await resolveCashApprovalCanAct(ca, user);
+    if (!include || (!canAct && !ceoViewOnly)) continue;
+
+    cards.push(card({
+      id: ca._id,
+      type: 'cash_approval',
+      itemType: 'Cash Approval',
+      number: ca.caNumber,
+      status: ca.status || ca.workflowStatus,
+      date: ca.approvalDate || ca.updatedAt,
+      amount: ca.totalAmount || ca.advanceAmount,
+      party: ca.advanceToName || ca.vendor?.name || ca.requestingDepartment,
+      company: resolveCompanyLabel(ca),
+      subtitle: ca.purpose || 'Cash Approval',
+      department: ca.requestingDepartment || 'Cash Approval',
+      path: `/procurement/cash-approvals/${ca._id}`,
+      ceoViewOnly,
+      canAct,
+      raw: ca
+    }));
+  }
+
+  return cards;
+}
+
+const settlementAuthorizationTexts = (s) => [
+  s.preparedBy,
+  s.checkedBy,
+  s.approvedBy,
+  s.authorisedBy,
+  s.verifiedBy,
+  s.custodian
+];
+
+function resolveSettlementCanAct(s, user) {
+  const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
+  const ws = s.workflowStatus || s.status || '';
+
+  if (!ws || ws.startsWith('Approved (from ') || ws.startsWith('Rejected (from ')) {
+    return { include: false, canAct: false, ceoViewOnly: false };
+  }
+
+  if (ws === 'Forwarded to CEO') {
+    if (!canViewCeoQueue) return { include: false, canAct: false, ceoViewOnly: false };
+    return { include: true, canAct: isCeo, ceoViewOnly: !isCeo };
+  }
+
+  if (ws === 'Forwarded to Audit Director') {
+    return { include: false, canAct: false, ceoViewOnly: false };
+  }
+
+  const roleStatus = getWorkflowStatusForUserAndRole(user.email, user.role);
+  if (roleStatus && ws === roleStatus) {
+    return { include: true, canAct: true, ceoViewOnly: false };
+  }
+
+  if (ws.includes('Send to')) {
+    if (!roleStatus) {
+      const nameMatch = settlementAuthorizationTexts(s).some((t) => userMatchesText(user, t));
+      if (nameMatch) {
+        return { include: true, canAct: true, ceoViewOnly: false };
+      }
+    }
+    const privileged = ['super_admin', 'admin', 'developer'].includes(String(user.role || ''));
+    if (privileged && ws.startsWith('Send to ')) {
+      return { include: true, canAct: true, ceoViewOnly: false };
+    }
+  }
+
+  return { include: false, canAct: false, ceoViewOnly: false };
 }
 
 async function fetchSettlementsForUser(user) {
   const isCeo = isDesignatedCeoApprover(user);
   const canViewCeoQueue = canViewCeoForwardedQueue(user);
-  const filter = canViewCeoQueue
-    ? {
-        $or: [
-          { workflowStatus: 'Forwarded to CEO' },
-          ...(!isCeo ? [{ workflowStatus: { $regex: /Send to|Pending|Forwarded/i } }] : [])
-        ]
-      }
-    : {
-        // Named prepared/approved-by text fields under HM review stages
-        workflowStatus: { $regex: /Send to|Pending|Forwarded/i }
-      };
+  const roleStatus = getWorkflowStatusForUserAndRole(user.email, user.role);
 
-  let docs = await PaymentSettlement.find(filter)
-    .sort({ updatedAt: -1 })
-    .limit(canViewCeoQueue ? 100 : 80)
-    .lean();
+  const or = [];
+  if (canViewCeoQueue) or.push({ workflowStatus: 'Forwarded to CEO' });
+  if (roleStatus) or.push({ workflowStatus: roleStatus });
 
-  if (!isCeo) {
-    docs = docs.filter((s) => {
-      if (s.workflowStatus === 'Forwarded to CEO') return canViewCeoQueue;
-      // Match if user name appears on authorization slots and status is awaiting sign-off
-      const texts = [
-        s.preparedBy,
-        s.checkedBy,
-        s.approvedBy,
-        s.authorisedBy,
-        s.verifiedBy,
-        s.custodian
-      ];
-      return texts.some((t) => userMatchesText(user, t));
-    });
+  let docs = [];
+  if (or.length) {
+    docs = await PaymentSettlement.find({ $or: or })
+      .sort({ updatedAt: -1 })
+      .limit(100)
+      .lean();
   }
 
-  return docs.map((s) => card({
-    id: s._id,
-    type: 'payment_settlement',
-    itemType: 'Payment Settlement',
-    number: s.referenceNumber || String(s._id),
-    status: s.workflowStatus || s.status,
-    date: s.date || s.updatedAt,
-    amount: parseFloat(String(s.grandTotal || s.amount || '0').replace(/,/g, '')) || 0,
-    party: s.toWhomPaid || s.custodian,
-    subtitle: s.forWhat || s.notes || 'Payment Settlement',
-    department: s.fromDepartment || 'Administration',
-    company: resolveCompanyLabel(s) || s.subsidiaryName || s.parentCompanyName || null,
-    path: `/admin/payment-settlement`,
-    ceoViewOnly: s.workflowStatus === 'Forwarded to CEO' && !isCeo,
-    raw: s
-  }));
+  const privileged = ['super_admin', 'admin', 'developer'].includes(String(user.role || ''));
+  if (!roleStatus && (!isCeo || privileged)) {
+    const byName = await PaymentSettlement.find({
+      workflowStatus: { $regex: /^Send to / },
+      _id: { $nin: docs.map((d) => d._id) }
+    })
+      .sort({ updatedAt: -1 })
+      .limit(80)
+      .lean();
+    const extra = byName.filter((s) => {
+      if (privileged) return true;
+      return settlementAuthorizationTexts(s).some((t) => userMatchesText(user, t));
+    });
+    docs = [...docs, ...extra];
+  }
+
+  const seen = new Set();
+  const cards = [];
+
+  for (const s of docs) {
+    const id = String(s._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const { include, canAct, ceoViewOnly } = resolveSettlementCanAct(s, user);
+    if (!include || (!canAct && !ceoViewOnly)) continue;
+
+    cards.push(card({
+      id: s._id,
+      type: 'payment_settlement',
+      itemType: 'Payment Settlement',
+      number: s.referenceNumber || String(s._id),
+      status: s.workflowStatus || s.status,
+      date: s.date || s.updatedAt,
+      amount: parseFloat(String(s.grandTotal || s.amount || '0').replace(/,/g, '')) || 0,
+      party: s.toWhomPaid || s.custodian,
+      subtitle: s.forWhat || s.notes || 'Payment Settlement',
+      department: s.fromDepartment || 'Administration',
+      company: resolveCompanyLabel(s) || s.subsidiaryName || s.parentCompanyName || null,
+      path: `/admin/payment-settlement`,
+      ceoViewOnly,
+      canAct,
+      raw: s
+    }));
+  }
+
+  return cards;
 }
 
 async function fetchOnboardingForUser(user) {
@@ -422,6 +525,20 @@ async function fetchOnboardingForUser(user) {
     const extra = Array.isArray(r.employees) && r.employees.length > 1
       ? ` (+${r.employees.length - 1} more)`
       : '';
+    const ws = r.workflowStatus;
+    const sameAssignee = (field) => sameUserId(field, uid);
+    let canAct = false;
+    let ceoViewOnly = false;
+    if (ws === 'Forwarded to CEO') {
+      canAct = isCeo;
+      ceoViewOnly = !isCeo && canViewCeoQueue;
+    } else if (ws === 'Pending AVP' && sameAssignee(r.assignedAvp)) canAct = true;
+    else if (ws === 'Pending Chairman' && sameAssignee(r.assignedChairman)) canAct = true;
+    else if (ws === 'Pending HOD HR' && sameAssignee(r.assignedHod)) canAct = true;
+    else if (ws === 'Pending Sr Director' && sameAssignee(r.assignedSrDirector)) canAct = true;
+
+    if (!canAct && !ceoViewOnly) return null;
+
     return card({
       id: r._id,
       type: 'onboarding',
@@ -435,10 +552,11 @@ async function fetchOnboardingForUser(user) {
       subtitle: 'Non-employee onboarding',
       department: 'HR',
       path: `/hr/non-employee-onboarding`,
-      ceoViewOnly: r.workflowStatus === 'Forwarded to CEO' && !isCeo,
+      ceoViewOnly,
+      canAct,
       raw: r
     });
-  });
+  }).filter(Boolean);
 }
 
 async function fetchIndentsForUser(user, ceoIds = []) {
@@ -475,8 +593,8 @@ async function fetchIndentsForUser(user, ceoIds = []) {
     seen.add(id);
     return true;
   }).map((ind) => {
-    const onCeoQueue = isPendingOnCeoOffice(ind.approvalChain, ceoIds);
-    const iAmPending = userPendingInChain(ind.approvalChain, user);
+    const { include, canAct, ceoViewOnly } = resolveSequentialChainAction(ind.approvalChain, user, ceoIds);
+    if (!include || (!canAct && !ceoViewOnly)) return null;
     return card({
       id: ind._id,
       type: 'indent',
@@ -492,10 +610,11 @@ async function fetchIndentsForUser(user, ceoIds = []) {
       department: ind.department?.name || 'Indent',
       company: resolveCompanyLabel(ind),
       path: `/general/indents/${ind._id}`,
-      ceoViewOnly: onCeoQueue && !isCeo && !iAmPending,
+      ceoViewOnly,
+      canAct,
       raw: ind
     });
-  });
+  }).filter(Boolean);
 }
 
 async function fetchUtilityBillsForUser(user, ceoIds = []) {
@@ -516,7 +635,7 @@ async function fetchUtilityBillsForUser(user, ceoIds = []) {
 
   const docs = await UtilityBill.find({
     $or: or,
-    approvalStatus: { $in: ['Submitted', 'Draft'] }
+    approvalStatus: 'Submitted'
   })
     .populate('createdBy', 'firstName lastName')
     .sort({ updatedAt: -1 })
@@ -530,8 +649,8 @@ async function fetchUtilityBillsForUser(user, ceoIds = []) {
     seen.add(id);
     return true;
   }).map((b) => {
-    const onCeoQueue = isPendingOnCeoOffice(b.approvalChain, ceoIds);
-    const iAmPending = userPendingInChain(b.approvalChain, user);
+    const { include, canAct, ceoViewOnly } = resolveSequentialChainAction(b.approvalChain, user, ceoIds);
+    if (!include || (!canAct && !ceoViewOnly)) return null;
     return card({
       id: b._id,
       type: 'utility_bill',
@@ -545,17 +664,16 @@ async function fetchUtilityBillsForUser(user, ceoIds = []) {
       subtitle: b.forWhat || b.notes || 'Bill pending approval',
       department: 'Centralized Store',
       path: `/general/centralized-store/bills`,
-      ceoViewOnly: onCeoQueue && !isCeo && !iAmPending,
+      ceoViewOnly,
+      canAct,
       raw: b
     });
-  });
+  }).filter(Boolean);
 }
 
 async function fetchVendorBillsForUser(user, ceoIds = []) {
-  const uid = String(user._id || user.id || '');
-  const isCeo = isDesignatedCeoApprover(user);
   const canViewCeoQueue = canViewCeoForwardedQueue(user);
-  const ceoIdSet = new Set((ceoIds || []).map(String));
+  const uid = String(user._id || user.id || '');
 
   // Chart of Accounts bills: department approvalChain (Sr Manager Finance → GM Finance), sequential pending step
   const or = [
@@ -587,18 +705,14 @@ async function fetchVendorBillsForUser(user, ceoIds = []) {
       const id = String(b._id);
       if (seen.has(id)) return false;
       seen.add(id);
-      // Only surface when this user (or CEO office) is the first pending step
       const chain = Array.isArray(b.approvalChain) ? b.approvalChain : [];
-      const firstPending = chain.find((s) => s.status === 'pending');
-      if (!firstPending) return false;
-      const pendingId = String(firstPending.approver?._id || firstPending.approver || '');
-      if (pendingId === uid) return true;
-      if (canViewCeoQueue && ceoIdSet.has(pendingId)) return true;
-      return false;
+      const { include } = resolveSequentialChainAction(chain, user, ceoIds);
+      return include;
     })
     .map((b) => {
-      const onCeoQueue = isPendingOnCeoOffice(b.approvalChain, ceoIds);
-      const iAmPending = userPendingInChain(b.approvalChain, user);
+      const chain = Array.isArray(b.approvalChain) ? b.approvalChain : [];
+      const { include, canAct, ceoViewOnly } = resolveSequentialChainAction(chain, user, ceoIds);
+      if (!include || (!canAct && !ceoViewOnly)) return null;
       return card({
         id: b._id,
         type: 'vendor_bill',
@@ -612,10 +726,12 @@ async function fetchVendorBillsForUser(user, ceoIds = []) {
         subtitle: b.notes || 'Pending department approval (Finance)',
         department: 'Finance',
         path: `/finance/accounts-payable`,
-        ceoViewOnly: onCeoQueue && !isCeo && !iAmPending,
+        ceoViewOnly,
+        canAct,
         raw: b
       });
-    });
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -712,5 +828,6 @@ async function buildExecutiveMyApprovals(user) {
 module.exports = {
   buildExecutiveMyApprovals,
   userPendingInChain,
-  isAssignedByAuthorityText
+  isAssignedByAuthorityText,
+  resolveSequentialChainAction
 };

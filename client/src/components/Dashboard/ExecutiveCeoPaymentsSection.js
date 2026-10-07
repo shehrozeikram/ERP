@@ -201,7 +201,8 @@ const ExecutiveCeoPaymentsSection = () => {
           workflowStatus: item.workflowStatus || item.status || raw.workflowStatus || raw.status,
           status: item.status || raw.status || raw.workflowStatus,
           path: item.path || raw.path || null,
-          ceoViewOnly: Boolean(item.ceoViewOnly)
+          ceoViewOnly: Boolean(item.ceoViewOnly),
+          canAct: Boolean(item.canAct)
         };
       });
 
@@ -1086,8 +1087,10 @@ const ExecutiveCeoPaymentsSection = () => {
   const canActOnInboxItem = (item) => {
     if (!item) return false;
     if (item.ceoViewOnly) return false;
+    if (item.canAct === true) return true;
+    if (item.canAct === false) return false;
     const status = item.workflowStatus || item.status || '';
-    // CEO-queue docs: only designated CEO can act; PS stays view-only
+    // Legacy fallback if API omits canAct
     if (status === 'Forwarded to CEO' && !canApproveAsCeo) return false;
     return true;
   };
