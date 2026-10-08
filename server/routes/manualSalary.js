@@ -27,12 +27,12 @@ const assertAssignee = (assigned, userId, label) => {
 };
 
 const populateApprovers = (q) => q
-  .populate('initiator', 'firstName lastName email')
-  .populate('assignedHod', 'firstName lastName email')
-  .populate('assignedAvp', 'firstName lastName email')
-  .populate('hodApprovedBy', 'firstName lastName email')
-  .populate('avpApprovedBy', 'firstName lastName email')
-  .populate('ceoApprovedBy', 'firstName lastName email');
+  .populate('initiator', 'firstName lastName email digitalSignature')
+  .populate('assignedHod', 'firstName lastName email digitalSignature')
+  .populate('assignedAvp', 'firstName lastName email digitalSignature')
+  .populate('hodApprovedBy', 'firstName lastName email digitalSignature')
+  .populate('avpApprovedBy', 'firstName lastName email digitalSignature')
+  .populate('ceoApprovedBy', 'firstName lastName email digitalSignature');
 
 // @route   GET /api/hr/manual-salary
 router.get('/', asyncHandler(async (req, res) => {

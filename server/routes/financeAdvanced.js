@@ -36,6 +36,9 @@ const {
 const {
   listManualSalaryFinanceQueue,
   getManualSalaryFinancePeriodDetail,
+  saveManualSalaryPaymentDraft,
+  submitManualSalaryPaymentDraft,
+  deleteManualSalaryPaymentDraft,
   submitManualSalaryPayment,
   populateManualSalaryPaymentApp,
   recordManualSalaryAuthorityApproval,
@@ -11139,6 +11142,100 @@ router.get('/manual-salary-queue/:month/:year',
   })
 );
 
+const resolveManualSalaryPaymentCompany = async (req) => {
+  let companyId = req.body.payingCompanyId || req.body.companyId || null;
+  let companyName = req.body.companyName || '';
+  try {
+    const scoped = await requireCompanyFromRequest(req);
+    if (scoped?._id && !companyId) companyId = scoped._id;
+    if (scoped?.name && !companyName) companyName = scoped.name;
+  } catch (_e) {
+    /* company optional */
+  }
+  return { companyId, companyName };
+};
+
+// @route   POST /api/finance/manual-salary-queue/:month/:year/save-draft
+router.post('/manual-salary-queue/:month/:year/save-draft',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('paymentMethod').optional().isIn(['bank_transfer', 'cash', 'check']).withMessage('Invalid payment method'),
+    body('draftId').optional()
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const { companyId, companyName } = await resolveManualSalaryPaymentCompany(req);
+    const result = await saveManualSalaryPaymentDraft(req.params.month, req.params.year, {
+      paymentMethod: req.body.paymentMethod || 'bank_transfer',
+      reference: req.body.reference || '',
+      narration: req.body.narration || '',
+      paymentDate: req.body.paymentDate,
+      bankAccountId: req.body.bankAccountId || null,
+      companyId,
+      companyName,
+      draftId: req.body.draftId || null,
+      createdBy: req.user._id || req.user.id,
+      actorId: req.user._id || req.user.id
+    });
+    res.json({
+      success: true,
+      message: `Manual salary payment draft saved for ${result.periodLabel}. Review the BPV, then submit for GM Finance approval when ready.`,
+      data: result
+    });
+  })
+);
+
+// @route   POST /api/finance/manual-salary-payments/:id/submit
+router.post('/manual-salary-payments/:id/submit',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('financeControllerUser').notEmpty().withMessage('GM Finance is required'),
+    body('paymentMethod').optional().isIn(['bank_transfer', 'cash', 'check']).withMessage('Invalid payment method')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const financeControllerUser =
+      req.body.financeControllerUser
+      || req.body.financeApprovalAuthorities?.financeControllerUser;
+    const { companyId, companyName } = await resolveManualSalaryPaymentCompany(req);
+    const result = await submitManualSalaryPaymentDraft(req.params.id, {
+      financeControllerUser,
+      paymentMethod: req.body.paymentMethod,
+      reference: req.body.reference,
+      narration: req.body.narration,
+      paymentDate: req.body.paymentDate,
+      bankAccountId: req.body.bankAccountId || null,
+      companyId,
+      companyName,
+      actorId: req.user._id || req.user.id
+    });
+    res.json({
+      success: true,
+      message: `Manual salary payment for ${result.periodLabel} submitted (gross ${Number(result.grossSalary || 0).toLocaleString('en-PK')}, net ${Number(result.pendingAmount || 0).toLocaleString('en-PK')}). BPV is pending GM Finance approval.`,
+      data: result
+    });
+  })
+);
+
+// @route   DELETE /api/finance/manual-salary-payments/:id
+router.delete('/manual-salary-payments/:id',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const result = await deleteManualSalaryPaymentDraft(req.params.id);
+    res.json({
+      success: true,
+      message: `Draft manual salary payment for ${result.periodLabel} and its BPV draft were deleted.`,
+      data: result
+    });
+  })
+);
+
 // @route   POST /api/finance/manual-salary-queue/:month/:year/make-payment
 router.post('/manual-salary-queue/:month/:year/make-payment',
   authorize('super_admin', 'admin', 'finance_manager'),
@@ -11154,15 +11251,7 @@ router.post('/manual-salary-queue/:month/:year/make-payment',
     const financeControllerUser =
       req.body.financeControllerUser
       || req.body.financeApprovalAuthorities?.financeControllerUser;
-    let companyId = req.body.payingCompanyId || req.body.companyId || null;
-    let companyName = req.body.companyName || '';
-    try {
-      const scoped = await requireCompanyFromRequest(req);
-      if (scoped?._id && !companyId) companyId = scoped._id;
-      if (scoped?.name && !companyName) companyName = scoped.name;
-    } catch (_e) {
-      /* company optional — accounts may resolve from selected pay-from account */
-    }
+    const { companyId, companyName } = await resolveManualSalaryPaymentCompany(req);
     const result = await submitManualSalaryPayment(req.params.month, req.params.year, {
       financeControllerUser,
       paymentMethod: req.body.paymentMethod || 'bank_transfer',
@@ -11172,7 +11261,9 @@ router.post('/manual-salary-queue/:month/:year/make-payment',
       bankAccountId: req.body.bankAccountId || null,
       companyId,
       companyName,
-      actorId: req.user._id || req.user.id
+      actorId: req.user._id || req.user.id,
+      createdBy: req.user._id || req.user.id,
+      draftId: req.body.draftId || null
     });
     res.json({
       success: true,

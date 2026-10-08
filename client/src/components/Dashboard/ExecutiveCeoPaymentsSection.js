@@ -115,10 +115,16 @@ const ExecutiveCeoPaymentsSection = () => {
     poLinkedDocs: [],
     poAuditTab: 0,
     isOnboarding: false,
+    isManualSalary: false,
     isIndent: false,
     isUtilityBill: false,
     isVendorBill: false
   });
+
+  const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
 
   const [imageViewer, setImageViewer] = useState({
     open: false,
@@ -345,6 +351,8 @@ const ExecutiveCeoPaymentsSection = () => {
   const getWorkflowStatusColor = (status) => {
     switch (status) {
       case 'Draft': return 'default';
+      case 'Pending HOD HR': return 'warning';
+      case 'Pending AVP': return 'info';
       case 'Send to CEO Office': return 'info';
       case 'Forwarded to CEO': return 'warning';
       case 'Approved by CEO': return 'success';
@@ -352,6 +360,7 @@ const ExecutiveCeoPaymentsSection = () => {
       case 'Payment Pending': return 'info';
       case 'Paid': return 'success';
       case 'Rejected by CEO': return 'error';
+      case 'Returned':
       case 'Returned from CEO Office': return 'warning';
       default: return 'default';
     }
@@ -480,6 +489,45 @@ const ExecutiveCeoPaymentsSection = () => {
         console.error('Error fetching cash approval details:', e);
         setViewDialog({ open: true, settlement, isPurchaseOrder: false, isCashApproval: true, isOnboarding: false, quotations: [], caLinkedDocs: [], poAuditTab: 0 });
       }
+    } else if (settlement.isManualSalary) {
+      const baseFlags = {
+        isPurchaseOrder: false,
+        isCashApproval: false,
+        isOnboarding: false,
+        isManualSalary: true,
+        isIndent: false,
+        isUtilityBill: false,
+        isVendorBill: false,
+        isPaymentSettlement: false
+      };
+      try {
+        const r = await manualSalaryService.getById(settlement._id);
+        const detail = r?.data?.data || r?.data || settlement;
+        setViewDialog({
+          open: true,
+          settlement: withCeoDocTypeFlags({ ...settlement, ...detail }, baseFlags),
+          ...baseFlags,
+          quotations: [],
+          caLinkedDocs: [],
+          poQuotations: [],
+          poGrns: [],
+          poLinkedDocs: [],
+          poAuditTab: 0
+        });
+      } catch (e) {
+        console.error('Error fetching manual salary details:', e);
+        setViewDialog({
+          open: true,
+          settlement: withCeoDocTypeFlags(settlement, baseFlags),
+          ...baseFlags,
+          quotations: [],
+          caLinkedDocs: [],
+          poQuotations: [],
+          poGrns: [],
+          poLinkedDocs: [],
+          poAuditTab: 0
+        });
+      }
     } else if (settlement.isOnboarding) {
       setViewDialog({ 
         open: true, 
@@ -487,6 +535,7 @@ const ExecutiveCeoPaymentsSection = () => {
         isPurchaseOrder: false, 
         isCashApproval: false, 
         isOnboarding: true,
+        isManualSalary: false,
         isIndent: false,
         isUtilityBill: false,
         isVendorBill: false,
@@ -497,6 +546,7 @@ const ExecutiveCeoPaymentsSection = () => {
         isPurchaseOrder: false,
         isCashApproval: false,
         isOnboarding: false,
+        isManualSalary: false,
         isPaymentSettlement: false,
         isIndent: Boolean(settlement.isIndent),
         isUtilityBill: Boolean(settlement.isUtilityBill),
@@ -1914,6 +1964,8 @@ const ExecutiveCeoPaymentsSection = () => {
                 ? 'Purchase Order Details'
                 : viewDialog.isCashApproval
                 ? 'Cash Approval Details'
+                : viewDialog.isManualSalary
+                ? 'Manual Salary Details'
                 : viewDialog.isOnboarding
                 ? 'New-Employee Onboarding Details'
                 : viewDialog.isIndent
@@ -1951,6 +2003,7 @@ const ExecutiveCeoPaymentsSection = () => {
                     poLinkedDocs: [],
                     poAuditTab: 0,
                     isOnboarding: false,
+                    isManualSalary: false,
                     isIndent: false,
                     isUtilityBill: false,
                     isVendorBill: false
@@ -2267,6 +2320,229 @@ const ExecutiveCeoPaymentsSection = () => {
                   quotations={viewDialog.quotations || []}
                   linkedDocs={viewDialog.caLinkedDocs || []}
                 />
+              ) : viewDialog.isManualSalary ? (
+                <Box sx={{ mb: 2 }}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: { xs: 3, md: 4 },
+                      borderRadius: 3,
+                      background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
+                      border: '1px solid',
+                      borderColor: 'divider'
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, borderBottom: '1px solid', borderColor: 'divider', pb: 2, flexWrap: 'wrap', gap: 2 }}>
+                      <Box>
+                        <Typography variant="h5" sx={{ fontWeight: 800 }}>
+                          {viewDialog.settlement.name || '—'}
+                        </Typography>
+                        <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
+                          {[viewDialog.settlement.designation, viewDialog.settlement.project].filter(Boolean).join(' · ') || 'Manual Salary'}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+                        <Chip
+                          label={viewDialog.settlement.workflowStatus || viewDialog.settlement.status || '—'}
+                          size="small"
+                          color={getWorkflowStatusColor(viewDialog.settlement.workflowStatus || viewDialog.settlement.status)}
+                          sx={{ mb: 1, fontWeight: 600 }}
+                        />
+                        <Typography variant="caption" display="block" color="text.secondary">
+                          Period:{' '}
+                          {MONTH_NAMES[(Number(viewDialog.settlement.month) || 1) - 1] || '—'}{' '}
+                          {viewDialog.settlement.year || ''}
+                        </Typography>
+                        {viewDialog.settlement.empId ? (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            Emp ID: {viewDialog.settlement.empId}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                    </Box>
+
+                    <Grid container spacing={3}>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Date of Joining</Typography>
+                        <Typography variant="body1" fontWeight={600}>{viewDialog.settlement.doj || '—'}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Basic Salary</Typography>
+                        <Typography variant="body1" fontWeight={600}>{formatPKR(viewDialog.settlement.basicSalary || 0)}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Gross Salary</Typography>
+                        <Typography variant="body1" fontWeight={600}>{formatPKR(viewDialog.settlement.grossSalary || 0)}</Typography>
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <Typography variant="caption" color="text.secondary">Net Payable</Typography>
+                        <Typography variant="h6" fontWeight={800} color="success.dark">
+                          {formatPKR(viewDialog.settlement.netPayable || 0)}
+                        </Typography>
+                      </Grid>
+
+                      <Grid item xs={12}>
+                        <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
+                          Allowances &amp; Deductions
+                        </Typography>
+                        <Table size="small" sx={{ mt: 1 }}>
+                          <TableBody>
+                            {[
+                              ['Food Allowance', viewDialog.settlement.foodAllowance],
+                              ['House Rent Allowance', viewDialog.settlement.houseRentAllowance],
+                              ['Medical Allowance', viewDialog.settlement.medicalAllowance],
+                              ['Conveyance Allowance', viewDialog.settlement.conveyanceAllowance],
+                              ['Vehicle Allowance', viewDialog.settlement.vehicleAllowance],
+                              ['Fuel Allowance', viewDialog.settlement.fuelAllowance],
+                              ['Special Allowance', viewDialog.settlement.specialAllowance],
+                              ['Other Allowance', viewDialog.settlement.otherAllowance],
+                              ['Income Tax', viewDialog.settlement.incomeTax]
+                            ].map(([label, value]) => (
+                              <TableRow key={label}>
+                                <TableCell sx={{ pl: 0, borderColor: 'divider' }}>{label}</TableCell>
+                                <TableCell align="right" sx={{ pr: 0, borderColor: 'divider', fontWeight: 600 }}>
+                                  {formatPKR(value || 0)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </Grid>
+
+                      {viewDialog.settlement.remarks ? (
+                        <Grid item xs={12}>
+                          <Box sx={{ p: 2, borderRadius: 2, bgcolor: alpha(theme.palette.info.main, 0.04), border: '1px dashed', borderColor: alpha(theme.palette.info.main, 0.3) }}>
+                            <Typography variant="overline" color="info.dark" sx={{ fontWeight: 600 }}>Remarks</Typography>
+                            <Typography variant="body2">{viewDialog.settlement.remarks}</Typography>
+                          </Box>
+                        </Grid>
+                      ) : null}
+
+                      <Grid item xs={12}>
+                        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
+                            Approval Signatures
+                          </Typography>
+                          <Grid container spacing={3}>
+                            {(() => {
+                              const personName = (u) => {
+                                if (!u) return '';
+                                return `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || '';
+                              };
+                              const isImageSig = (sig) => {
+                                const s = String(sig || '').trim();
+                                if (!s) return false;
+                                return (
+                                  s.includes('/uploads/')
+                                  || s.startsWith('data:image')
+                                  || s.startsWith('http')
+                                  || /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(s)
+                                );
+                              };
+                              const renderSignature = (sig, user, alt) => {
+                                const imagePath = isImageSig(sig)
+                                  ? sig
+                                  : (user?.digitalSignature && isImageSig(user.digitalSignature) ? user.digitalSignature : '');
+                                if (imagePath) {
+                                  return (
+                                    <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
+                                      <DigitalSignatureImage userOrPath={{ digitalSignature: imagePath }} alt={alt} />
+                                    </Box>
+                                  );
+                                }
+                                const typed = String(sig || '').trim() || personName(user);
+                                if (!typed) {
+                                  return (
+                                    <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: 100 }}>
+                                      <Typography variant="caption" color="text.disabled">No Signature</Typography>
+                                    </Box>
+                                  );
+                                }
+                                return (
+                                  <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1 }}>
+                                    <Typography variant="body2" sx={{ fontStyle: 'italic', fontFamily: 'cursive', fontWeight: 600 }}>
+                                      {typed}
+                                    </Typography>
+                                  </Box>
+                                );
+                              };
+
+                              const rows = [
+                                {
+                                  label: 'Initiator',
+                                  by: viewDialog.settlement.initiator,
+                                  at: viewDialog.settlement.initiatedAt || viewDialog.settlement.createdAt,
+                                  sig: viewDialog.settlement.requesterSignature,
+                                  comments: null,
+                                  alwaysShowName: true
+                                },
+                                {
+                                  label: 'HOD HR (GM HR)',
+                                  by: viewDialog.settlement.hodApprovedBy || viewDialog.settlement.assignedHod,
+                                  at: viewDialog.settlement.hodApprovedAt,
+                                  sig: viewDialog.settlement.hodSignature,
+                                  comments: viewDialog.settlement.hodComments,
+                                  pending: !viewDialog.settlement.hodApprovedBy
+                                },
+                                {
+                                  label: 'AVP',
+                                  by: viewDialog.settlement.avpApprovedBy || viewDialog.settlement.assignedAvp,
+                                  at: viewDialog.settlement.avpApprovedAt,
+                                  sig: viewDialog.settlement.avpSignature,
+                                  comments: viewDialog.settlement.avpComments,
+                                  pending: !viewDialog.settlement.avpApprovedBy
+                                },
+                                {
+                                  label: 'CEO',
+                                  by: viewDialog.settlement.ceoApprovedBy,
+                                  at: viewDialog.settlement.ceoApprovedAt,
+                                  sig: viewDialog.settlement.ceoSignature,
+                                  comments: viewDialog.settlement.ceoComments,
+                                  pending: !viewDialog.settlement.ceoApprovedBy
+                                }
+                              ];
+
+                              return rows.map((row) => {
+                                const name = personName(row.by);
+                                return (
+                                  <Grid item xs={12} sm={6} md={3} key={row.label}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>
+                                      {row.label}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                      {row.alwaysShowName
+                                        ? (name || '—')
+                                        : row.pending
+                                          ? (name ? `${name} (Pending)` : 'Pending')
+                                          : (name || 'Approved')}
+                                    </Typography>
+                                    {row.at ? (
+                                      <Typography variant="caption" color="text.secondary" display="block">
+                                        {formatDateTime(row.at)}
+                                      </Typography>
+                                    ) : null}
+                                    {row.comments ? (
+                                      <Typography variant="caption" color="text.secondary" display="block">
+                                        {row.comments}
+                                      </Typography>
+                                    ) : null}
+                                    {row.alwaysShowName || !row.pending
+                                      ? renderSignature(row.sig, row.by, `${row.label} Signature`)
+                                      : (
+                                        <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: 100 }}>
+                                          <Typography variant="caption" color="text.disabled">Awaiting signature</Typography>
+                                        </Box>
+                                      )}
+                                  </Grid>
+                                );
+                              });
+                            })()}
+                          </Grid>
+                        </Box>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                </Box>
               ) : viewDialog.isOnboarding ? (
                 <Box sx={{ mb: 2 }}>
                   <Paper 

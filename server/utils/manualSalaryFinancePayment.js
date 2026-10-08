@@ -98,12 +98,20 @@ async function listManualSalaryFinanceQueue() {
     { $sort: { '_id.year': -1, '_id.month': -1 } }
   ]);
 
+  const draftApps = await ManualSalaryPaymentApplication.find({
+    workflowStatus: 'draft',
+    month: { $in: rows.map((r) => r._id.month) },
+    year: { $in: rows.map((r) => r._id.year) }
+  }).select('month year').lean();
+  const draftKeys = new Set(draftApps.map((a) => `${a.month}-${a.year}`));
+
   return rows.map((r) => {
     const month = r._id.month;
     const year = r._id.year;
     let status = 'pending_payment';
-    if (r.pendingFinance > 0) status = 'pending_payment';
-    else if (r.paymentPending > 0) status = 'payment_pending';
+    if (r.paymentPending > 0) status = 'payment_pending';
+    else if (draftKeys.has(`${month}-${year}`)) status = 'draft_payment';
+    else if (r.pendingFinance > 0) status = 'pending_payment';
     else if (r.paid > 0) status = 'paid';
     return {
       month,
@@ -150,7 +158,19 @@ async function getManualSalaryFinancePeriodDetail(month, year) {
     )
   };
 
-  return { month: m, year: y, periodLabel, records, paymentApps, summary };
+  const draftPayment = paymentApps.find((a) => a.workflowStatus === 'draft') || null;
+  const pendingPayment = paymentApps.find((a) => a.workflowStatus === 'pending_authority') || null;
+
+  return {
+    month: m,
+    year: y,
+    periodLabel,
+    records,
+    paymentApps,
+    draftPayment,
+    pendingPayment,
+    summary
+  };
 }
 
 async function resolvePaymentAccounts(companyId, bankAccountId) {
@@ -177,15 +197,8 @@ async function resolvePaymentAccounts(companyId, bankAccountId) {
   return { expense, bank };
 }
 
-async function submitManualSalaryPayment(month, year, opts = {}) {
+async function buildManualSalaryPaymentContext(month, year, opts = {}) {
   const { month: m, year: y, periodLabel } = parsePeriod(month, year);
-  const financeControllerUser = opts.financeControllerUser;
-  if (!financeControllerUser) {
-    const err = new Error('GM Finance is required');
-    err.statusCode = 400;
-    throw err;
-  }
-
   const records = await ManualSalary.find({
     month: m,
     year: y,
@@ -207,11 +220,11 @@ async function submitManualSalaryPayment(month, year, opts = {}) {
 
   const companyId = opts.companyId || null;
   const { expense, bank } = await resolvePaymentAccounts(companyId, opts.bankAccountId);
-  const iftikhar = await resolveIftikharAccountsManager();
-
+  const paymentMethod = opts.paymentMethod || 'bank_transfer';
   const paymentDate = opts.paymentDate ? new Date(opts.paymentDate) : new Date();
   const narration = String(opts.narration || `Manual salary payment — ${periodLabel}`).slice(0, 500);
-  const reference = String(opts.reference || '').trim();
+  const reference = String(opts.reference || '').trim() || `MSAL-${m}-${y}`;
+  const submitted = Boolean(opts.submitted);
 
   const lines = [
     {
@@ -228,64 +241,241 @@ async function submitManualSalaryPayment(month, year, opts = {}) {
     }
   ];
 
-  let je = new JournalEntry({
+  const description = submitted
+    ? `Manual salary payment — ${periodLabel} (${records.length} employees, pending GM Finance approval)`
+    : `Manual salary payment draft — ${periodLabel} (${records.length} employees)`;
+
+  const journalPayload = withVoucherNarration({
     date: paymentDate,
-    description: narration,
-    reference: reference || `MSAL-${m}-${y}`,
+    description,
+    reference,
     module: 'payroll',
-    voucherSeries: opts.paymentMethod === 'cash' ? 'CPV' : 'BPV',
+    voucherSeries: paymentMethod === 'cash' ? 'CPV' : 'BPV',
     companyId: co(companyId) || companyId || undefined,
     status: 'draft',
     lines,
-    createdBy: opts.actorId,
+    createdBy: opts.actorId || opts.createdBy,
     customMeta: {
       source: 'manual_salary',
       month: m,
       year: y,
       periodLabel
     }
-  });
-  je = withVoucherNarration(je, narration);
-  await je.save();
+  }, narration);
 
-  const app = await ManualSalaryPaymentApplication.create({
+  return {
     month: m,
     year: y,
     periodLabel,
+    records,
+    netTotal,
+    grossTotal,
     companyId: co(companyId) || companyId || null,
     companyName: opts.companyName || '',
-    amount: netTotal,
-    employeeCount: records.length,
-    manualSalaryIds: records.map((r) => r._id),
+    paymentMethod,
+    paymentDate,
+    narration,
+    reference,
+    bank,
+    journalPayload
+  };
+}
+
+const applyManualSalaryJournalPayload = async (journalEntry, payload) => {
+  journalEntry.companyId = payload.companyId;
+  journalEntry.date = payload.date;
+  journalEntry.reference = payload.reference;
+  journalEntry.description = payload.description;
+  journalEntry.module = payload.module;
+  journalEntry.voucherSeries = payload.voucherSeries;
+  journalEntry.lines = payload.lines;
+  journalEntry.customMeta = payload.customMeta;
+  await journalEntry.save();
+  return journalEntry;
+};
+
+async function assertNoConflictingManualSalaryPayment(month, year, { excludeId = null } = {}) {
+  const query = {
+    month,
+    year,
+    workflowStatus: { $in: ['draft', 'pending_authority'] }
+  };
+  if (excludeId) query._id = { $ne: excludeId };
+  const existing = await ManualSalaryPaymentApplication.findOne(query).lean();
+  if (existing) {
+    const err = new Error(
+      existing.workflowStatus === 'draft'
+        ? 'A draft manual salary payment already exists for this period. Update or submit that draft.'
+        : 'A manual salary payment is already pending GM Finance approval for this period.'
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+async function saveManualSalaryPaymentDraft(month, year, opts = {}) {
+  const draftId = opts.draftId || null;
+  const createdBy = opts.createdBy || opts.actorId;
+  const ctx = await buildManualSalaryPaymentContext(month, year, { ...opts, submitted: false, createdBy });
+
+  if (draftId) {
+    const app = await ManualSalaryPaymentApplication.findById(draftId);
+    if (!app) {
+      const err = new Error('Draft manual salary payment not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (app.workflowStatus !== 'draft') {
+      const err = new Error('Only draft manual salary payments can be updated');
+      err.statusCode = 400;
+      throw err;
+    }
+    await assertNoConflictingManualSalaryPayment(ctx.month, ctx.year, { excludeId: app._id });
+
+    const je = await JournalEntry.findById(app.journalEntryId);
+    if (!je || je.status !== 'draft') {
+      const err = new Error('Linked BPV draft is missing or no longer editable');
+      err.statusCode = 400;
+      throw err;
+    }
+    await applyManualSalaryJournalPayload(je, ctx.journalPayload);
+
+    app.amount = ctx.netTotal;
+    app.employeeCount = ctx.records.length;
+    app.manualSalaryIds = ctx.records.map((r) => r._id);
+    app.companyId = ctx.companyId;
+    app.companyName = ctx.companyName;
+    app.paymentMeta = {
+      paymentMethod: ctx.paymentMethod,
+      reference: ctx.reference,
+      narration: ctx.narration,
+      paymentDate: ctx.paymentDate,
+      bankAccountId: ctx.bank._id,
+      grossSalary: ctx.grossTotal
+    };
+    await app.save();
+
+    return {
+      application: app,
+      journalEntryId: je._id,
+      periodLabel: ctx.periodLabel,
+      employeeCount: ctx.records.length,
+      pendingAmount: ctx.netTotal,
+      grossSalary: ctx.grossTotal
+    };
+  }
+
+  await assertNoConflictingManualSalaryPayment(ctx.month, ctx.year);
+
+  const journalEntry = await FinanceHelper.createDraftJournalEntry(ctx.journalPayload);
+  const app = await ManualSalaryPaymentApplication.create({
+    month: ctx.month,
+    year: ctx.year,
+    periodLabel: ctx.periodLabel,
+    companyId: ctx.companyId,
+    companyName: ctx.companyName,
+    amount: ctx.netTotal,
+    employeeCount: ctx.records.length,
+    manualSalaryIds: ctx.records.map((r) => r._id),
     paymentMeta: {
-      paymentMethod: opts.paymentMethod || 'bank_transfer',
-      reference,
-      narration,
-      paymentDate,
-      bankAccountId: bank._id,
-      grossSalary: grossTotal
+      paymentMethod: ctx.paymentMethod,
+      reference: ctx.reference,
+      narration: ctx.narration,
+      paymentDate: ctx.paymentDate,
+      bankAccountId: ctx.bank._id,
+      grossSalary: ctx.grossTotal
     },
-    journalEntryId: je._id,
-    workflowStatus: 'pending_authority',
-    financeApprovalAuthorities: {
-      accountsManagerUser: iftikhar?._id || null,
-      financeControllerUser
-    },
-    financeAuthorityApprovals: iftikhar?._id
-      ? [{
-          authorityKey: 'accountsManagerUser',
-          authorityLabel: 'Sr Manager Accounts',
-          approver: iftikhar._id,
-          decision: 'approved',
-          approvedAt: new Date(),
-          comments: 'Sr Manager Accounts — auto-approved on submission'
-        }]
-      : [],
-    createdBy: opts.actorId
+    journalEntryId: journalEntry._id,
+    workflowStatus: 'draft',
+    financeApprovalAuthorities: {},
+    financeAuthorityApprovals: [],
+    createdBy
   });
 
+  return {
+    application: app,
+    journalEntryId: journalEntry._id,
+    periodLabel: ctx.periodLabel,
+    employeeCount: ctx.records.length,
+    pendingAmount: ctx.netTotal,
+    grossSalary: ctx.grossTotal
+  };
+}
+
+async function submitManualSalaryPaymentDraft(draftId, opts = {}) {
+  const financeControllerUser = opts.financeControllerUser;
+  if (!financeControllerUser) {
+    const err = new Error('GM Finance is required');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const app = await ManualSalaryPaymentApplication.findById(draftId);
+  if (!app) {
+    const err = new Error('Draft manual salary payment not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (app.workflowStatus !== 'draft') {
+    const err = new Error('Only draft manual salary payments can be submitted for approval');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const ctx = await buildManualSalaryPaymentContext(app.month, app.year, {
+    paymentMethod: opts.paymentMethod || app.paymentMeta?.paymentMethod || 'bank_transfer',
+    reference: opts.reference || app.paymentMeta?.reference || '',
+    narration: opts.narration ?? app.paymentMeta?.narration ?? '',
+    paymentDate: opts.paymentDate || app.paymentMeta?.paymentDate,
+    bankAccountId: opts.bankAccountId || app.paymentMeta?.bankAccountId || null,
+    companyId: opts.companyId || app.companyId || null,
+    companyName: opts.companyName || app.companyName || '',
+    actorId: opts.actorId || app.createdBy,
+    submitted: true
+  });
+
+  const iftikhar = await resolveIftikharAccountsManager();
+  const je = await JournalEntry.findById(app.journalEntryId);
+  if (!je || je.status !== 'draft') {
+    const err = new Error('Linked BPV draft is missing or no longer editable');
+    err.statusCode = 400;
+    throw err;
+  }
+  await applyManualSalaryJournalPayload(je, ctx.journalPayload);
+
+  app.amount = ctx.netTotal;
+  app.employeeCount = ctx.records.length;
+  app.manualSalaryIds = ctx.records.map((r) => r._id);
+  app.companyId = ctx.companyId;
+  app.companyName = ctx.companyName;
+  app.paymentMeta = {
+    paymentMethod: ctx.paymentMethod,
+    reference: ctx.reference,
+    narration: ctx.narration,
+    paymentDate: ctx.paymentDate,
+    bankAccountId: ctx.bank._id,
+    grossSalary: ctx.grossTotal
+  };
+  app.workflowStatus = 'pending_authority';
+  app.financeApprovalAuthorities = {
+    accountsManagerUser: iftikhar?._id || null,
+    financeControllerUser
+  };
+  app.financeAuthorityApprovals = iftikhar?._id
+    ? [{
+        authorityKey: 'accountsManagerUser',
+        authorityLabel: 'Sr Manager Accounts',
+        approver: iftikhar._id,
+        decision: 'approved',
+        approvedAt: new Date(),
+        comments: 'Sr Manager Accounts — auto-approved on submission'
+      }]
+    : [];
+  app.rejectionObservation = '';
+  await app.save();
+
   await ManualSalary.updateMany(
-    { _id: { $in: records.map((r) => r._id) } },
+    { _id: { $in: ctx.records.map((r) => r._id) } },
     {
       $set: {
         workflowStatus: 'Payment Pending',
@@ -298,11 +488,45 @@ async function submitManualSalaryPayment(month, year, opts = {}) {
   return {
     application: app,
     journalEntryId: je._id,
-    periodLabel,
-    employeeCount: records.length,
-    pendingAmount: netTotal,
-    grossSalary: grossTotal
+    periodLabel: ctx.periodLabel,
+    employeeCount: ctx.records.length,
+    pendingAmount: ctx.netTotal,
+    grossSalary: ctx.grossTotal
   };
+}
+
+async function deleteManualSalaryPaymentDraft(draftId) {
+  const app = await ManualSalaryPaymentApplication.findById(draftId);
+  if (!app) {
+    const err = new Error('Draft manual salary payment not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (app.workflowStatus !== 'draft') {
+    const err = new Error('Only draft manual salary payments can be deleted');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const je = app.journalEntryId ? await JournalEntry.findById(app.journalEntryId) : null;
+  if (je && je.status === 'draft') {
+    je.status = 'cancelled';
+    await je.save();
+  }
+
+  await ManualSalaryPaymentApplication.deleteOne({ _id: app._id });
+
+  return {
+    deletedApplicationId: app._id,
+    cancelledJournalEntryId: je?._id || null,
+    periodLabel: app.periodLabel
+  };
+}
+
+/** Save draft then submit — same UX path as payroll make-payment shortcut */
+async function submitManualSalaryPayment(month, year, opts = {}) {
+  const draft = await saveManualSalaryPaymentDraft(month, year, opts);
+  return submitManualSalaryPaymentDraft(draft.application._id, opts);
 }
 
 async function populateManualSalaryPaymentApp(query) {
@@ -446,6 +670,9 @@ module.exports = {
   PENDING_FINANCE_STATUSES,
   listManualSalaryFinanceQueue,
   getManualSalaryFinancePeriodDetail,
+  saveManualSalaryPaymentDraft,
+  submitManualSalaryPaymentDraft,
+  deleteManualSalaryPaymentDraft,
   submitManualSalaryPayment,
   populateManualSalaryPaymentApp,
   recordManualSalaryAuthorityApproval,

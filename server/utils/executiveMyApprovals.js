@@ -510,8 +510,12 @@ async function fetchManualSalariesForUser(user) {
   if (canViewCeoQueue) or.push({ workflowStatus: 'Forwarded to CEO' });
 
   const docs = await ManualSalary.find({ $or: or })
-    .populate('assignedHod', 'firstName lastName')
-    .populate('assignedAvp', 'firstName lastName')
+    .populate('assignedHod', 'firstName lastName email digitalSignature')
+    .populate('assignedAvp', 'firstName lastName email digitalSignature')
+    .populate('hodApprovedBy', 'firstName lastName email digitalSignature')
+    .populate('avpApprovedBy', 'firstName lastName email digitalSignature')
+    .populate('ceoApprovedBy', 'firstName lastName email digitalSignature')
+    .populate('initiator', 'firstName lastName email digitalSignature')
     .sort({ updatedAt: -1 })
     .limit(100)
     .lean();
