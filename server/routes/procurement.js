@@ -30,6 +30,13 @@ const { canMutateComparativeAuthorityUsers } = require('../utils/comparativeStat
 const { createAndEmitNotification } = require('../services/realtimeNotificationService');
 const { notifyApprovers } = require('../utils/approvalWhatsAppNotifier');
 const { notifyChatApprovers } = require('../utils/approvalChatNotifier');
+const {
+  SR_MANAGER_PROCUREMENT_EFFECTIVE_AT,
+  isSrManagerProcurementApplicable,
+  sanitizeApprovalAuthorities,
+  reconcileLegacySrManagerProcurement,
+  getApprovedAuthorityKeys: getPoApprovedAuthorityKeys
+} = require('../utils/purchaseOrderAuthority');
 
 console.log('✅ Procurement routes loaded successfully');
 
@@ -281,9 +288,16 @@ const tokenMatchesAuthorityText = (token, authorityText) => {
 const buildAuthorityTextConditions = (tokens = []) => {
   const safeTokens = [...new Set((tokens || []).map(normalizeToken).filter(Boolean))];
   if (!safeTokens.length) return [];
-  return AUTHORITY_SLOT_CONFIG.flatMap((slot) => safeTokens.map((token) => ({
-    [`approvalAuthorities.${slot.key}`]: { $regex: new RegExp(escapeRegex(token), 'i') }
-  })));
+  return AUTHORITY_SLOT_CONFIG.flatMap((slot) => safeTokens.map((token) => {
+    const cond = {
+      [`approvalAuthorities.${slot.key}`]: { $regex: new RegExp(escapeRegex(token), 'i') }
+    };
+    // Legacy POs (pre Sr Manager slot) must not match on a backfilled Sr Manager name.
+    if (slot.key === 'srManagerProcurement') {
+      return { ...cond, createdAt: { $gte: SR_MANAGER_PROCUREMENT_EFFECTIVE_AT } };
+    }
+    return cond;
+  }));
 };
 const AUTHORITY_SLOT_CONFIG = [
   { key: 'preparedBy', label: 'Prepared By', indentUserField: 'preparedByUser' },
@@ -304,8 +318,8 @@ const getUserIdentityTokens = (user) => {
     normalizeToken(user?.employeeId)
   ].filter(Boolean))];
 };
-const isAssignedByAuthorityText = (approvalAuthorities, user) => {
-  const authorities = approvalAuthorities || {};
+const isAssignedByAuthorityText = (approvalAuthorities, user, createdAt = null) => {
+  const authorities = sanitizeApprovalAuthorities(approvalAuthorities, createdAt);
   const assignedTexts = [
     authorities.preparedBy,
     authorities.managerProcurement,
@@ -319,13 +333,17 @@ const isAssignedByAuthorityText = (approvalAuthorities, user) => {
   const tokens = getUserIdentityTokens(user);
   return tokens.some((t) => assignedTexts.some((assigned) => tokenMatchesAuthorityText(t, assigned)));
 };
-const getRequiredAuthoritySlots = async (indentId, approvalAuthorities = {}) => {
+const getRequiredAuthoritySlots = async (indentId, approvalAuthorities = {}, createdAt = null) => {
+  const authorities = sanitizeApprovalAuthorities(approvalAuthorities, createdAt);
   const indent = indentId
     ? await Indent.findById(indentId).select('comparativeStatementApprovals').lean()
     : null;
   const csa = indent?.comparativeStatementApprovals || {};
   return AUTHORITY_SLOT_CONFIG.map((slot) => {
-    const textToken = normalizeToken(approvalAuthorities?.[slot.key]);
+    if (slot.key === 'srManagerProcurement' && !isSrManagerProcurementApplicable(createdAt)) {
+      return null;
+    }
+    const textToken = normalizeToken(authorities?.[slot.key]);
     const userId = (!textToken && slot.indentUserField) ? String(csa?.[slot.indentUserField] || '').trim() : '';
     if (!userId && !textToken) return null;
     return { ...slot, userId: userId || '', textToken: textToken || '' };
@@ -506,7 +524,7 @@ const userIsInvolvedInPurchaseOrder = async (user, purchaseOrder) => {
     && purchaseOrder.workflowHistory.some((h) => same(h.changedBy))) {
     return true;
   }
-  if (isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, user)) return true;
+  if (isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, user, purchaseOrder.createdAt)) return true;
   const indentRef = purchaseOrder.indent?._id || purchaseOrder.indent;
   if (await isAssignedComparativeAuthorityUser(indentRef, uid)) return true;
   // Indent requester / chain / procurement assignee
@@ -1586,6 +1604,13 @@ router.put('/purchase-orders/:id', [
 
     Object.assign(purchaseOrder, bodyData);
     purchaseOrder.updatedBy = req.user.id;
+    // Never persist Sr Manager on pre-cutoff (legacy) POs
+    if (!isSrManagerProcurementApplicable(purchaseOrder.createdAt) && purchaseOrder.approvalAuthorities) {
+      purchaseOrder.approvalAuthorities.srManagerProcurement = '';
+      if (typeof purchaseOrder.markModified === 'function') {
+        purchaseOrder.markModified('approvalAuthorities');
+      }
+    }
   }
 
   await purchaseOrder.save();
@@ -1625,9 +1650,28 @@ router.put('/purchase-orders/:id/approve',
       });
     }
 
+    // Drop backfilled Sr Manager on pre-cutoff POs; advance if other slots already done.
+    const legacy = await reconcileLegacySrManagerProcurement(purchaseOrder, {
+      pushHistory: pushPOWorkflowHistory,
+      actorId: req.user.id
+    });
+    if (legacy.advanced) {
+      purchaseOrder.updatedBy = req.user.id;
+      await purchaseOrder.save();
+      const advancedOrder = await PurchaseOrder.findById(purchaseOrder._id)
+        .populate('vendor', 'name email phone')
+        .populate('approvedBy', 'firstName lastName email digitalSignature')
+        .populate('authorityApprovals.approver', 'firstName lastName email employeeId digitalSignature');
+      return res.json({
+        success: true,
+        message: 'Legacy Sr Manager Procurement requirement cleared. Purchase order sent to Pre-Audit.',
+        data: advancedOrder
+      });
+    }
+
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user, purchaseOrder.createdAt);
     const isAdmin = ['super_admin', 'admin', 'developer'].includes(req.user.role);
     if (!isAdmin && !assignedAuthorityAccess) {
       return res.status(403).json({
@@ -1636,7 +1680,11 @@ router.put('/purchase-orders/:id/approve',
       });
     }
 
-    const requiredSlots = await getRequiredAuthoritySlots(purchaseOrder.indent, purchaseOrder.approvalAuthorities);
+    const requiredSlots = await getRequiredAuthoritySlots(
+      purchaseOrder.indent,
+      purchaseOrder.approvalAuthorities,
+      purchaseOrder.createdAt
+    );
     if (!requiredSlots.length) {
       return res.status(400).json({
         success: false,
@@ -1671,7 +1719,7 @@ router.put('/purchase-orders/:id/approve',
     });
     purchaseOrder.authorityApprovals = approvals;
     const requiredKeys = new Set(requiredSlots.map((s) => s.key));
-    const updatedApprovedKeys = new Set(purchaseOrder.authorityApprovals.map((a) => String(a?.authorityKey || '').trim()).filter(Boolean));
+    const updatedApprovedKeys = getPoApprovedAuthorityKeys(purchaseOrder.authorityApprovals);
     const allApproved = [...requiredKeys].every((key) => updatedApprovedKeys.has(key));
     purchaseOrder.approvedBy = req.user.id;
     purchaseOrder.approvedAt = now;
@@ -1734,7 +1782,7 @@ router.put('/purchase-orders/:id/reject',
     }
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user, purchaseOrder.createdAt);
     const isAdmin = ['super_admin', 'admin', 'developer'].includes(req.user.role);
     if (!isAdmin && !assignedAuthorityAccess) {
       return res.status(403).json({ success: false, message: 'Only assigned authority can reject this purchase order' });
@@ -2380,7 +2428,7 @@ router.put('/purchase-orders/:id/forward-to-ceo',
     }
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user, purchaseOrder.createdAt);
     if (!hasCeoSecretariatAccess(req.user) && !assignedAuthorityAccess) {
       return res.status(403).json({ success: false, message: 'CEO Secretariat access required' });
     }
@@ -2662,7 +2710,7 @@ router.put('/purchase-orders/:id/finance-approve',
     }
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user, purchaseOrder.createdAt);
     if (!hasFinanceAccess(req.user) && !assignedAuthorityAccess) {
       return res.status(403).json({ success: false, message: 'Finance approval access required' });
     }
@@ -2710,7 +2758,7 @@ router.put('/purchase-orders/:id/finance-return',
     }
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user, purchaseOrder.createdAt);
     if (!hasFinanceAccess(req.user) && !assignedAuthorityAccess) {
       return res.status(403).json({ success: false, message: 'Finance access required' });
     }
@@ -2773,7 +2821,7 @@ router.put('/purchase-orders/:id/ceo-secretariat-reject',
     }
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user, purchaseOrder.createdAt);
     if (!hasCeoSecretariatAccess(req.user) && !assignedAuthorityAccess) {
       return res.status(403).json({ success: false, message: 'CEO Secretariat access required' });
     }
@@ -2812,7 +2860,7 @@ router.put('/purchase-orders/:id/ceo-secretariat-return',
     }
     const assignedAuthorityAccess =
       await isAssignedComparativeAuthorityUser(purchaseOrder.indent, req.user.id) ||
-      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user);
+      isAssignedByAuthorityText(purchaseOrder.approvalAuthorities, req.user, purchaseOrder.createdAt);
     if (!hasCeoSecretariatAccess(req.user) && !assignedAuthorityAccess) {
       return res.status(403).json({ success: false, message: 'CEO Secretariat access required' });
     }

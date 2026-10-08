@@ -24,7 +24,8 @@ const getPOHolder = (po) => {
   if (status === 'Pending Approval') {
     // Check which authority is next
     if (approvalAuthorities) {
-      // The order is typically: preparedBy -> managerProcurement -> srManagerProcurement -> chiefOperatingOfficer -> verifiedBy -> technicalDepartment -> avpTaj -> authorisedRep -> financeRep
+      // Order: preparedBy -> managerProcurement -> srManagerProcurement -> chiefOperatingOfficer -> …
+      // Only slots with a non-empty assigned name are required (empty schema defaults are not pending).
       const requiredKeys = [
         'preparedBy',
         'managerProcurement',
@@ -41,15 +42,12 @@ const getPOHolder = (po) => {
       const approvedKeys = approvals.map(a => a.authorityKey);
 
       for (const key of requiredKeys) {
-        // If this authority is required (has a name or is expected to approve) and hasn't approved yet
-        // In this system, even if the name is empty, it might be waiting for someone to be assigned.
-        // But usually, we just check if it's in approvedKeys
-        if (approvalAuthorities[key] !== undefined && !approvedKeys.includes(key)) {
+        const assignedName = String(approvalAuthorities[key] || '').trim();
+        if (!assignedName) continue;
+        if (!approvedKeys.includes(key)) {
           let roleName = key.replace(/([A-Z])/g, ' $1');
           roleName = roleName.charAt(0).toUpperCase() + roleName.slice(1);
-          
-          let specificName = approvalAuthorities[key] ? ` (${approvalAuthorities[key]})` : '';
-          return { holder: `${roleName}${specificName}`, type: 'authority' };
+          return { holder: `${roleName} (${assignedName})`, type: 'authority' };
         }
       }
       return { holder: 'Pending Final Authority', type: 'authority' };

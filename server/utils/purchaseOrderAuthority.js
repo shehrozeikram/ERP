@@ -1,8 +1,14 @@
 /**
  * Shared PO / procurement authority slot logic (mirrors procurement approve route).
+ *
+ * Sr Manager Procurement was added 2026-10-02. Documents created before that date
+ * must not require / match that slot (even if the field was backfilled).
  */
 
 const Indent = require('../models/general/Indent');
+
+/** Inclusive: POs created on/after this instant may use Sr Manager Procurement. */
+const SR_MANAGER_PROCUREMENT_EFFECTIVE_AT = new Date('2026-10-02T00:00:00+05:00');
 
 const normalizeToken = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -27,6 +33,24 @@ const AUTHORITY_SLOT_CONFIG = [
   { key: 'financeRep', label: 'Finance Rep.', indentUserField: 'financeRepUser' }
 ];
 
+const isSrManagerProcurementApplicable = (createdAt) => {
+  if (!createdAt) return false;
+  const created = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (Number.isNaN(created.getTime())) return false;
+  return created >= SR_MANAGER_PROCUREMENT_EFFECTIVE_AT;
+};
+
+/**
+ * Strip Sr Manager from authority text for pre-cutoff (legacy) documents.
+ */
+const sanitizeApprovalAuthorities = (approvalAuthorities, createdAt) => {
+  const authorities = { ...(approvalAuthorities || {}) };
+  if (!isSrManagerProcurementApplicable(createdAt)) {
+    authorities.srManagerProcurement = '';
+  }
+  return authorities;
+};
+
 const getUserIdentityTokensForAuthority = (user) => {
   const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
   return [...new Set([
@@ -36,8 +60,8 @@ const getUserIdentityTokensForAuthority = (user) => {
   ].filter(Boolean))];
 };
 
-const isAssignedByAuthorityText = (approvalAuthorities, user) => {
-  const authorities = approvalAuthorities || {};
+const isAssignedByAuthorityText = (approvalAuthorities, user, createdAt = null) => {
+  const authorities = sanitizeApprovalAuthorities(approvalAuthorities, createdAt);
   const assignedTexts = [
     authorities.preparedBy,
     authorities.managerProcurement,
@@ -52,13 +76,17 @@ const isAssignedByAuthorityText = (approvalAuthorities, user) => {
   return tokens.some((t) => assignedTexts.some((assigned) => tokenMatchesAuthorityText(t, assigned)));
 };
 
-const getRequiredAuthoritySlots = async (indentId, approvalAuthorities = {}) => {
+const getRequiredAuthoritySlots = async (indentId, approvalAuthorities = {}, createdAt = null) => {
+  const authorities = sanitizeApprovalAuthorities(approvalAuthorities, createdAt);
   const indent = indentId
     ? await Indent.findById(indentId).select('comparativeStatementApprovals').lean()
     : null;
   const csa = indent?.comparativeStatementApprovals || {};
   return AUTHORITY_SLOT_CONFIG.map((slot) => {
-    const textToken = normalizeToken(approvalAuthorities?.[slot.key]);
+    if (slot.key === 'srManagerProcurement' && !isSrManagerProcurementApplicable(createdAt)) {
+      return null;
+    }
+    const textToken = normalizeToken(authorities?.[slot.key]);
     const userId = (!textToken && slot.indentUserField) ? String(csa?.[slot.indentUserField] || '').trim() : '';
     if (!userId && !textToken) return null;
     return { ...slot, userId: userId || '', textToken: textToken || '' };
@@ -84,13 +112,62 @@ const getApprovedAuthorityKeys = (authorityApprovals) => new Set(
 /**
  * True when user maps to at least one required slot not yet in authorityApprovals.
  */
-async function userHasPendingAuthoritySlots(indentId, approvalAuthorities, authorityApprovals, user) {
-  const requiredSlots = await getRequiredAuthoritySlots(indentId, approvalAuthorities);
+async function userHasPendingAuthoritySlots(indentId, approvalAuthorities, authorityApprovals, user, createdAt = null) {
+  const requiredSlots = await getRequiredAuthoritySlots(indentId, approvalAuthorities, createdAt);
   if (!requiredSlots.length) return false;
   const matchedSlots = matchUserToAuthoritySlots(requiredSlots, user);
   if (!matchedSlots.length) return false;
   const approvedKeys = getApprovedAuthorityKeys(authorityApprovals);
   return matchedSlots.some((slot) => !approvedKeys.has(slot.key));
+}
+
+/**
+ * Clear legacy Sr Manager assignment and advance PO when all real slots are done.
+ * Mutates the mongoose document (or plain object). Returns { cleared, advanced }.
+ */
+async function reconcileLegacySrManagerProcurement(purchaseOrder, { pushHistory, actorId } = {}) {
+  const result = { cleared: false, advanced: false };
+  if (!purchaseOrder) return result;
+
+  const createdAt = purchaseOrder.createdAt;
+  if (isSrManagerProcurementApplicable(createdAt)) return result;
+
+  const current = String(purchaseOrder.approvalAuthorities?.srManagerProcurement || '').trim();
+  if (current) {
+    if (!purchaseOrder.approvalAuthorities) purchaseOrder.approvalAuthorities = {};
+    purchaseOrder.approvalAuthorities.srManagerProcurement = '';
+    if (typeof purchaseOrder.markModified === 'function') {
+      purchaseOrder.markModified('approvalAuthorities');
+    }
+    result.cleared = true;
+  }
+
+  if (purchaseOrder.status !== 'Pending Approval') return result;
+
+  const requiredSlots = await getRequiredAuthoritySlots(
+    purchaseOrder.indent?._id || purchaseOrder.indent,
+    purchaseOrder.approvalAuthorities,
+    createdAt
+  );
+  if (!requiredSlots.length) return result;
+
+  const approvedKeys = getApprovedAuthorityKeys(purchaseOrder.authorityApprovals);
+  const allApproved = requiredSlots.every((slot) => approvedKeys.has(slot.key));
+  if (!allApproved) return result;
+
+  purchaseOrder.status = 'Pending Audit';
+  result.advanced = true;
+  if (typeof pushHistory === 'function') {
+    pushHistory(
+      purchaseOrder,
+      'Pending Approval',
+      'Pending Audit',
+      actorId || purchaseOrder.updatedBy || null,
+      'Legacy Sr Manager Procurement slot cleared; remaining authorities already approved — sent to Pre-Audit',
+      'System'
+    );
+  }
+  return result;
 }
 
 const getAssignedIndentIdsForUser = async (userId) => {
@@ -111,6 +188,9 @@ const getAssignedIndentIdsForUser = async (userId) => {
 
 module.exports = {
   AUTHORITY_SLOT_CONFIG,
+  SR_MANAGER_PROCUREMENT_EFFECTIVE_AT,
+  isSrManagerProcurementApplicable,
+  sanitizeApprovalAuthorities,
   normalizeToken,
   tokenMatchesAuthorityText,
   isAssignedByAuthorityText,
@@ -118,5 +198,7 @@ module.exports = {
   matchUserToAuthoritySlots,
   userHasPendingAuthoritySlots,
   getAssignedIndentIdsForUser,
-  getUserIdentityTokensForAuthority
+  getUserIdentityTokensForAuthority,
+  getApprovedAuthorityKeys,
+  reconcileLegacySrManagerProcurement
 };

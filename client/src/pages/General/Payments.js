@@ -1287,12 +1287,12 @@ const Payments = () => {
                 user: approvals.managerProcurementUser,
                 fallback: poData.approvalAuthorities?.managerProcurement || approvals.managerProcurement || auth.managerProcurement || ''
               },
-              {
+              ...((poData.approvalAuthorities?.srManagerProcurement || auth.srManagerProcurement) ? [{
                 key: 'srManagerProcurement',
                 label: 'Sr Manager Procurement',
                 user: null,
                 fallback: poData.approvalAuthorities?.srManagerProcurement || auth.srManagerProcurement || ''
-              },
+              }] : []),
               {
                 key: 'chiefOperatingOfficer',
                 label: 'Chief operating officer',

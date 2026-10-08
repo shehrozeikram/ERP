@@ -24,7 +24,8 @@ const {
 const {
   isAssignedByAuthorityText: isAssignedByPoAuthorityText,
   userHasPendingAuthoritySlots,
-  getAssignedIndentIdsForUser
+  getAssignedIndentIdsForUser,
+  sanitizeApprovalAuthorities
 } = require('./purchaseOrderAuthority');
 const { getActorPendingDepartmentStepIndex, isGeneralCashApproval } = require('./generalCashApproval');
 const { getWorkflowStatusForUserAndRole } = require('./paymentSettlementWorkflow');
@@ -93,8 +94,8 @@ const card = (partial) => ({
   raw: partial.raw || null
 });
 
-const isAssignedByAuthorityText = (approvalAuthorities, user) => {
-  const authorities = approvalAuthorities || {};
+const isAssignedByAuthorityText = (approvalAuthorities, user, createdAt = null) => {
+  const authorities = sanitizeApprovalAuthorities(approvalAuthorities, createdAt);
   const assignedTexts = [
     authorities.preparedBy,
     authorities.verifiedBy,
@@ -219,7 +220,7 @@ async function fetchPurchaseOrdersForUser(user) {
 
   docs = [
     ...docs,
-    ...candidates.filter((po) => isAssignedByPoAuthorityText(po.approvalAuthorities, user))
+    ...candidates.filter((po) => isAssignedByPoAuthorityText(po.approvalAuthorities, user, po.createdAt))
   ];
 
   const seen = new Set();
@@ -243,7 +244,8 @@ async function fetchPurchaseOrdersForUser(user) {
         po.indent?._id || po.indent,
         po.approvalAuthorities,
         po.authorityApprovals,
-        user
+        user,
+        po.createdAt
       );
       if (!pending) continue;
       canAct = true;

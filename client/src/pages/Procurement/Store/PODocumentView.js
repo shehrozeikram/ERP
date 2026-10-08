@@ -73,7 +73,7 @@ const PODocumentView = ({ data }) => {
   const signatureColumns = [
     { label: 'Prepared By', value: auth.preparedBy },
     { label: 'Manager Procurement', value: auth.managerProcurement },
-    { label: 'Sr Manager Procurement', value: auth.srManagerProcurement },
+    ...(auth.srManagerProcurement ? [{ label: 'Sr Manager Procurement', value: auth.srManagerProcurement }] : []),
     { label: 'Chief operating officer', value: auth.chiefOperatingOfficer || auth.verifiedBy },
     { label: 'AVP Taj', value: auth.avpTaj || auth.authorisedRep },
     ...(auth.technicalDepartment ? [{ label: 'Technical Department', value: auth.technicalDepartment }] : [])

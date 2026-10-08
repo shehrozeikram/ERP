@@ -61,6 +61,10 @@ import { formatDate } from '../../utils/dateUtils';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import { getCurrentHolder } from '../../utils/documentTracker';
+import {
+  isSrManagerProcurementApplicable,
+  sanitizeApprovalAuthorities
+} from '../../utils/purchaseOrderAuthority';
 
 const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'preparedBy', label: 'Prepared By' },
@@ -70,6 +74,11 @@ const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'avpTaj', label: 'AVP Taj' },
   { key: 'technicalDepartment', label: 'Technical Department' }
 ];
+const poAuthorityFieldsForDoc = (createdAt) => (
+  isSrManagerProcurementApplicable(createdAt)
+    ? PO_APPROVAL_AUTHORITY_FIELDS
+    : PO_APPROVAL_AUTHORITY_FIELDS.filter((f) => f.key !== 'srManagerProcurement')
+);
 const normalizeAuthorityToken = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const tokenMatchesAuthorityText = (token, authorityText) => {
   const normalizedToken = normalizeAuthorityToken(token);
@@ -631,7 +640,11 @@ const PurchaseOrders = () => {
     try {
       setLoading(true);
       const payload = { ...formData };
-      payload.approvalAuthorities = { ...approvalAuthority };
+      const authorityCreatedAt = formDialog.mode === 'create' ? new Date() : formDialog.data?.createdAt;
+      payload.approvalAuthorities = sanitizeApprovalAuthorities(
+        { ...approvalAuthority },
+        authorityCreatedAt
+      );
       if (formDialog.mode === 'create' && formDialog.quotationId) {
         payload.quotation = formDialog.quotationId;
       }
@@ -896,7 +909,7 @@ const PurchaseOrders = () => {
     const chainIds = Array.isArray(order?.indent?.comparativeApproval?.approvers)
       ? order.indent.comparativeApproval.approvers.map((s) => String(s?.approver?._id || s?.approver || '')).filter(Boolean)
       : [];
-    const csaText = order?.approvalAuthorities || {};
+    const csaText = sanitizeApprovalAuthorities(order?.approvalAuthorities, order?.createdAt);
     const userTokens = [
       normalizeAuthorityToken(`${user?.firstName || ''} ${user?.lastName || ''}`),
       normalizeAuthorityToken(user?.email),
@@ -1785,7 +1798,9 @@ const PurchaseOrders = () => {
                 Search active users (same directory as indents) or type a name/designation. Saved values are stored as text for print.
               </Typography>
               <Grid container spacing={2}>
-                {PO_APPROVAL_AUTHORITY_FIELDS.map(({ key, label }) => (
+                {poAuthorityFieldsForDoc(
+                  formDialog.mode === 'create' ? new Date() : formDialog.data?.createdAt
+                ).map(({ key, label }) => (
                   <Grid item xs={12} sm={6} md={4} key={key}>
                     <Autocomplete
                       freeSolo
@@ -2319,12 +2334,15 @@ const PurchaseOrders = () => {
                         user: approvals.managerProcurementUser || null,
                         fallback: viewDialog.data.approvalAuthorities?.managerProcurement || approvals.managerProcurement || ''
                       },
-                      {
+                      ...(sanitizeApprovalAuthorities(
+                        viewDialog.data.approvalAuthorities,
+                        viewDialog.data.createdAt
+                      ).srManagerProcurement ? [{
                         key: 'srManagerProcurement',
                         label: 'Sr Manager Procurement',
                         user: null,
                         fallback: viewDialog.data.approvalAuthorities?.srManagerProcurement || ''
-                      },
+                      }] : []),
                       {
                         key: 'chiefOperatingOfficer',
                         label: 'Chief operating officer',
