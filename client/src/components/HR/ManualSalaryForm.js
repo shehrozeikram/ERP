@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Button, TextField, Grid, CircularProgress
+  Button, TextField, Grid, CircularProgress, MenuItem, Typography, Divider
 } from '@mui/material';
-import api from '../../services/authService';
+import api from '../../services/api';
+import manualSalaryService from '../../services/manualSalaryService';
+import { useAuth } from '../../contexts/AuthContext';
 
 const months = [
   { value: 1, label: 'January' }, { value: 2, label: 'February' },
@@ -14,68 +16,87 @@ const months = [
   { value: 11, label: 'November' }, { value: 12, label: 'December' }
 ];
 
+const emptyForm = () => ({
+  month: new Date().getMonth() + 1,
+  year: new Date().getFullYear(),
+  empId: '',
+  name: '',
+  designation: '',
+  project: '',
+  doj: '',
+  basicSalary: 0,
+  houseRentAllowance: 0,
+  medicalAllowance: 0,
+  conveyanceAllowance: 0,
+  vehicleAllowance: 0,
+  fuelAllowance: 0,
+  foodAllowance: 0,
+  specialAllowance: 0,
+  otherAllowance: 0,
+  grossSalary: 0,
+  incomeTax: 0,
+  netPayable: 0,
+  remarks: '',
+  assignedHod: '',
+  assignedAvp: ''
+});
+
+const userLabel = (u) => {
+  const name = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+  return name || u.email || u._id;
+};
+
 const ManualSalaryForm = ({ open, onClose, onRefresh, editData }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    month: new Date().getMonth() + 1,
-    year: new Date().getFullYear(),
-    empId: '',
-    name: '',
-    designation: '',
-    project: '',
-    doj: '',
-    basicSalary: 0,
-    foodAllowance: 0,
-    grossSalary: 0,
-    incomeTax: 0,
-    netPayable: 0,
-    remarks: ''
-  });
+  const [users, setUsers] = useState([]);
+  const [formData, setFormData] = useState(emptyForm());
 
   useEffect(() => {
+    if (!open) return;
     if (editData) {
       setFormData({
+        ...emptyForm(),
         ...editData,
-        basicSalary: editData.basicSalary || 0,
-        houseRentAllowance: editData.houseRentAllowance || 0,
-        medicalAllowance: editData.medicalAllowance || 0,
-        conveyanceAllowance: editData.conveyanceAllowance || 0,
-        vehicleAllowance: editData.vehicleAllowance || 0,
-        fuelAllowance: editData.fuelAllowance || 0,
-        foodAllowance: editData.foodAllowance || 0,
-        specialAllowance: editData.specialAllowance || 0,
-        otherAllowance: editData.otherAllowance || 0,
-        grossSalary: editData.grossSalary || 0,
-        incomeTax: editData.incomeTax || 0,
-        netPayable: editData.netPayable || 0
+        assignedHod: editData.assignedHod?._id || editData.assignedHod || '',
+        assignedAvp: editData.assignedAvp?._id || editData.assignedAvp || ''
       });
     } else {
-      setFormData({
-        month: new Date().getMonth() + 1,
-        year: new Date().getFullYear(),
-        empId: '',
-        name: '',
-        designation: '',
-        project: '',
-        doj: '',
-        basicSalary: 0,
-        houseRentAllowance: 0,
-        medicalAllowance: 0,
-        conveyanceAllowance: 0,
-        vehicleAllowance: 0,
-        fuelAllowance: 0,
-        foodAllowance: 0,
-        specialAllowance: 0,
-        otherAllowance: 0,
-        grossSalary: 0,
-        incomeTax: 0,
-        netPayable: 0,
-        remarks: ''
-      });
+      setFormData(emptyForm());
     }
   }, [editData, open]);
 
-  // Auto-calculate grossSalary and netPayable
+  useEffect(() => {
+    if (!open) return;
+    const fetchUsers = async () => {
+      try {
+        const res = await api.get('/auth/users', { params: { limit: 1000, active: true, dropdown: true } });
+        const fetchedUsers = res.data.data?.users || (Array.isArray(res.data.data) ? res.data.data : []);
+        setUsers(fetchedUsers);
+
+        if (!editData) {
+          const hod = fetchedUsers.find((u) =>
+            String(u.department || '').toLowerCase() === 'human resource'
+            && String(u.position || '').toLowerCase() === 'general manager'
+          );
+          const avp = fetchedUsers.find((u) => {
+            const full = `${u.firstName || ''} ${u.lastName || ''}`.trim().toLowerCase();
+            return String(u.position || '').toLowerCase() === 'assistant vice president'
+              || (full.includes('fahad') && full.includes('farid'));
+          });
+          setFormData((prev) => ({
+            ...prev,
+            assignedHod: prev.assignedHod || (hod ? hod.id || hod._id : ''),
+            assignedAvp: prev.assignedAvp || (avp ? avp.id || avp._id : '')
+          }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch users', err);
+      }
+    };
+    fetchUsers();
+  }, [open, editData]);
+
   useEffect(() => {
     const basic = Number(formData.basicSalary) || 0;
     const hr = Number(formData.houseRentAllowance) || 0;
@@ -87,10 +108,9 @@ const ManualSalaryForm = ({ open, onClose, onRefresh, editData }) => {
     const spec = Number(formData.specialAllowance) || 0;
     const oth = Number(formData.otherAllowance) || 0;
     const tax = Number(formData.incomeTax) || 0;
-    
     const gross = basic + hr + med + conv + veh + fuel + food + spec + oth;
-    
-    setFormData(prev => ({
+
+    setFormData((prev) => ({
       ...prev,
       grossSalary: gross,
       netPayable: gross - tax
@@ -104,23 +124,35 @@ const ManualSalaryForm = ({ open, onClose, onRefresh, editData }) => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.assignedHod || !formData.assignedAvp) {
+      alert('Please select GM HR and AVP Taj Fahad Farid.');
+      return;
+    }
     try {
       setLoading(true);
+      const requesterSignature = user?.digitalSignature
+        || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : user?.email || '');
+      const payload = {
+        ...formData,
+        assignedHod: formData.assignedHod,
+        assignedAvp: formData.assignedAvp,
+        requesterSignature
+      };
       if (editData) {
-        await api.put(`/hr/manual-salary/${editData._id}`, formData);
+        await manualSalaryService.update(editData._id, payload);
       } else {
-        await api.post('/hr/manual-salary', formData);
+        await manualSalaryService.create(payload);
       }
       onRefresh();
       onClose();
     } catch (error) {
       console.error('Error saving manual salary:', error);
-      alert('Failed to save record.');
+      alert(error.response?.data?.message || error.response?.data?.errors?.[0]?.msg || 'Failed to save record.');
     } finally {
       setLoading(false);
     }
@@ -143,7 +175,7 @@ const ManualSalaryForm = ({ open, onClose, onRefresh, editData }) => {
                 SelectProps={{ native: true }}
                 required
               >
-                {months.map(m => (
+                {months.map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </TextField>
@@ -160,41 +192,16 @@ const ManualSalaryForm = ({ open, onClose, onRefresh, editData }) => {
               />
             </Grid>
             <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Emp ID"
-                name="empId"
-                value={formData.empId}
-                onChange={handleChange}
-              />
+              <TextField fullWidth label="Emp ID" name="empId" value={formData.empId} onChange={handleChange} />
             </Grid>
             <Grid item xs={12} sm={8}>
-              <TextField
-                fullWidth
-                label="Name"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                required
-              />
+              <TextField fullWidth label="Name" name="name" value={formData.name} onChange={handleChange} required />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Designation"
-                name="designation"
-                value={formData.designation}
-                onChange={handleChange}
-              />
+              <TextField fullWidth label="Designation" name="designation" value={formData.designation} onChange={handleChange} />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Project"
-                name="project"
-                value={formData.project}
-                onChange={handleChange}
-              />
+              <TextField fullWidth label="Project" name="project" value={formData.project} onChange={handleChange} />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
@@ -207,145 +214,83 @@ const ManualSalaryForm = ({ open, onClose, onRefresh, editData }) => {
               />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Remarks / Bank Acct"
-                name="remarks"
-                value={formData.remarks}
-                onChange={handleChange}
-              />
+              <TextField fullWidth label="Remarks / Bank Acct" name="remarks" value={formData.remarks} onChange={handleChange} />
             </Grid>
-            
+
             <Grid item xs={12}>
-              <hr />
-              <strong>Financials</strong>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Approval authorities</Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                Flow: GM HR → AVP Taj Fahad Farid → CEO (no Chairman / Sr Director)
+              </Typography>
             </Grid>
-            <Grid item xs={12} sm={3}>
+            <Grid item xs={12} sm={6}>
               <TextField
-                type="number"
+                select
                 fullWidth
-                label="Basic Salary"
-                name="basicSalary"
-                value={formData.basicSalary}
+                required
+                label="GM HR"
+                name="assignedHod"
+                value={formData.assignedHod}
                 onChange={handleChange}
-              />
+              >
+                <MenuItem value=""><em>Select GM HR</em></MenuItem>
+                {users.map((u) => (
+                  <MenuItem key={u._id || u.id} value={u._id || u.id}>{userLabel(u)}</MenuItem>
+                ))}
+              </TextField>
             </Grid>
-            <Grid item xs={12} sm={3}>
+            <Grid item xs={12} sm={6}>
               <TextField
-                type="number"
+                select
                 fullWidth
-                label="House Rent"
-                name="houseRentAllowance"
-                value={formData.houseRentAllowance}
+                required
+                label="AVP Taj Fahad Farid"
+                name="assignedAvp"
+                value={formData.assignedAvp}
                 onChange={handleChange}
-              />
+              >
+                <MenuItem value=""><em>Select AVP</em></MenuItem>
+                {users.map((u) => (
+                  <MenuItem key={u._id || u.id} value={u._id || u.id}>{userLabel(u)}</MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Divider sx={{ my: 1 }} />
+              <Typography variant="subtitle2">Financials</Typography>
+            </Grid>
+            {[
+              ['basicSalary', 'Basic Salary'],
+              ['houseRentAllowance', 'House Rent'],
+              ['medicalAllowance', 'Medical Allow.'],
+              ['conveyanceAllowance', 'Conveyance Allow.'],
+              ['vehicleAllowance', 'Vehicle Allow.'],
+              ['fuelAllowance', 'Fuel Allow.'],
+              ['foodAllowance', 'Food Allow.'],
+              ['specialAllowance', 'Special Allow.'],
+              ['otherAllowance', 'Other Allow.']
+            ].map(([name, label]) => (
+              <Grid item xs={12} sm={3} key={name}>
+                <TextField type="number" fullWidth label={label} name={name} value={formData[name]} onChange={handleChange} />
+              </Grid>
+            ))}
+            <Grid item xs={12} sm={3}>
+              <TextField type="number" fullWidth label="Gross Salary (Auto)" name="grossSalary" value={formData.grossSalary} disabled />
             </Grid>
             <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Medical Allow."
-                name="medicalAllowance"
-                value={formData.medicalAllowance}
-                onChange={handleChange}
-              />
+              <TextField type="number" fullWidth label="Income Tax" name="incomeTax" value={formData.incomeTax} onChange={handleChange} />
             </Grid>
             <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Conveyance Allow."
-                name="conveyanceAllowance"
-                value={formData.conveyanceAllowance}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Vehicle Allow."
-                name="vehicleAllowance"
-                value={formData.vehicleAllowance}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Fuel Allow."
-                name="fuelAllowance"
-                value={formData.fuelAllowance}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Food Allow."
-                name="foodAllowance"
-                value={formData.foodAllowance}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Special Allow."
-                name="specialAllowance"
-                value={formData.specialAllowance}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Other Allow."
-                name="otherAllowance"
-                value={formData.otherAllowance}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Gross Salary (Auto)"
-                name="grossSalary"
-                value={formData.grossSalary}
-                disabled
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Income Tax"
-                name="incomeTax"
-                value={formData.incomeTax}
-                onChange={handleChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                type="number"
-                fullWidth
-                label="Net Payable (Auto)"
-                name="netPayable"
-                value={formData.netPayable}
-                disabled
-              />
+              <TextField type="number" fullWidth label="Net Payable (Auto)" name="netPayable" value={formData.netPayable} disabled />
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="contained" disabled={loading}>
-            {loading ? <CircularProgress size={24} /> : 'Save'}
+            {loading ? <CircularProgress size={24} /> : (editData ? 'Save / Resubmit' : 'Submit for Approval')}
           </Button>
         </DialogActions>
       </form>

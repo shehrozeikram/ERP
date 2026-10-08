@@ -181,7 +181,7 @@ const NonEmployeeOnboarding = () => {
   return (
     <Box p={3}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4">Non-Employee Onboarding</Typography>
+        <Typography variant="h4">New-Employee Onboarding</Typography>
         <Button 
           variant="contained" 
           color="primary" 
@@ -226,11 +226,21 @@ const NonEmployeeOnboarding = () => {
               };
               const authority = authorityMap[record.workflowStatus] || record.workflowStatus;
 
-              const userId = user?.id || user?._id;
-              const isPendingHOD = record.workflowStatus === 'Pending HOD HR' && (userId === record.assignedHod?._id || userId === record.assignedHod);
-              const isPendingAVP = record.workflowStatus === 'Pending AVP' && (userId === record.assignedAvp?._id || userId === record.assignedAvp);
-              const isPendingChairman = record.workflowStatus === 'Pending Chairman' && (userId === record.assignedChairman?._id || userId === record.assignedChairman);
-              const isPendingSrDirector = record.workflowStatus === 'Pending Sr Director' && (userId === record.assignedSrDirector?._id || userId === record.assignedSrDirector);
+              const userId = String(user?.id || user?._id || '');
+              const sameAssignee = (field) => {
+                const assigned = String(field?._id || field || '');
+                return Boolean(userId && assigned && userId === assigned);
+              };
+              // Dev-only: Hamza Tanveer is Sr Director for New-Employee Onboarding
+              const isDevSrDirector = process.env.NODE_ENV !== 'production' && (
+                String(user?.email || '').toLowerCase() === 'hamzatanveer@tovus.net'
+                || `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase().replace(/\s+/g, '') === 'hamzatanveer'
+              );
+              const isPendingHOD = record.workflowStatus === 'Pending HOD HR' && sameAssignee(record.assignedHod);
+              const isPendingAVP = record.workflowStatus === 'Pending AVP' && sameAssignee(record.assignedAvp);
+              const isPendingChairman = record.workflowStatus === 'Pending Chairman' && sameAssignee(record.assignedChairman);
+              const isPendingSrDirector = record.workflowStatus === 'Pending Sr Director'
+                && (sameAssignee(record.assignedSrDirector) || isDevSrDirector);
               const isPendingAuthority = isPendingHOD || isPendingAVP || isPendingChairman || isPendingSrDirector;
               const currentPendingType = isPendingHOD
                 ? 'HOD'
@@ -392,7 +402,7 @@ const NonEmployeeOnboarding = () => {
       />
 
       <Dialog open={approvalDialog.open} onClose={() => setApprovalDialog({ open: false, record: null })} maxWidth="sm" fullWidth>
-        <DialogTitle>Approve Non-Employee Onboarding</DialogTitle>
+        <DialogTitle>Approve New-Employee Onboarding</DialogTitle>
         <DialogContent dividers>
           <Box mb={2}>
             <Typography variant="subtitle1" fontWeight="bold">
@@ -438,7 +448,7 @@ const NonEmployeeOnboarding = () => {
       </Dialog>
 
       <Dialog open={rejectDialog.open} onClose={() => setRejectDialog({ open: false, record: null })} maxWidth="sm" fullWidth>
-        <DialogTitle>Reject Non-Employee Onboarding</DialogTitle>
+        <DialogTitle>Reject New-Employee Onboarding</DialogTitle>
         <DialogContent dividers>
           <Box mb={2}>
             <Typography variant="subtitle1" fontWeight="bold">
@@ -490,7 +500,7 @@ const NonEmployeeOnboarding = () => {
 
       <Dialog open={viewDialog.open} onClose={() => setViewDialog({ open: false, record: null })} maxWidth="xl" fullWidth>
         <DialogTitle sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05), borderBottom: '1px solid', borderColor: 'divider', fontWeight: 700 }}>
-          Non-Employee Batch Record Details - {viewDialog.record?.recordNumber}
+          New-Employee Batch Record Details - {viewDialog.record?.recordNumber}
         </DialogTitle>
         <DialogContent sx={{ p: { xs: 2, md: 3 } }}>
           <Box mb={4}>

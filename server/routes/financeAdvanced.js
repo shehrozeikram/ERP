@@ -33,6 +33,14 @@ const {
   getFinancePayrollBankLetter,
   markFinancePayrollPeriodPaid
 } = require('../utils/financePayrollQueue');
+const {
+  listManualSalaryFinanceQueue,
+  getManualSalaryFinancePeriodDetail,
+  submitManualSalaryPayment,
+  populateManualSalaryPaymentApp,
+  recordManualSalaryAuthorityApproval,
+  recordManualSalaryAuthorityRejection
+} = require('../utils/manualSalaryFinancePayment');
 const PayrollPeriodPaymentHelper = require('../utils/payrollPeriodPayment');
 const PayrollBankLetterService = require('../utils/payrollBankLetterService');
 const { requireCompanyFromRequest, findHistoricalCompany, resolveCompanyForFinanceRoute, companyQuery, voucherCompanyQuery, resolveDocumentCompanyId, isHistoricalCompany } = require('../utils/financeCompanyContext');
@@ -11106,6 +11114,128 @@ router.put('/payroll-period-payments/:id/finance-reject',
     res.json({
       success: true,
       message: 'Payroll payment rejected with observation. Draft BPV cancelled; company payroll remains unpaid. Sr Manager Accounts can correct and resubmit.',
+      data: fresh?.toObject ? fresh.toObject() : fresh
+    });
+  })
+);
+
+// ─── Manual Salary Finance Queue ─────────────────────────────────────────────
+
+// @route   GET /api/finance/manual-salary-queue
+router.get('/manual-salary-queue',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const queue = await listManualSalaryFinanceQueue();
+    res.json({ success: true, data: queue });
+  })
+);
+
+// @route   GET /api/finance/manual-salary-queue/:month/:year
+router.get('/manual-salary-queue/:month/:year',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const detail = await getManualSalaryFinancePeriodDetail(req.params.month, req.params.year);
+    res.json({ success: true, data: detail });
+  })
+);
+
+// @route   POST /api/finance/manual-salary-queue/:month/:year/make-payment
+router.post('/manual-salary-queue/:month/:year/make-payment',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  [
+    body('financeControllerUser').notEmpty().withMessage('GM Finance is required'),
+    body('paymentMethod').optional().isIn(['bank_transfer', 'cash', 'check']).withMessage('Invalid payment method')
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ success: false, message: 'Validation failed', errors: errors.array() });
+    }
+    const financeControllerUser =
+      req.body.financeControllerUser
+      || req.body.financeApprovalAuthorities?.financeControllerUser;
+    let companyId = req.body.payingCompanyId || req.body.companyId || null;
+    let companyName = req.body.companyName || '';
+    try {
+      const scoped = await requireCompanyFromRequest(req);
+      if (scoped?._id && !companyId) companyId = scoped._id;
+      if (scoped?.name && !companyName) companyName = scoped.name;
+    } catch (_e) {
+      /* company optional — accounts may resolve from selected pay-from account */
+    }
+    const result = await submitManualSalaryPayment(req.params.month, req.params.year, {
+      financeControllerUser,
+      paymentMethod: req.body.paymentMethod || 'bank_transfer',
+      reference: req.body.reference || '',
+      narration: req.body.narration || '',
+      paymentDate: req.body.paymentDate,
+      bankAccountId: req.body.bankAccountId || null,
+      companyId,
+      companyName,
+      actorId: req.user._id || req.user.id
+    });
+    res.json({
+      success: true,
+      message: `Manual salary payment for ${result.periodLabel} submitted (${result.employeeCount} employees, net ${Number(result.pendingAmount || 0).toLocaleString('en-PK')}). BPV pending GM Finance approval.`,
+      data: result
+    });
+  })
+);
+
+// @route   GET /api/finance/manual-salary-payments/by-journal-entry/:journalEntryId
+router.get('/manual-salary-payments/by-journal-entry/:journalEntryId',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const doc = await populateManualSalaryPaymentApp({ journalEntryId: req.params.journalEntryId });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Manual salary payment not found for this voucher' });
+    }
+    res.json({ success: true, data: doc.toObject ? doc.toObject() : doc });
+  })
+);
+
+// @route   PUT /api/finance/manual-salary-payments/:id/finance-approve
+router.put('/manual-salary-payments/:id/finance-approve',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const ManualSalaryPaymentApplication = require('../models/finance/ManualSalaryPaymentApplication');
+    const app = await ManualSalaryPaymentApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ success: false, message: 'Manual salary payment not found' });
+    if (app.workflowStatus !== 'pending_authority') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot approve when status is ${app.workflowStatus}`
+      });
+    }
+    const { remaining, finalized } = await recordManualSalaryAuthorityApproval(
+      app,
+      req.user,
+      req.body?.comments || ''
+    );
+    const fresh = await populateManualSalaryPaymentApp({ _id: app._id });
+    const message = finalized
+      ? `All finance authorities approved. BPV posted and manual salary marked Paid.`
+      : `Finance authority recorded. ${remaining} approval(s) remaining before manual salary is marked paid.`;
+    res.json({ success: true, message, data: fresh?.toObject ? fresh.toObject() : fresh });
+  })
+);
+
+// @route   PUT /api/finance/manual-salary-payments/:id/finance-reject
+router.put('/manual-salary-payments/:id/finance-reject',
+  authorize('super_admin', 'admin', 'finance_manager'),
+  asyncHandler(async (req, res) => {
+    const ManualSalaryPaymentApplication = require('../models/finance/ManualSalaryPaymentApplication');
+    const app = await ManualSalaryPaymentApplication.findById(req.params.id);
+    if (!app) return res.status(404).json({ success: false, message: 'Manual salary payment not found' });
+    await recordManualSalaryAuthorityRejection(
+      app,
+      req.user,
+      req.body?.comments || req.body?.rejectionComments || req.body?.observation || ''
+    );
+    const fresh = await populateManualSalaryPaymentApp({ _id: app._id });
+    res.json({
+      success: true,
+      message: 'Manual salary payment rejected. Draft BPV cancelled; sheets returned to Pending Finance.',
       data: fresh?.toObject ? fresh.toObject() : fresh
     });
   })

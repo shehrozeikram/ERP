@@ -88,7 +88,55 @@ const manualSalarySchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: ''
-  }
+  },
+
+  // Workflow (same pattern as New-Employee Onboarding, without Chairman / Sr Director)
+  workflowStatus: {
+    type: String,
+    enum: [
+      'Draft',
+      'Pending HOD HR',
+      'Pending AVP',
+      'Forwarded to CEO',
+      'Approved by CEO',
+      'Pending Finance',
+      'Payment Pending',
+      'Paid',
+      'Rejected by CEO',
+      'Returned'
+    ],
+    default: 'Pending HOD HR',
+    index: true
+  },
+  initiator: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  initiatedAt: { type: Date, default: Date.now },
+  requesterSignature: { type: String },
+
+  assignedHod: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  hodApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  hodApprovedAt: { type: Date },
+  hodComments: { type: String },
+  hodSignature: { type: String },
+
+  assignedAvp: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  avpApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  avpApprovedAt: { type: Date },
+  avpComments: { type: String },
+  avpSignature: { type: String },
+
+  ceoApprovedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  ceoApprovedAt: { type: Date },
+  ceoComments: { type: String },
+  ceoSignature: { type: String },
+
+  rejectionComments: { type: String },
+  returnComments: { type: String },
+
+  // Finance payment
+  paymentApplicationId: { type: mongoose.Schema.Types.ObjectId, ref: 'ManualSalaryPaymentApplication' },
+  paymentJournalEntryId: { type: mongoose.Schema.Types.ObjectId, ref: 'JournalEntry' },
+  paidAt: { type: Date },
+  paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, {
   timestamps: true
 });

@@ -60,6 +60,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import paymentSettlementService from '../../services/paymentSettlementService';
 import api from '../../services/api';
 import nonEmployeeService from '../../services/nonEmployeeService';
+import manualSalaryService from '../../services/manualSalaryService';
 import executiveApprovalsService from '../../services/executiveApprovalsService';
 import indentService from '../../services/indentService';
 import utilityBillService from '../../services/utilityBillService';
@@ -184,6 +185,7 @@ const ExecutiveCeoPaymentsSection = () => {
           isCashApproval: Boolean(item.isCashApproval),
           isPaymentSettlement: Boolean(item.isPaymentSettlement),
           isOnboarding: Boolean(item.isOnboarding),
+          isManualSalary: Boolean(item.isManualSalary),
           isIndent: Boolean(item.isIndent),
           isUtilityBill: Boolean(item.isUtilityBill),
           isVendorBill: Boolean(item.isVendorBill),
@@ -227,7 +229,7 @@ const ExecutiveCeoPaymentsSection = () => {
   const poItems = payments.filter((p) => p.isPurchaseOrder);
   const caItems = payments.filter((p) => p.isCashApproval);
   const settlementItems = payments.filter((p) => p.isPaymentSettlement);
-  const onboardingItems = payments.filter((p) => p.isOnboarding);
+  const onboardingItems = payments.filter((p) => p.isOnboarding || p.isManualSalary);
   const otherItems = payments.filter((p) => p.isIndent || p.isUtilityBill || p.isVendorBill);
 
   const totalAmount = payments.reduce((sum, p) => sum + (Number(p.displayAmount) || 0), 0);
@@ -240,7 +242,7 @@ const ExecutiveCeoPaymentsSection = () => {
     if (filterTab === 1 && !p.isPurchaseOrder) return false;
     if (filterTab === 2 && !p.isCashApproval) return false;
     if (filterTab === 3 && !p.isPaymentSettlement) return false;
-    if (filterTab === 4 && !p.isOnboarding) return false;
+    if (filterTab === 4 && !(p.isOnboarding || p.isManualSalary)) return false;
     if (filterTab === 5 && !(p.isIndent || p.isUtilityBill || p.isVendorBill)) return false;
     return true;
   });
@@ -346,6 +348,9 @@ const ExecutiveCeoPaymentsSection = () => {
       case 'Send to CEO Office': return 'info';
       case 'Forwarded to CEO': return 'warning';
       case 'Approved by CEO': return 'success';
+      case 'Pending Finance': return 'warning';
+      case 'Payment Pending': return 'info';
+      case 'Paid': return 'success';
       case 'Rejected by CEO': return 'error';
       case 'Returned from CEO Office': return 'warning';
       default: return 'default';
@@ -624,7 +629,14 @@ const ExecutiveCeoPaymentsSection = () => {
       Boolean(doc.isOnboarding) ||
       Boolean(doc.cnic) ||
       doc.itemType === 'Onboarding' ||
-      doc.typeLabel === 'Onboarding';
+      doc.itemType === 'New-Employee Onboarding' ||
+      doc.typeLabel === 'Onboarding' ||
+      doc.typeLabel === 'New-Employee Onboarding';
+    const isManualSalary =
+      Boolean(flags.isManualSalary) ||
+      Boolean(doc.isManualSalary) ||
+      doc.itemType === 'Manual Salary' ||
+      doc.typeLabel === 'Manual Salary';
     const isIndent =
       Boolean(flags.isIndent) ||
       Boolean(doc.isIndent) ||
@@ -642,13 +654,14 @@ const ExecutiveCeoPaymentsSection = () => {
     const isPaymentSettlement =
       Boolean(flags.isPaymentSettlement) ||
       Boolean(doc.isPaymentSettlement) ||
-      (!isPurchaseOrder && !isCashApproval && !isOnboarding && !isIndent && !isUtilityBill && !isVendorBill);
+      (!isPurchaseOrder && !isCashApproval && !isOnboarding && !isManualSalary && !isIndent && !isUtilityBill && !isVendorBill);
 
     return {
       ...doc,
       isPurchaseOrder,
       isCashApproval,
       isOnboarding,
+      isManualSalary,
       isIndent,
       isUtilityBill,
       isVendorBill,
@@ -658,7 +671,9 @@ const ExecutiveCeoPaymentsSection = () => {
         : isCashApproval
           ? 'Cash Approval'
           : isOnboarding
-            ? 'Onboarding'
+            ? 'New-Employee Onboarding'
+            : isManualSalary
+              ? 'Manual Salary'
             : isIndent
               ? 'Indent'
               : isUtilityBill
@@ -749,6 +764,22 @@ const ExecutiveCeoPaymentsSection = () => {
     return nonEmployeeService.rejectByCEO(item._id, payload);
   };
 
+  const approveManualSalaryForStatus = async (item, payload) => {
+    const status = resolveDocStatus(item);
+    if (status === 'Pending HOD HR') return manualSalaryService.approveByHOD(item._id, payload);
+    if (status === 'Pending AVP') return manualSalaryService.approveByAVP(item._id, payload);
+    if (status === 'Forwarded to CEO') return manualSalaryService.approveByCEO(item._id, payload);
+    return manualSalaryService.approveByCEO(item._id, payload);
+  };
+
+  const rejectManualSalaryForStatus = async (item, payload) => {
+    const status = resolveDocStatus(item);
+    if (status === 'Pending HOD HR') return manualSalaryService.rejectByHOD(item._id, payload);
+    if (status === 'Pending AVP') return manualSalaryService.rejectByAVP(item._id, payload);
+    if (status === 'Forwarded to CEO') return manualSalaryService.rejectByCEO(item._id, payload);
+    return manualSalaryService.rejectByCEO(item._id, payload);
+  };
+
   const handleApproveSubmit = async () => {
     if (!approvalAgree) {
       toast.error('Please confirm approval checkbox');
@@ -764,7 +795,7 @@ const ExecutiveCeoPaymentsSection = () => {
     }
 
     const effectiveSig = getAutoDigitalSignature();
-    if (!item.isCashApproval && !item.isOnboarding && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
+    if (!item.isCashApproval && !item.isOnboarding && !item.isManualSalary && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
@@ -805,7 +836,13 @@ const ExecutiveCeoPaymentsSection = () => {
           comments: approvalComments,
           signature: effectiveSig
         });
-        toast.success(`Onboarding ${item.displayRef} approved`);
+        toast.success(`New-Employee Onboarding ${item.displayRef} approved`);
+      } else if (item.isManualSalary) {
+        await approveManualSalaryForStatus(item, {
+          comments: approvalComments,
+          signature: effectiveSig
+        });
+        toast.success(`Manual salary ${item.displayRef} approved`);
       } else if (item.isIndent) {
         await indentService.approveIndent(item._id);
         toast.success(`Indent ${item.displayRef || item.indentNumber} approved`);
@@ -853,7 +890,7 @@ const ExecutiveCeoPaymentsSection = () => {
     }
 
     const effectiveSig = getAutoDigitalSignature();
-    if (!item.isOnboarding && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
+    if (!item.isOnboarding && !item.isManualSalary && !item.isIndent && !item.isUtilityBill && !item.isVendorBill && !effectiveSig) {
       toast.error('No digital signature on your profile. Please add one in Profile settings.');
       return;
     }
@@ -895,6 +932,12 @@ const ExecutiveCeoPaymentsSection = () => {
         }
       } else if (item.isOnboarding) {
         await rejectOnboardingForStatus(item, {
+          comments: rejectionComments,
+          signature: effectiveSig,
+          observations: validObs
+        });
+      } else if (item.isManualSalary) {
+        await rejectManualSalaryForStatus(item, {
           comments: rejectionComments,
           signature: effectiveSig,
           observations: validObs
@@ -964,6 +1007,12 @@ const ExecutiveCeoPaymentsSection = () => {
         });
       } else if (item.isOnboarding) {
         await nonEmployeeService.returnByCEO(item._id, {
+          comments: returnComments,
+          signature: effectiveSig,
+          observations: validObs
+        });
+      } else if (item.isManualSalary) {
+        await manualSalaryService.returnByCEO(item._id, {
           comments: returnComments,
           signature: effectiveSig,
           observations: validObs
@@ -1866,7 +1915,7 @@ const ExecutiveCeoPaymentsSection = () => {
                 : viewDialog.isCashApproval
                 ? 'Cash Approval Details'
                 : viewDialog.isOnboarding
-                ? 'Onboarding Details'
+                ? 'New-Employee Onboarding Details'
                 : viewDialog.isIndent
                 ? 'Indent Details'
                 : viewDialog.isUtilityBill

@@ -601,7 +601,7 @@ export const MODULES = {
           { name: 'KPI Reports', path: '/hr/kpi/reports' }
         ]
       },
-      { name: 'Non-Employee Onboarding', path: '/hr/non-employee-onboarding' },
+      { name: 'New-Employee Onboarding', path: '/hr/non-employee-onboarding' },
       { name: 'Reports', path: '/hr/reports' }
     ]
   },

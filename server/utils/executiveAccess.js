@@ -166,6 +166,24 @@ const sameUserId = (a, b) => {
   return Boolean(left && right && left === right);
 };
 
+/** Non-production only — never enable name-based Sr Director fallback in production. */
+const isNonProductionRuntime = () => {
+  const env = String(process.env.NODE_ENV || 'development').toLowerCase();
+  return env !== 'production';
+};
+
+/**
+ * Development-only: Hamza Tanveer is the New-Employee Onboarding Sr Director.
+ * Matches by email/name so local assignee/role mismatches still allow approve/reject.
+ */
+const isDevNewEmployeeSrDirectorApprover = (user) => {
+  if (!user || !isNonProductionRuntime()) return false;
+  const email = String(user.email || '').trim().toLowerCase();
+  if (email === 'hamzatanveer@tovus.net') return true;
+  const fullName = normalizeToken(`${user.firstName || ''} ${user.lastName || ''}`);
+  return fullName === 'hamzatanveer' || fullName.includes('hamzatanveer');
+};
+
 module.exports = {
   normalizeToken,
   getUserIdentityTokens,
@@ -178,5 +196,7 @@ module.exports = {
   hasCeoSecretariatAccess,
   canViewCeoForwardedQueue,
   userMatchesText,
-  sameUserId
+  sameUserId,
+  isNonProductionRuntime,
+  isDevNewEmployeeSrDirectorApprover
 };

@@ -7,6 +7,7 @@ const PurchaseOrder = require('../models/procurement/PurchaseOrder');
 const CashApproval = require('../models/procurement/CashApproval');
 const PaymentSettlement = require('../models/hr/PaymentSettlement');
 const NonEmployeeRecord = require('../models/hr/NonEmployeeRecord');
+const ManualSalary = require('../models/hr/ManualSalary');
 const Indent = require('../models/general/Indent');
 const UtilityBill = require('../models/hr/UtilityBill');
 const AccountsPayable = require('../models/finance/AccountsPayable');
@@ -17,7 +18,8 @@ const {
   isExecutiveOverride,
   resolveDesignatedCeoUserIds,
   userMatchesText,
-  sameUserId
+  sameUserId,
+  isDevNewEmployeeSrDirectorApprover
 } = require('./executiveAccess');
 const {
   isAssignedByAuthorityText: isAssignedByPoAuthorityText,
@@ -72,6 +74,7 @@ const card = (partial) => ({
   isCashApproval: partial.type === 'cash_approval',
   isPaymentSettlement: partial.type === 'payment_settlement',
   isOnboarding: partial.type === 'onboarding',
+  isManualSalary: partial.type === 'manual_salary',
   isIndent: partial.type === 'indent',
   isUtilityBill: partial.type === 'utility_bill',
   isVendorBill: partial.type === 'vendor_bill',
@@ -496,16 +499,76 @@ async function fetchSettlementsForUser(user) {
   return cards;
 }
 
+async function fetchManualSalariesForUser(user) {
+  const uid = String(user._id || user.id || '');
+  const isCeo = isDesignatedCeoApprover(user);
+  const canViewCeoQueue = canViewCeoForwardedQueue(user);
+  const or = [
+    { workflowStatus: 'Pending HOD HR', assignedHod: uid },
+    { workflowStatus: 'Pending AVP', assignedAvp: uid }
+  ];
+  if (canViewCeoQueue) or.push({ workflowStatus: 'Forwarded to CEO' });
+
+  const docs = await ManualSalary.find({ $or: or })
+    .populate('assignedHod', 'firstName lastName')
+    .populate('assignedAvp', 'firstName lastName')
+    .sort({ updatedAt: -1 })
+    .limit(100)
+    .lean();
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  return docs.map((r) => {
+    const ws = r.workflowStatus;
+    let canAct = false;
+    let ceoViewOnly = false;
+    if (ws === 'Forwarded to CEO') {
+      canAct = isCeo;
+      ceoViewOnly = !isCeo && canViewCeoQueue;
+    } else if (ws === 'Pending HOD HR' && sameUserId(r.assignedHod, uid)) canAct = true;
+    else if (ws === 'Pending AVP' && sameUserId(r.assignedAvp, uid)) canAct = true;
+
+    if (!canAct && !ceoViewOnly) return null;
+
+    const period = `${monthNames[(r.month || 1) - 1] || ''} ${r.year || ''}`.trim();
+    return card({
+      id: r._id,
+      type: 'manual_salary',
+      itemType: 'Manual Salary',
+      number: r.empId || String(r._id).slice(-6),
+      status: r.workflowStatus,
+      date: r.updatedAt || r.createdAt,
+      amount: r.netPayable,
+      party: r.name,
+      company: r.project || null,
+      subtitle: `Manual salary — ${period}${r.designation ? ` · ${r.designation}` : ''}`,
+      department: 'HR',
+      path: `/hr/payroll`,
+      ceoViewOnly,
+      canAct,
+      raw: r
+    });
+  }).filter(Boolean);
+}
+
 async function fetchOnboardingForUser(user) {
   const uid = String(user._id || user.id || '');
   const isCeo = isDesignatedCeoApprover(user);
   const canViewCeoQueue = canViewCeoForwardedQueue(user);
+  const isDevSrDirector = isDevNewEmployeeSrDirectorApprover(user);
   const or = [
     { workflowStatus: 'Pending AVP', assignedAvp: uid },
     { workflowStatus: 'Pending Chairman', assignedChairman: uid },
     { workflowStatus: 'Pending HOD HR', assignedHod: uid },
     { workflowStatus: 'Pending Sr Director', assignedSrDirector: uid }
   ];
+  // Dev only: Hamza Tanveer can see all Pending Sr Director onboarding items
+  if (isDevSrDirector) {
+    or.push({ workflowStatus: 'Pending Sr Director' });
+  }
   if (canViewCeoQueue) or.push({ workflowStatus: 'Forwarded to CEO' });
 
   const docs = await NonEmployeeRecord.find({ $or: or })
@@ -535,21 +598,26 @@ async function fetchOnboardingForUser(user) {
     } else if (ws === 'Pending AVP' && sameAssignee(r.assignedAvp)) canAct = true;
     else if (ws === 'Pending Chairman' && sameAssignee(r.assignedChairman)) canAct = true;
     else if (ws === 'Pending HOD HR' && sameAssignee(r.assignedHod)) canAct = true;
-    else if (ws === 'Pending Sr Director' && sameAssignee(r.assignedSrDirector)) canAct = true;
+    else if (
+      ws === 'Pending Sr Director'
+      && (sameAssignee(r.assignedSrDirector) || isDevSrDirector)
+    ) {
+      canAct = true;
+    }
 
     if (!canAct && !ceoViewOnly) return null;
 
     return card({
       id: r._id,
       type: 'onboarding',
-      itemType: 'Onboarding',
+      itemType: 'New-Employee Onboarding',
       number: r.recordNumber || first?.cnic || String(r._id),
       status: r.workflowStatus,
       date: r.updatedAt || r.createdAt,
       amount: null,
       party: `${party || '—'}${extra}`,
       company: resolveCompanyLabel(r, first) || first?.project || first?.location || null,
-      subtitle: 'Non-employee onboarding',
+      subtitle: 'New-Employee Onboarding',
       department: 'HR',
       path: `/hr/non-employee-onboarding`,
       ceoViewOnly,
@@ -760,6 +828,7 @@ async function buildExecutiveMyApprovals(user) {
     cashApprovals,
     settlements,
     onboarding,
+    manualSalaries,
     indents,
     utilityBills,
     vendorBills
@@ -778,6 +847,10 @@ async function buildExecutiveMyApprovals(user) {
     }),
     fetchOnboardingForUser(user).catch((e) => {
       console.error('[executiveMyApprovals] Onboarding', e.message);
+      return [];
+    }),
+    fetchManualSalariesForUser(user).catch((e) => {
+      console.error('[executiveMyApprovals] ManualSalary', e.message);
       return [];
     }),
     fetchIndentsForUser(user, ceoIds).catch((e) => {
@@ -799,6 +872,7 @@ async function buildExecutiveMyApprovals(user) {
     ...cashApprovals,
     ...settlements,
     ...onboarding,
+    ...manualSalaries,
     ...indents,
     ...utilityBills,
     ...vendorBills
@@ -809,6 +883,7 @@ async function buildExecutiveMyApprovals(user) {
     cash_approval: cashApprovals.length,
     payment_settlement: settlements.length,
     onboarding: onboarding.length,
+    manual_salary: manualSalaries.length,
     indent: indents.length,
     utility_bill: utilityBills.length,
     vendor_bill: vendorBills.length,

@@ -507,6 +507,12 @@ const UtilityBillForm = () => {
 
   const billLinesTotal = billLines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
 
+  const lockedBillKind = useMemo(() => {
+    if (!isCentralizedStoreBill) return null;
+    const fromLines = getLockedBillKindFromLines(billLines);
+    return fromLines || preferredBillKind || null;
+  }, [isCentralizedStoreBill, billLines, preferredBillKind]);
+
   const itemsInSelectedCategory = useMemo(() => {
     const finalCat = selectedBillSubCategory || selectedBillCategory;
     if (!finalCat?._id) return [];
@@ -514,14 +520,13 @@ const UtilityBillForm = () => {
     const validCatIds = storeCategories
       .filter(c => String(c._id) === catId || String(c.parentCategory?._id || c.parentCategory) === catId)
       .map(c => String(c._id));
-    return storeItems.filter((item) => validCatIds.includes(String(item.category?._id || item.category)));
-  }, [storeItems, selectedBillCategory, selectedBillSubCategory, storeCategories]);
-
-  const lockedBillKind = useMemo(() => {
-    if (!isCentralizedStoreBill) return null;
-    const fromLines = getLockedBillKindFromLines(billLines);
-    return fromLines || preferredBillKind || null;
-  }, [isCentralizedStoreBill, billLines, preferredBillKind]);
+    const kind = lockedBillKind || preferredBillKind;
+    return storeItems.filter((item) => {
+      if (!validCatIds.includes(String(item.category?._id || item.category))) return false;
+      if (!isCentralizedStoreBill || !kind) return true;
+      return storeItemMatchesBillKind(item, kind);
+    });
+  }, [storeItems, selectedBillCategory, selectedBillSubCategory, storeCategories, isCentralizedStoreBill, lockedBillKind, preferredBillKind]);
 
   const isUtilityBillForm =
     isCentralizedStoreBill &&
@@ -532,6 +537,16 @@ const UtilityBillForm = () => {
     if (!isCentralizedStoreBill || !lockedBillKind) return topLevel;
     return topLevel.filter((cat) => categoryMatchesBillKind(cat.name, lockedBillKind));
   }, [storeCategories, isCentralizedStoreBill, lockedBillKind]);
+
+  const subCategoriesForBillKind = useMemo(() => {
+    if (!selectedBillCategory?._id) return [];
+    const parentId = String(selectedBillCategory._id);
+    return (storeCategories || []).filter((c) => {
+      if (String(c.parentCategory?._id || c.parentCategory) !== parentId) return false;
+      if (!isCentralizedStoreBill || !lockedBillKind) return true;
+      return categoryMatchesBillKind(c.name, lockedBillKind);
+    });
+  }, [storeCategories, selectedBillCategory, isCentralizedStoreBill, lockedBillKind]);
 
   useEffect(() => {
     if (!useStoreBill) return;
@@ -1454,7 +1469,7 @@ const UtilityBillForm = () => {
                         </FormControl>
                       </Grid>
                       <Grid item xs={12} sm={6}>
-                        <FormControl fullWidth disabled={!selectedBillCategory || !(storeCategories || []).some(c => String(c.parentCategory?._id || c.parentCategory) === String(selectedBillCategory?._id))}>
+                        <FormControl fullWidth disabled={!selectedBillCategory || subCategoriesForBillKind.length === 0}>
                           <InputLabel>Sub Category</InputLabel>
                           <Select
                             value={selectedBillSubCategory?._id || ''}
@@ -1468,7 +1483,7 @@ const UtilityBillForm = () => {
                             <MenuItem value="">
                               <em>None</em>
                             </MenuItem>
-                            {(storeCategories || []).filter(c => String(c.parentCategory?._id || c.parentCategory) === String(selectedBillCategory?._id)).map((cat) => (
+                            {subCategoriesForBillKind.map((cat) => (
                               <MenuItem key={cat?._id || cat?.name} value={cat?._id}>
                                 {cat?.name}
                               </MenuItem>

@@ -175,7 +175,7 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
-      <DialogTitle>{editData ? 'Edit Non-Employee Record' : 'New Non-Employee Record'}</DialogTitle>
+      <DialogTitle>{editData ? 'Edit New-Employee Record' : 'New-Employee Record'}</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent dividers>
           <Box mb={1} display="flex" justifyContent="space-between" alignItems="center">

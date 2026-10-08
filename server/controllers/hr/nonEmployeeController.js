@@ -1,12 +1,24 @@
 const NonEmployeeRecord = require('../../models/hr/NonEmployeeRecord');
 const { validationResult } = require('express-validator');
 const mongoose = require('mongoose');
+const {
+  sameUserId,
+  isDevNewEmployeeSrDirectorApprover
+} = require('../../utils/executiveAccess');
 
 const optionalUserId = (value) => {
   if (value === undefined || value === null || value === '' || value === 'null' || value === 'undefined') {
     return undefined;
   }
   return value;
+};
+
+const actorUserId = (user) => String(user?.id || user?._id || '');
+
+const canActAsAssignedOrDevSrDirector = (assignedField, user) => {
+  if (!assignedField) return true;
+  if (sameUserId(assignedField, actorUserId(user))) return true;
+  return isDevNewEmployeeSrDirectorApprover(user);
 };
 
 exports.createRecord = async (req, res) => {
@@ -255,13 +267,8 @@ exports.approveBySrDirector = async (req, res) => {
       return res.status(400).json({ success: false, error: `Invalid status: ${record.workflowStatus}` });
     }
 
-    if (record.assignedSrDirector) {
-      const assignedId = record.assignedSrDirector._id
-        ? record.assignedSrDirector._id.toString()
-        : record.assignedSrDirector.toString();
-      if (assignedId !== req.user.id) {
-        return res.status(403).json({ success: false, error: 'You are not the assigned Sr Director for this record' });
-      }
+    if (!canActAsAssignedOrDevSrDirector(record.assignedSrDirector, req.user)) {
+      return res.status(403).json({ success: false, error: 'You are not the assigned Sr Director for this record' });
     }
 
     record.workflowStatus = 'Forwarded to CEO';
@@ -290,13 +297,8 @@ exports.rejectBySrDirector = async (req, res) => {
       return res.status(400).json({ success: false, error: `Invalid status: ${record.workflowStatus}` });
     }
 
-    if (record.assignedSrDirector) {
-      const assignedId = record.assignedSrDirector._id
-        ? record.assignedSrDirector._id.toString()
-        : record.assignedSrDirector.toString();
-      if (assignedId !== req.user.id) {
-        return res.status(403).json({ success: false, error: 'You are not the assigned Sr Director for this record' });
-      }
+    if (!canActAsAssignedOrDevSrDirector(record.assignedSrDirector, req.user)) {
+      return res.status(403).json({ success: false, error: 'You are not the assigned Sr Director for this record' });
     }
 
     record.workflowStatus = 'Returned';

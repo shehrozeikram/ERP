@@ -17,6 +17,8 @@ import {
   Select,
   Snackbar,
   Stack,
+  Tab,
+  Tabs,
   Table,
   Autocomplete,
   TableBody,
@@ -49,6 +51,7 @@ import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/pay
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import PayrollMonthlyComparisonDialog from '../../components/HR/PayrollMonthlyComparisonDialog';
 import PayrollBpvDeductionSummary from '../../components/Finance/PayrollBpvDeductionSummary';
+import ManualSalaryFinanceTab from '../../components/Finance/ManualSalaryFinanceTab';
 import {
   downloadPayrollBankLetterExcel,
   openPayrollBankLetterPrint
@@ -119,6 +122,8 @@ const payrollEmployeeStatusChip = (status) => {
 
 export default function FinancePayroll() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') === 'manual' ? 1 : 0;
+  const [mainTab, setMainTab] = useState(initialTab);
   const [queue, setQueue] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -619,20 +624,41 @@ export default function FinancePayroll() {
     }
   };
 
+  const handleMainTabChange = (_e, value) => {
+    setMainTab(value);
+    const next = new URLSearchParams(searchParams);
+    if (value === 1) next.set('tab', 'manual');
+    else next.delete('tab');
+    setSearchParams(next, { replace: true });
+  };
+
   return (
     <Box sx={{ p: 3 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
         <Box>
           <Typography variant="h4">Payroll — Finance</Typography>
           <Typography variant="body2" color="text.secondary">
-            AVP-approved monthly payroll and comparison reports for salary payment processing.
+            Monthly payroll and CEO-approved Manual Salary payment processing.
           </Typography>
         </Box>
-        <Button startIcon={<RefreshIcon />} onClick={loadQueue} disabled={loading}>
-          Refresh
-        </Button>
+        {mainTab === 0 ? (
+          <Button startIcon={<RefreshIcon />} onClick={loadQueue} disabled={loading}>
+            Refresh
+          </Button>
+        ) : null}
       </Stack>
 
+      <Tabs value={mainTab} onChange={handleMainTabChange} sx={{ mb: 2 }}>
+        <Tab label="Monthly Payroll" />
+        <Tab label="Manual Salary" />
+      </Tabs>
+
+      {mainTab === 1 ? (
+        <ManualSalaryFinanceTab
+          onSnackbar={(payload) => setSnackbar(payload)}
+        />
+      ) : (
+      <>
       {error ? <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert> : null}
 
       <Paper sx={{ mb: 3 }}>
@@ -1435,6 +1461,8 @@ export default function FinancePayroll() {
           </Stack>
         </DialogActions>
       </Dialog>
+      </>
+      )}
 
       <Snackbar
         open={snackbar.open}

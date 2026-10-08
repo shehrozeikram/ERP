@@ -1,6 +1,6 @@
 /**
  * Centralized Store bill kind: regular "Bills" vs "Utility Bills".
- * Utility = electricity / gas / water / internet / phone / rent style charges.
+ * Utility = electricity / gas / water / internet / phone meter-style charges.
  */
 
 export const UTILITY_BILL_TYPES = [
@@ -11,17 +11,36 @@ export const UTILITY_BILL_TYPES = [
   'Phone'
 ];
 
-const UTILITY_CATEGORY_KEYWORDS = [
-  'electric',
-  'iesco',
+/** Exact / known utility category titles (normalized). */
+const UTILITY_CATEGORY_EXACT = new Set([
+  'electricity',
   'gas',
-  'sngpl',
   'water',
   'internet',
+  'phone',
+  'iesco',
+  'sngpl',
+  'cda water',
   'ptcl',
   'nayatel',
-  'phone',
-  'telecom'
+  'ptcl-nayatel',
+  'ptcl nayatel',
+  'utilities',
+  'utilities charges',
+  'utility charges',
+  'internet / broadband',
+  'internet/broadband'
+]);
+
+/**
+ * Expense categories that contain utility-ish words but are regular bill lines
+ * (e.g. bottled drinking water, electrical repairs).
+ */
+const NON_UTILITY_CATEGORY_EXCEPTIONS = [
+  'drinking water',
+  'r&m - electrical',
+  'r&m electrical',
+  'electrical'
 ];
 
 const normalize = (value) => String(value || '').trim().toLowerCase();
@@ -32,7 +51,29 @@ export const isUtilityBillType = (utilityType) =>
 export const isUtilityCategoryName = (categoryName = '') => {
   const n = normalize(categoryName);
   if (!n) return false;
-  return UTILITY_CATEGORY_KEYWORDS.some((k) => n === k || n.includes(k));
+
+  if (NON_UTILITY_CATEGORY_EXCEPTIONS.some((ex) => n === ex || n.includes(ex))) {
+    return false;
+  }
+
+  if (UTILITY_CATEGORY_EXACT.has(n)) return true;
+
+  // Longer provider / utility-head tokens (safe for includes)
+  if (
+    n.includes('iesco')
+    || n.includes('sngpl')
+    || n.includes('nayatel')
+    || n.includes('electricity')
+    || n.includes('utilities charge')
+    || n.includes('utility charge')
+  ) {
+    return true;
+  }
+  if (/\bptcl\b/.test(n)) return true;
+
+  // Short tokens: whole-word only (avoids "Drinking Water", "R&M - Electrical")
+  return /\b(gas|water|internet|phone|telecom)\b/.test(n)
+    && !n.includes('drinking');
 };
 
 export const lineLooksUtility = (line = {}) => {

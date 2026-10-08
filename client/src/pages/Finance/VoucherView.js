@@ -48,8 +48,9 @@ const resolveCompanyName = (entry, linkedDocs, companies) => {
     if (match?.name) return match.name;
   }
 
-  const { payrollPeriodPaymentApp, apPaymentApp, vendorAdvanceDoc } = linkedDocs;
+  const { payrollPeriodPaymentApp, manualSalaryPaymentApp, apPaymentApp, vendorAdvanceDoc } = linkedDocs;
   if (payrollPeriodPaymentApp?.companyName) return payrollPeriodPaymentApp.companyName;
+  if (manualSalaryPaymentApp?.companyName) return manualSalaryPaymentApp.companyName;
   if (apPaymentApp?.companyName) return apPaymentApp.companyName;
   const payingCo = vendorAdvanceDoc?.payingCompany || vendorAdvanceDoc?.payingCompanyId;
   const owningCo = vendorAdvanceDoc?.company || vendorAdvanceDoc?.companyId;
@@ -80,6 +81,7 @@ const VoucherView = () => {
   const [vendorAdvanceDoc, setVendorAdvanceDoc] = useState(null);
   const [apPaymentApp, setApPaymentApp] = useState(null);
   const [payrollPeriodPaymentApp, setPayrollPeriodPaymentApp] = useState(null);
+  const [manualSalaryPaymentApp, setManualSalaryPaymentApp] = useState(null);
   const [approvalMsg, setApprovalMsg] = useState('');
   const [loadError, setLoadError] = useState('');
 
@@ -125,6 +127,7 @@ const VoucherView = () => {
         setVendorAdvanceDoc(null);
         setApPaymentApp(null);
         setPayrollPeriodPaymentApp(null);
+        setManualSalaryPaymentApp(null);
         return;
       }
       try {
@@ -138,6 +141,12 @@ const VoucherView = () => {
         setPayrollPeriodPaymentApp(payrollRes?.data?.data || null);
       } catch (_e) {
         setPayrollPeriodPaymentApp(null);
+      }
+      try {
+        const msalRes = await api.get(`/finance/manual-salary-payments/by-journal-entry/${entry._id}`);
+        setManualSalaryPaymentApp(msalRes?.data?.data || null);
+      } catch (_e) {
+        setManualSalaryPaymentApp(null);
       }
       try {
         const res = await api.get(`/finance/vendor-advances/by-journal-entry/${entry._id}`);
@@ -206,6 +215,15 @@ const VoucherView = () => {
     }
   };
 
+  const refreshManualSalaryPaymentApp = async () => {
+    try {
+      const res = await api.get(`/finance/manual-salary-payments/by-journal-entry/${id}`);
+      setManualSalaryPaymentApp(res?.data?.data || manualSalaryPaymentApp);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const approveMyAuthorityFromVoucher = async () => {
     try {
       setApprovalMsg('');
@@ -225,6 +243,15 @@ const VoucherView = () => {
         await refreshPayrollPeriodPaymentApp();
         await reloadEntry();
         setApprovalMsg('Authority approval recorded. Payroll records are marked paid when GM Finance approves on the BPV.');
+        return;
+      }
+      if (manualSalaryPaymentApp?._id) {
+        await api.put(`/finance/manual-salary-payments/${manualSalaryPaymentApp._id}/finance-approve`, {
+          comments: 'Approved from Voucher page'
+        });
+        await refreshManualSalaryPaymentApp();
+        await reloadEntry();
+        setApprovalMsg('Authority approval recorded. Manual salary is marked Paid when GM Finance approves on the BPV.');
         return;
       }
       if (cashApproval?._id) {
@@ -278,6 +305,13 @@ const VoucherView = () => {
         setApprovalMsg('Payroll payment rejected with observation. BPV cancelled; Sr Manager Accounts can correct and resubmit.');
         return;
       }
+      if (manualSalaryPaymentApp?._id) {
+        await api.put(`/finance/manual-salary-payments/${manualSalaryPaymentApp._id}/finance-reject`, { comments });
+        await refreshManualSalaryPaymentApp();
+        await reloadEntry();
+        setApprovalMsg('Manual salary payment rejected. BPV cancelled; sheets returned to Pending Finance.');
+        return;
+      }
       if (cashApproval?._id) {
         await api.put(`/cash-approvals/${cashApproval._id}/finance-reject`, { comments });
         const refreshed = await api.get(`/cash-approvals/${cashApproval._id}`);
@@ -305,15 +339,18 @@ const VoucherView = () => {
   };
 
   const isManualJV = entry?.referenceType === 'manual';
-  const financeAuthorityDoc = isManualJV ? null : (apPaymentApp || payrollPeriodPaymentApp || vendorAdvanceDoc || cashApproval);
+  const financeAuthorityDoc = isManualJV
+    ? null
+    : (apPaymentApp || payrollPeriodPaymentApp || manualSalaryPaymentApp || vendorAdvanceDoc || cashApproval);
   const pendingAuthorityVoucher = !isManualJV && (
     (apPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
     || (payrollPeriodPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
+    || (manualSalaryPaymentApp?.workflowStatus === 'pending_authority' && entry?.status === 'draft')
     || (vendorAdvanceDoc?.voucherWorkflowStatus === 'pending_authority' && entry?.status === 'draft')
   );
 
   const authoritySlots = useMemo(() => {
-    if (payrollPeriodPaymentApp) {
+    if (payrollPeriodPaymentApp || manualSalaryPaymentApp) {
       return [
         { key: 'accountsManagerUser', label: 'Sr Manager Accounts' },
         { key: 'financeControllerUser', label: 'GM Finance' }
@@ -327,7 +364,7 @@ const VoucherView = () => {
       { key: 'ceoUser', label: 'CEO', hardcodedName: 'Sardar Umer Tanveer' },
       { key: 'presidentUser', label: 'President', hardcodedName: 'Sardar Tanveer Ilyas' }
     ];
-  }, [payrollPeriodPaymentApp]);
+  }, [payrollPeriodPaymentApp, manualSalaryPaymentApp]);
 
   const myPendingAuthorityLabels = useMemo(() => {
     if (!financeAuthorityDoc || !user) return [];
@@ -344,8 +381,8 @@ const VoucherView = () => {
   const voucherType = useMemo(() => String(entry?.referenceType || 'manual').toUpperCase(), [entry]);
   const voucherTitle = useMemo(() => resolveVoucherTitle(entry), [entry]);
   const voucherCompanyName = useMemo(
-    () => resolveCompanyName(entry, { payrollPeriodPaymentApp, apPaymentApp, vendorAdvanceDoc }, companies),
-    [entry, payrollPeriodPaymentApp, apPaymentApp, vendorAdvanceDoc, companies]
+    () => resolveCompanyName(entry, { payrollPeriodPaymentApp, manualSalaryPaymentApp, apPaymentApp, vendorAdvanceDoc }, companies),
+    [entry, payrollPeriodPaymentApp, manualSalaryPaymentApp, apPaymentApp, vendorAdvanceDoc, companies]
   );
   const monthName = useMemo(() => {
     if (!entry?.date) return '—';
@@ -360,9 +397,12 @@ const VoucherView = () => {
   const payrollPeriodLabel =
     entry?.payrollVoucherSummary?.periodLabel
     || payrollPeriodPaymentApp?.periodLabel
+    || manualSalaryPaymentApp?.periodLabel
     || monthName;
   const payrollEmployeeCount =
-    entry?.payrollVoucherSummary?.employeeCount ?? payrollPeriodPaymentApp?.employeeCount;
+    entry?.payrollVoucherSummary?.employeeCount
+    ?? payrollPeriodPaymentApp?.employeeCount
+    ?? manualSalaryPaymentApp?.employeeCount;
 
   if (loading) return <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>;
   if (!entry) {
@@ -593,9 +633,22 @@ const VoucherView = () => {
                   {' · '}Payment: {formatPKR(payrollPeriodPaymentApp.amount || 0)}
                 </Typography>
               ) : null}
+              {manualSalaryPaymentApp ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Manual Salary
+                  {' · '}Period: <strong>{manualSalaryPaymentApp.periodLabel || '—'}</strong>
+                  {' · '}{manualSalaryPaymentApp.employeeCount || 0} employees
+                  {' · '}Payment: {formatPKR(manualSalaryPaymentApp.amount || 0)}
+                </Typography>
+              ) : null}
               {payrollPeriodPaymentApp?.rejectionObservation ? (
                 <Alert severity="error" sx={{ mb: 1, '@media print': { display: 'none' } }}>
                   Rejection observation: {payrollPeriodPaymentApp.rejectionObservation}
+                </Alert>
+              ) : null}
+              {manualSalaryPaymentApp?.rejectionObservation ? (
+                <Alert severity="error" sx={{ mb: 1, '@media print': { display: 'none' } }}>
+                  Rejection observation: {manualSalaryPaymentApp.rejectionObservation}
                 </Alert>
               ) : null}
               {myPendingAuthorityLabels.length > 0 ? (
