@@ -21,7 +21,7 @@ import {
   Checkbox,
   Grid
 } from '@mui/material';
-import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon } from '@mui/icons-material';
+import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon, Print as PrintIcon } from '@mui/icons-material';
 import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
 import { formatDateTime } from '../../../utils/dateUtils';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -29,6 +29,7 @@ import nonEmployeeService from '../../../services/nonEmployeeService';
 import NonEmployeeForm from './NonEmployeeForm';
 import { useAuth } from '../../../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import { printNewHiringApproval } from '../../../utils/newHiringApprovalPrint';
 
 const NonEmployeeOnboarding = () => {
   const [records, setRecords] = useState([]);
@@ -698,7 +699,17 @@ const NonEmployeeOnboarding = () => {
             </Paper>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 2, bgcolor: 'background.default', borderTop: '1px solid', borderColor: 'divider' }}>
+        <DialogActions sx={{ p: 2, bgcolor: 'background.default', borderTop: '1px solid', borderColor: 'divider', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<PrintIcon />}
+            onClick={() => {
+              const result = printNewHiringApproval(viewDialog.record);
+              if (!result?.ok) toast.error(result?.message || 'Unable to print');
+            }}
+          >
+            Print
+          </Button>
           <Button variant="contained" color="inherit" onClick={() => setViewDialog({ open: false, record: null })}>Close window</Button>
         </DialogActions>
       </Dialog>
