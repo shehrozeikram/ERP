@@ -140,7 +140,9 @@ const defaultFlags = {
   canEditEmployeeCols: true,
   // Safer before GET returns; reporting-line columns are not for the sheet owner (except HR tooling).
   canEditManagerCols: false,
-  canDeleteRowsAsReportingLine: false
+  canDeleteRowsAsReportingLine: false,
+  employeeCategory: null,
+  scoredBy: 'employee_and_manager'
 };
 
 /** Employee locked the row once total assigned > 0 (achieved may be 0). */
@@ -600,6 +602,9 @@ const KPIMonthlySheet = () => {
       ? 'Team KPI reviews (Reporting line)'
       : 'My monthly KPI sheet';
   const { canEditStructure, canEditEmployeeCols } = editFlags;
+  const isBlueCollar =
+    editFlags.employeeCategory === 'blue_collar' || editFlags.scoredBy === 'manager_only'
+    || sheet?.employee?.employeeCategory === 'blue_collar';
 
   const handleExportPDF = async () => {
     if (!rows || rows.length === 0) {
@@ -652,6 +657,12 @@ const KPIMonthlySheet = () => {
       {isTeamReviewPage && (
         <Alert severity={pendingReviews > 0 ? 'warning' : 'success'} sx={{ mb: 2 }}>
           Pending reviews this month: <strong>{pendingReviews}</strong>
+        </Alert>
+      )}
+      {isBlueCollar && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          <strong>Blue collar KPI</strong> — supervisor / reporting line enters marks only.
+          The employee does not self-score. KPIs come from their designation pack.
         </Alert>
       )}
 
@@ -853,11 +864,13 @@ const KPIMonthlySheet = () => {
                   <TableCell rowSpan={2} align="right">
                     Weight %
                   </TableCell>
+                  {!isBlueCollar && (
+                    <TableCell colSpan={2} align="center">
+                      Employee
+                    </TableCell>
+                  )}
                   <TableCell colSpan={2} align="center">
-                    Employee
-                  </TableCell>
-                  <TableCell colSpan={2} align="center">
-                    Reporting line
+                    {isBlueCollar ? 'Supervisor marks' : 'Reporting line'}
                   </TableCell>
                   <TableCell rowSpan={2} align="right">
                     Achievement %
@@ -873,8 +886,12 @@ const KPIMonthlySheet = () => {
                   </TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell align="right">Achieved</TableCell>
-                  <TableCell align="right">Total assigned</TableCell>
+                  {!isBlueCollar && (
+                    <>
+                      <TableCell align="right">Achieved</TableCell>
+                      <TableCell align="right">Total assigned</TableCell>
+                    </>
+                  )}
                   <TableCell align="right">Achieved</TableCell>
                   <TableCell align="right">Total assigned</TableCell>
                 </TableRow>
@@ -899,26 +916,30 @@ const KPIMonthlySheet = () => {
                         disabled={!canEditStructure}
                       />
                     </TableCell>
-                    <TableCell align="right" sx={{ minWidth: 120 }}>
-                      <TextField
-                        type="number"
-                        size="small"
-                        inputProps={{ min: 0, step: 1 }}
-                        value={row.employeeAchieved === 0 ? '' : row.employeeAchieved}
-                        onChange={(e) => handleCell(index, 'employeeAchieved', e.target.value)}
-                        disabled={!canEditEmployeeCols}
-                      />
-                    </TableCell>
-                    <TableCell align="right" sx={{ minWidth: 120 }}>
-                      <TextField
-                        type="number"
-                        size="small"
-                        inputProps={{ min: 0, step: 1 }}
-                        value={row.employeeTotalAssigned === 0 ? '' : row.employeeTotalAssigned}
-                        onChange={(e) => handleCell(index, 'employeeTotalAssigned', e.target.value)}
-                        disabled={!canEditEmployeeCols}
-                      />
-                    </TableCell>
+                    {!isBlueCollar && (
+                      <>
+                        <TableCell align="right" sx={{ minWidth: 120 }}>
+                          <TextField
+                            type="number"
+                            size="small"
+                            inputProps={{ min: 0, step: 1 }}
+                            value={row.employeeAchieved === 0 ? '' : row.employeeAchieved}
+                            onChange={(e) => handleCell(index, 'employeeAchieved', e.target.value)}
+                            disabled={!canEditEmployeeCols}
+                          />
+                        </TableCell>
+                        <TableCell align="right" sx={{ minWidth: 120 }}>
+                          <TextField
+                            type="number"
+                            size="small"
+                            inputProps={{ min: 0, step: 1 }}
+                            value={row.employeeTotalAssigned === 0 ? '' : row.employeeTotalAssigned}
+                            onChange={(e) => handleCell(index, 'employeeTotalAssigned', e.target.value)}
+                            disabled={!canEditEmployeeCols}
+                          />
+                        </TableCell>
+                      </>
+                    )}
                     <TableCell align="right" sx={{ minWidth: 120 }}>
                       <TextField
                         type="number"
@@ -942,7 +963,7 @@ const KPIMonthlySheet = () => {
                     <TableCell align="right">
                       {row.achievementPercent}%
                       <Typography variant="caption" display="block" color="text.secondary">
-                        via {row.scoringSource === 'manager' ? 'reporting line' : 'employee'}
+                        via {isBlueCollar || row.scoringSource === 'manager' ? 'supervisor' : 'employee'}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">{row.score1to5}</TableCell>
@@ -983,7 +1004,7 @@ const KPIMonthlySheet = () => {
                   <TableCell colSpan={2}>
                     <strong>Total weight: {totalWeight}%</strong>
                   </TableCell>
-                  <TableCell colSpan={4} />
+                  <TableCell colSpan={isBlueCollar ? 2 : 4} />
                   <TableCell />
                   <TableCell align="right">
                     <strong>Total KPI score</strong>
@@ -1036,31 +1057,35 @@ const KPIMonthlySheet = () => {
                     onChange={(e) => handleEditDraftField('weight', e.target.value)}
                     disabled={!editFlags.canEditStructure && !isHrAdmin}
                   />
+                  {!isBlueCollar && (
+                    <>
+                      <Typography variant="subtitle2" color="text.secondary">
+                        Employee
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 2 }}>
+                        <TextField
+                          fullWidth
+                          type="number"
+                          label="Achieved"
+                          inputProps={{ min: 0, step: 1 }}
+                          value={editRowDraft.employeeAchieved === 0 ? '' : editRowDraft.employeeAchieved}
+                          onChange={(e) => handleEditDraftField('employeeAchieved', e.target.value)}
+                          disabled={!canEditEmployeeCols && !isHrAdmin}
+                        />
+                        <TextField
+                          fullWidth
+                          type="number"
+                          label="Total assigned"
+                          inputProps={{ min: 0, step: 1 }}
+                          value={editRowDraft.employeeTotalAssigned === 0 ? '' : editRowDraft.employeeTotalAssigned}
+                          onChange={(e) => handleEditDraftField('employeeTotalAssigned', e.target.value)}
+                          disabled={!canEditEmployeeCols && !isHrAdmin}
+                        />
+                      </Box>
+                    </>
+                  )}
                   <Typography variant="subtitle2" color="text.secondary">
-                    Employee
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 2 }}>
-                    <TextField
-                      fullWidth
-                      type="number"
-                      label="Achieved"
-                      inputProps={{ min: 0, step: 1 }}
-                      value={editRowDraft.employeeAchieved === 0 ? '' : editRowDraft.employeeAchieved}
-                      onChange={(e) => handleEditDraftField('employeeAchieved', e.target.value)}
-                      disabled={!canEditEmployeeCols && !isHrAdmin}
-                    />
-                    <TextField
-                      fullWidth
-                      type="number"
-                      label="Total assigned"
-                      inputProps={{ min: 0, step: 1 }}
-                      value={editRowDraft.employeeTotalAssigned === 0 ? '' : editRowDraft.employeeTotalAssigned}
-                      onChange={(e) => handleEditDraftField('employeeTotalAssigned', e.target.value)}
-                      disabled={!canEditEmployeeCols && !isHrAdmin}
-                    />
-                  </Box>
-                  <Typography variant="subtitle2" color="text.secondary">
-                    Reporting line
+                    {isBlueCollar ? 'Supervisor marks' : 'Reporting line'}
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 2 }}>
                     <TextField

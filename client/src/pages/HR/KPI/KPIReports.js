@@ -92,6 +92,7 @@ const KPIReports = () => {
   const [departmentId, setDepartmentId] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [categoryTab, setCategoryTab] = useState('blue_collar'); // blue_collar | white_collar | all
   const [subViewTab, setSubViewTab] = useState(0); // 0: Summary, 1: Detailed Items, 2: Dept Analytics
 
   const [loading, setLoading] = useState(true);
@@ -99,6 +100,7 @@ const KPIReports = () => {
   const [records, setRecords] = useState([]);
   const [projects, setProjects] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [categoryCounts, setCategoryCounts] = useState({ blueCollar: 0, whiteCollar: 0 });
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -110,10 +112,15 @@ const KPIReports = () => {
         projectId,
         departmentId,
         submittedOnly: false,
-        search
+        search,
+        employeeCategory: categoryTab === 'all' ? undefined : categoryTab
       });
       const data = res.data?.data || {};
       setRecords(data.records || []);
+      setCategoryCounts({
+        blueCollar: data.summary?.blueCollar || 0,
+        whiteCollar: data.summary?.whiteCollar || 0
+      });
       if (data.filterOptions) {
         setProjects(data.filterOptions.projects || []);
         setDepartments(data.filterOptions.departments || []);
@@ -124,7 +131,7 @@ const KPIReports = () => {
     } finally {
       setLoading(false);
     }
-  }, [year, month, projectId, departmentId, search]);
+  }, [year, month, projectId, departmentId, search, categoryTab]);
 
   useEffect(() => {
     loadData();
@@ -317,6 +324,16 @@ const KPIReports = () => {
       {/* Top Navigation Tabs */}
       <KPITabNavigation />
 
+      <Tabs
+        value={categoryTab}
+        onChange={(_, v) => setCategoryTab(v)}
+        sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Tab value="blue_collar" label={`Blue collar (${categoryCounts.blueCollar})`} />
+        <Tab value="white_collar" label={`White collar (${categoryCounts.whiteCollar})`} />
+        <Tab value="all" label="All" />
+      </Tabs>
+
       {/* Header & Main Actions */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3, flexWrap: 'wrap', gap: 2 }}>
         <Box>
@@ -324,7 +341,7 @@ const KPIReports = () => {
             KPI Monthly Reports & Analytics
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Generate, analyze, and download monthly employee KPI reports in Excel format.
+            Blue collar (supervisor marks) and white collar (employee + manager) reports, downloadable as Excel.
           </Typography>
         </Box>
         <Stack direction="row" spacing={2}>

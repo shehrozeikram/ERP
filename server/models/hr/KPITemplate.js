@@ -13,7 +13,27 @@ const kpiTemplateSchema = new mongoose.Schema({
   },
   designation: {
     type: String,
-    trim: true
+    trim: true,
+    index: true
+  },
+  /** Optional link to Designation master for blue-collar packs */
+  designationRef: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Designation',
+    default: null,
+    index: true
+  },
+  /** blue_collar packs are scored by reporting line only (no employee self-entry) */
+  employeeCategory: {
+    type: String,
+    enum: ['blue_collar', 'white_collar', 'any'],
+    default: 'any',
+    index: true
+  },
+  scoredBy: {
+    type: String,
+    enum: ['employee_and_manager', 'manager_only'],
+    default: 'employee_and_manager'
   },
   description: {
     type: String,
@@ -35,6 +55,17 @@ const kpiTemplateSchema = new mongoose.Schema({
       min: 1,
       max: 100
     },
+    target: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    /** higher_better | lower_better | time_lower_better | compliance */
+    calculationRule: {
+      type: String,
+      enum: ['higher_better', 'lower_better', 'time_lower_better', 'compliance', 'custom'],
+      default: 'higher_better'
+    },
     measurementType: {
       type: String,
       enum: ['rating_1_to_5', 'percentage', 'boolean', 'custom'],
@@ -53,6 +84,13 @@ const kpiTemplateSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  /** Stable key for upsert from All_Designation_KPI catalog */
+  sourceKey: {
+    type: String,
+    trim: true,
+    index: true,
+    sparse: true
   }
 }, {
   timestamps: true

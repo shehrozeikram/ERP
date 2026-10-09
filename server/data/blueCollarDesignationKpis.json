@@ -1,0 +1,2445 @@
+[
+  {
+    "num": 1,
+    "designation": "Office Boy",
+    "items": [
+      {
+        "kpi": "Office support task completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Tea/water & routine service timeliness",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "File/document delivery accuracy",
+        "weight": 15,
+        "target": "≥98%",
+        "exampleActual": "99%",
+        "calculation": "99/98×100"
+      },
+      {
+        "kpi": "Office/meeting area arrangement",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Attendance & punctuality",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Response to assigned requests",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Discipline & grooming",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 2,
+    "designation": "Driver / HTV Driver",
+    "items": [
+      {
+        "kpi": "Safe driving / avoidable accidents",
+        "weight": 30,
+        "target": "0 accidents",
+        "exampleActual": "0",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "On-time trip completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Vehicle preventive checks",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      },
+      {
+        "kpi": "Vehicle cleanliness/condition",
+        "weight": 10,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 10,
+        "target": "8 L/100km",
+        "exampleActual": "7.5 L/100km",
+        "calculation": "8/7.5×100 — Lower Better"
+      },
+      {
+        "kpi": "Attendance/punctuality",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 3,
+    "designation": "Guard",
+    "items": [
+      {
+        "kpi": "Post coverage",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Incident prevention & reporting",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "SOP/checklist compliance",
+        "weight": 20,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Visitor/access control",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Emergency response",
+        "weight": 10,
+        "target": "≤5 min",
+        "exampleActual": "4 min",
+        "calculation": "5/4×100 — Time Lower Better"
+      },
+      {
+        "kpi": "Grooming & discipline",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 4,
+    "designation": "Security Guard",
+    "items": [
+      {
+        "kpi": "Post coverage",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Incident prevention & reporting",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "SOP/checklist compliance",
+        "weight": 20,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Visitor/access control",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Emergency response",
+        "weight": 10,
+        "target": "≤5 min",
+        "exampleActual": "4 min",
+        "calculation": "5/4×100 — Time Lower Better"
+      },
+      {
+        "kpi": "Grooming & discipline",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 5,
+    "designation": "SSG Guard",
+    "items": [
+      {
+        "kpi": "Protective duty/post coverage",
+        "weight": 30,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Threat/incident prevention & reporting",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Search/access/SOP compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Emergency response",
+        "weight": 10,
+        "target": "≤3 min",
+        "exampleActual": "2 min",
+        "calculation": "3/2×100 — Time Lower Better"
+      },
+      {
+        "kpi": "Weapon/equipment readiness",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance/discipline",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 6,
+    "designation": "Executive Protection Officer",
+    "items": [
+      {
+        "kpi": "Principal protection / duty coverage",
+        "weight": 30,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Threat prevention / incident-free duty",
+        "weight": 25,
+        "target": "0 avoidable incidents",
+        "exampleActual": "0",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Movement/route readiness",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Emergency response",
+        "weight": 10,
+        "target": "≤2 min",
+        "exampleActual": "1.5 min",
+        "calculation": "2/1.5×100 — Time Lower Better"
+      },
+      {
+        "kpi": "SOP/equipment readiness",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Reporting/confidentiality/discipline",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 7,
+    "designation": "Executive Protection Guard",
+    "items": [
+      {
+        "kpi": "Protective duty/post coverage",
+        "weight": 30,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Threat prevention / incident-free duty",
+        "weight": 25,
+        "target": "0 avoidable incidents",
+        "exampleActual": "0",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Movement/route readiness",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Emergency response",
+        "weight": 10,
+        "target": "≤2 min",
+        "exampleActual": "1.5 min",
+        "calculation": "2/1.5×100 — Time Lower Better"
+      },
+      {
+        "kpi": "SOP/equipment readiness",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Reporting/confidentiality/discipline",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 8,
+    "designation": "Watchman",
+    "items": [
+      {
+        "kpi": "Post coverage & presence",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Patrolling/check rounds",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Incident prevention & reporting",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Access/control compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Emergency response",
+        "weight": 10,
+        "target": "≤5 min",
+        "exampleActual": "4 min",
+        "calculation": "5/4×100 — Time Lower Better"
+      },
+      {
+        "kpi": "Attendance & punctuality",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 9,
+    "designation": "Security Officer",
+    "items": [
+      {
+        "kpi": "Security post/shift coverage",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Incident prevention & reporting",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "SOP/access control",
+        "weight": 20,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Team/supervision effectiveness",
+        "weight": 15,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Emergency response",
+        "weight": 10,
+        "target": "≤5 min",
+        "exampleActual": "4 min",
+        "calculation": "5/4×100 — Time Lower Better"
+      },
+      {
+        "kpi": "Reporting/documentation",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 10,
+    "designation": "Janitor",
+    "items": [
+      {
+        "kpi": "Cleaning task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      },
+      {
+        "kpi": "Cleaning quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Hygiene/sanitation compliance",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Cleaning schedule adherence",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Material/equipment control",
+        "weight": 10,
+        "target": "≤5% wastage",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Attendance & punctuality",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 11,
+    "designation": "Sweeper",
+    "items": [
+      {
+        "kpi": "Sweeping/cleaning task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Cleaning quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Sanitation/hygiene compliance",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Schedule adherence",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Tools/material control",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 12,
+    "designation": "Road Cleaner",
+    "items": [
+      {
+        "kpi": "Assigned road/area cleaning completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Cleaning quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Route/schedule adherence",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Waste collection/disposal compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Equipment/PPE use",
+        "weight": 5,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 13,
+    "designation": "Gardener",
+    "items": [
+      {
+        "kpi": "Assigned area maintenance completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Plant/lawn health",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Watering schedule compliance",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Pruning/weeding completion",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Tools/material control",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 14,
+    "designation": "Cook",
+    "items": [
+      {
+        "kpi": "Meal preparation & serving timeliness",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Food quality & taste",
+        "weight": 25,
+        "target": "≥90% quality",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Food hygiene & safety",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Portion/order accuracy",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Kitchen cleanliness",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Food/material wastage",
+        "weight": 10,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 15,
+    "designation": "Waiter",
+    "items": [
+      {
+        "kpi": "Order/service completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Timely service",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Order accuracy",
+        "weight": 20,
+        "target": "≥98%",
+        "exampleActual": "99%",
+        "calculation": "99/98×100"
+      },
+      {
+        "kpi": "Guest/customer service quality",
+        "weight": 15,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Table/area cleanliness",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Attendance/grooming",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 16,
+    "designation": "Butler",
+    "items": [
+      {
+        "kpi": "House/service task completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Timely service support",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Service quality",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Cleanliness/presentation",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Inventory/item handling",
+        "weight": 10,
+        "target": "≥98%",
+        "exampleActual": "99%",
+        "calculation": "99/98×100"
+      },
+      {
+        "kpi": "Attendance/confidentiality",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 17,
+    "designation": "Caretaker",
+    "items": [
+      {
+        "kpi": "Assigned property/task completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Facility condition",
+        "weight": 20,
+        "target": "≥90% inspection",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Maintenance issue reporting",
+        "weight": 15,
+        "target": "≥95% timely",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Cleanliness/housekeeping",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Security/access compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance/punctuality",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 18,
+    "designation": "Helper",
+    "items": [
+      {
+        "kpi": "Assigned task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Work quality",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Timeliness/response",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Material/tool handling",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance/discipline",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 19,
+    "designation": "Electrician",
+    "items": [
+      {
+        "kpi": "Preventive maintenance completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Breakdown response",
+        "weight": 20,
+        "target": "≤30 min",
+        "exampleActual": "25 min",
+        "calculation": "30/25×100 — Time Lower Better"
+      },
+      {
+        "kpi": "Equipment uptime",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Repeat electrical faults",
+        "weight": 15,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Electrical safety/PPE",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Maintenance documentation",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 20,
+    "designation": "Electrician / Helper",
+    "items": [
+      {
+        "kpi": "Electrical support task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Response/support timeliness",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Work quality",
+        "weight": 15,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Tools/material handling",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Safety/PPE compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance/discipline",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 21,
+    "designation": "Plumber",
+    "items": [
+      {
+        "kpi": "Planned maintenance completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Breakdown response time",
+        "weight": 20,
+        "target": "≤30 min",
+        "exampleActual": "25 min",
+        "calculation": "30/25×100 — Time Lower Better"
+      },
+      {
+        "kpi": "First-time repair success",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Repeat faults",
+        "weight": 15,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety/PPE compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Documentation",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 22,
+    "designation": "Mechanic",
+    "items": [
+      {
+        "kpi": "Preventive maintenance completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Breakdown response",
+        "weight": 20,
+        "target": "≤30 min",
+        "exampleActual": "25 min",
+        "calculation": "30/25×100 — Time Lower Better"
+      },
+      {
+        "kpi": "First-time repair success",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Repeat breakdown control",
+        "weight": 15,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Equipment/vehicle uptime",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Safety/workshop discipline",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 23,
+    "designation": "Carpenter",
+    "items": [
+      {
+        "kpi": "Work completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Work quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Measurement accuracy",
+        "weight": 15,
+        "target": "≥98%",
+        "exampleActual": "99%",
+        "calculation": "99/98×100"
+      },
+      {
+        "kpi": "Material wastage",
+        "weight": 15,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 24,
+    "designation": "Mason",
+    "items": [
+      {
+        "kpi": "Masonry work completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Masonry quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Level/alignment/measurement accuracy",
+        "weight": 15,
+        "target": "≥98%",
+        "exampleActual": "99%",
+        "calculation": "99/98×100"
+      },
+      {
+        "kpi": "Material utilization/wastage",
+        "weight": 15,
+        "target": "≤5% wastage",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 25,
+    "designation": "Painter",
+    "items": [
+      {
+        "kpi": "Painting work completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Finish/quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Surface preparation accuracy",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Paint/material wastage",
+        "weight": 15,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 26,
+    "designation": "Painter Helper",
+    "items": [
+      {
+        "kpi": "Preparation/support completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Material handling",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Work quality support",
+        "weight": 15,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Material wastage",
+        "weight": 15,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 27,
+    "designation": "Welder",
+    "items": [
+      {
+        "kpi": "Welding work completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Welding quality",
+        "weight": 25,
+        "target": "≥90% first-pass",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Rework rate",
+        "weight": 15,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Rod/material wastage",
+        "weight": 10,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety/PPE compliance",
+        "weight": 20,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 28,
+    "designation": "Scaffolder",
+    "items": [
+      {
+        "kpi": "Installation/dismantling completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Safety inspection compliance",
+        "weight": 30,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Stability/quality",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      },
+      {
+        "kpi": "Schedule adherence",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Material/tool handling",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Attendance/discipline",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 29,
+    "designation": "Foreman",
+    "items": [
+      {
+        "kpi": "Team production/work completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Quality / rework control",
+        "weight": 20,
+        "target": "≤5% rework",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Manpower utilization",
+        "weight": 15,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Material wastage",
+        "weight": 10,
+        "target": "≤5%",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Daily reporting",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 30,
+    "designation": "Operator",
+    "items": [
+      {
+        "kpi": "Production/task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Machine/equipment utilization",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Quality/rejection control",
+        "weight": 20,
+        "target": "≤5% rejection",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "SOP compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 31,
+    "designation": "Crane Operator",
+    "items": [
+      {
+        "kpi": "Lifting/task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Productivity/utilization",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Lifting accuracy/damage control",
+        "weight": 15,
+        "target": "≤2% incidents",
+        "exampleActual": "1%",
+        "calculation": "2/1×100 — Lower Better"
+      },
+      {
+        "kpi": "Pre-start inspection",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 10,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 32,
+    "designation": "Dozer Operator",
+    "items": [
+      {
+        "kpi": "Dozing/task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Productivity/utilization",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Grade/level accuracy",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Pre-start inspection",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 10,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 33,
+    "designation": "Excavator Operator",
+    "items": [
+      {
+        "kpi": "Excavation/task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Productivity/utilization",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Excavation accuracy",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Pre-start inspection",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 10,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 34,
+    "designation": "Loader Operator",
+    "items": [
+      {
+        "kpi": "Loading/task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Productivity/utilization",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Loading accuracy/damage control",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Pre-start inspection",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 10,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 35,
+    "designation": "Grader Operator",
+    "items": [
+      {
+        "kpi": "Grading/task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Productivity/utilization",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Grade/level accuracy",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Pre-start inspection",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 10,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 36,
+    "designation": "Dispatch Rider",
+    "items": [
+      {
+        "kpi": "Delivery completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "On-time delivery",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Safe riding / accidents",
+        "weight": 20,
+        "target": "0 avoidable accidents",
+        "exampleActual": "0",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Vehicle preventive checks",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 5,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Attendance/punctuality",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 37,
+    "designation": "Cameraman",
+    "items": [
+      {
+        "kpi": "Required coverage",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Footage/image quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Timely media delivery",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Equipment care",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "File/data management",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 38,
+    "designation": "Dog Handler",
+    "items": [
+      {
+        "kpi": "Patrol/duty coverage",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "100%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Dog handling/command performance",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Feeding/health/care",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Incident/activity reporting",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Safety/SOP compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance/grooming",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 39,
+    "designation": "Milkman",
+    "items": [
+      {
+        "kpi": "Milk supply completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Timely delivery",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Quantity/order accuracy",
+        "weight": 20,
+        "target": "≥98%",
+        "exampleActual": "99%",
+        "calculation": "99/98×100"
+      },
+      {
+        "kpi": "Hygienic handling",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 40,
+    "designation": "Washerman",
+    "items": [
+      {
+        "kpi": "Washing completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Cleaning quality",
+        "weight": 25,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Timely delivery",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Detergent/water efficiency",
+        "weight": 10,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Equipment/material handling",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 41,
+    "designation": "Mess Incharge",
+    "items": [
+      {
+        "kpi": "Meal planning/timeliness",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Food quality",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Hygiene/safety",
+        "weight": 20,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Inventory control",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Cost/wastage control",
+        "weight": 15,
+        "target": "≤5% wastage",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Mess cleanliness",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 42,
+    "designation": "Goat Farm Helper",
+    "items": [
+      {
+        "kpi": "Feeding schedule completion",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Cleaning/shed hygiene",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Animal care/health observation",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Water/feed/supply availability",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      },
+      {
+        "kpi": "Safety/SOP compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 43,
+    "designation": "Office Assistant",
+    "items": [
+      {
+        "kpi": "Administrative task completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Data/document accuracy",
+        "weight": 20,
+        "target": "≥98%",
+        "exampleActual": "99%",
+        "calculation": "99/98×100"
+      },
+      {
+        "kpi": "Timely support",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Filing/record management",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Attendance/punctuality",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Confidentiality/discipline",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 44,
+    "designation": "Horse Trainer",
+    "items": [
+      {
+        "kpi": "Horse care/feeding",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Training schedule completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Health monitoring/reporting",
+        "weight": 20,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Stable cleanliness",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Equipment/safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance/documentation",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 45,
+    "designation": "Water Bowser Helper",
+    "items": [
+      {
+        "kpi": "Water loading/delivery support",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Assigned trips/tasks",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 20,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Vehicle/equipment support",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Water handling/spillage control",
+        "weight": 10,
+        "target": "≤5% loss",
+        "exampleActual": "4%",
+        "calculation": "5/4×100 — Lower Better"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 46,
+    "designation": "Dewatering Pump Operator",
+    "items": [
+      {
+        "kpi": "Dewatering task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Pump uptime/availability",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Flow/operation accuracy",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Pre-start/maintenance checks",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Energy/fuel efficiency",
+        "weight": 10,
+        "target": "≤target",
+        "exampleActual": "95% of target",
+        "calculation": "Target/Actual×100 — Lower Better"
+      },
+      {
+        "kpi": "Safety compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 47,
+    "designation": "Saverage Worker",
+    "items": [
+      {
+        "kpi": "Assigned sanitation task completion",
+        "weight": 30,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Waste/sewage handling compliance",
+        "weight": 25,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Cleaning/hygiene quality",
+        "weight": 20,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Safety/PPE compliance",
+        "weight": 15,
+        "target": "100%",
+        "exampleActual": "99%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Tools/equipment handling",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Attendance",
+        "weight": 5,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 48,
+    "designation": "Honey Bee Man",
+    "items": [
+      {
+        "kpi": "Hive inspection/scheduled work",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Colony health monitoring",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      },
+      {
+        "kpi": "Honey/production handling",
+        "weight": 20,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      },
+      {
+        "kpi": "Equipment/hive cleanliness",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Safety/PPE compliance",
+        "weight": 10,
+        "target": "100%",
+        "exampleActual": "98%",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "Attendance/reporting",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  },
+  {
+    "num": 49,
+    "designation": "Rikshaw Driver",
+    "items": [
+      {
+        "kpi": "Safe driving / avoidable accidents",
+        "weight": 30,
+        "target": "0 accidents",
+        "exampleActual": "0",
+        "calculation": "Compliance rule"
+      },
+      {
+        "kpi": "On-time trip completion",
+        "weight": 25,
+        "target": "≥95%",
+        "exampleActual": "97%",
+        "calculation": "97/95×100"
+      },
+      {
+        "kpi": "Vehicle preventive checks",
+        "weight": 15,
+        "target": "≥95%",
+        "exampleActual": "98%",
+        "calculation": "98/95×100"
+      },
+      {
+        "kpi": "Vehicle cleanliness/condition",
+        "weight": 10,
+        "target": "≥90%",
+        "exampleActual": "94%",
+        "calculation": "94/90×100"
+      },
+      {
+        "kpi": "Fuel efficiency",
+        "weight": 10,
+        "target": "8 L/100km",
+        "exampleActual": "7.5 L/100km",
+        "calculation": "8/7.5×100 — Lower Better"
+      },
+      {
+        "kpi": "Attendance/punctuality",
+        "weight": 10,
+        "target": "≥95%",
+        "exampleActual": "96%",
+        "calculation": "96/95×100"
+      }
+    ],
+    "totalWeight": 100
+  }
+]

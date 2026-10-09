@@ -854,10 +854,10 @@ const ExecutiveCeoPaymentsSection = () => {
     try {
       if (item.isPurchaseOrder) {
         if (ceoStep) {
-          await api.put(`/procurement/purchase-orders/${item._id}/ceo-approve`, {
-            approvalComments,
-            digitalSignature: effectiveSig
-          });
+        await api.put(`/procurement/purchase-orders/${item._id}/ceo-approve`, {
+          approvalComments,
+          digitalSignature: effectiveSig
+        });
         } else {
           await api.put(`/procurement/purchase-orders/${item._id}/approve`, {
             comments: approvalComments,
@@ -868,11 +868,11 @@ const ExecutiveCeoPaymentsSection = () => {
         toast.success(`Purchase order ${item.displayRef} approved`);
       } else if (item.isCashApproval) {
         if (ceoStep) {
-          await api.put(`/cash-approvals/${item._id}/ceo-approve`, {
-            comments: approvalComments,
-            approvalComments,
-            digitalSignature: effectiveSig
-          });
+        await api.put(`/cash-approvals/${item._id}/ceo-approve`, {
+          comments: approvalComments,
+          approvalComments,
+          digitalSignature: effectiveSig
+        });
         } else {
           await api.put(`/cash-approvals/${item._id}/approve`, {
             comments: approvalComments,
@@ -950,12 +950,12 @@ const ExecutiveCeoPaymentsSection = () => {
       const validObs = rejectObservations.filter((o) => o.observation.trim());
       if (item.isPurchaseOrder) {
         if (ceoStep) {
-          await api.put(`/procurement/purchase-orders/${item._id}/ceo-reject`, {
-            comments: rejectionComments,
+        await api.put(`/procurement/purchase-orders/${item._id}/ceo-reject`, {
+          comments: rejectionComments,
             rejectionComments,
             digitalSignature: effectiveSig,
-            observations: validObs
-          });
+          observations: validObs
+        });
         } else {
           await api.put(`/procurement/purchase-orders/${item._id}/reject`, {
             comments: rejectionComments,
@@ -966,12 +966,12 @@ const ExecutiveCeoPaymentsSection = () => {
         }
       } else if (item.isCashApproval) {
         if (ceoStep) {
-          await api.put(`/cash-approvals/${item._id}/ceo-reject`, {
-            comments: rejectionComments,
+        await api.put(`/cash-approvals/${item._id}/ceo-reject`, {
+          comments: rejectionComments,
             rejectionComments,
             digitalSignature: effectiveSig,
-            observations: validObs
-          });
+          observations: validObs
+        });
         } else {
           await api.put(`/cash-approvals/${item._id}/reject`, {
             comments: rejectionComments,

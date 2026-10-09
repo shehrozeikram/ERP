@@ -15,6 +15,8 @@ import {
   MenuItem,
   Stack,
   Switch,
+  Tab,
+  Tabs,
   Table,
   TableBody,
   TableCell,
@@ -81,6 +83,7 @@ const KPISubmissionsOverview = () => {
   const [departmentId, setDepartmentId] = useState('');
   const [search, setSearch] = useState('');
   const [submittedOnly, setSubmittedOnly] = useState(true);
+  const [categoryTab, setCategoryTab] = useState('blue_collar'); // blue_collar | white_collar | all
   const [projects, setProjects] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -118,7 +121,8 @@ const KPISubmissionsOverview = () => {
         projectId: projectId || undefined,
         departmentId: departmentId || undefined,
         submittedOnly,
-        search: search.trim() || undefined
+        search: search.trim() || undefined,
+        employeeCategory: categoryTab === 'all' ? undefined : categoryTab
       });
       setSummary(res.data?.data?.summary || null);
       setGroups(res.data?.data?.groups || []);
@@ -129,7 +133,7 @@ const KPISubmissionsOverview = () => {
     } finally {
       setLoading(false);
     }
-  }, [year, month, projectId, departmentId, submittedOnly, search]);
+  }, [year, month, projectId, departmentId, submittedOnly, search, categoryTab]);
 
   useEffect(() => {
     loadSubmissions();
@@ -198,7 +202,7 @@ const KPISubmissionsOverview = () => {
             KPI Submissions
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            View employees who have submitted monthly KPI sheets, grouped by project and department.
+            Blue collar = supervisor marks only. White collar = employee + manager flow. Grouped by project and department.
           </Typography>
         </Box>
         <Button
@@ -213,6 +217,15 @@ const KPISubmissionsOverview = () => {
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
+          <Tabs
+            value={categoryTab}
+            onChange={(_, v) => setCategoryTab(v)}
+            sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab value="blue_collar" label={`Blue collar${summary?.blueCollar != null ? ` (${summary.blueCollar})` : ''}`} />
+            <Tab value="white_collar" label={`White collar${summary?.whiteCollar != null ? ` (${summary.whiteCollar})` : ''}`} />
+            <Tab value="all" label="All" />
+          </Tabs>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
             <TextField
               select

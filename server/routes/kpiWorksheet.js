@@ -6,12 +6,13 @@ const Employee = require('../models/hr/Employee');
 const { getOrCreateWorksheet, ensureWorksheetsForMonth } = require('../utils/kpiWorksheetService');
 const { findEmployeeForAuthUser } = require('../utils/employeeUserLink');
 const { checkSubRoleAccess } = require('../config/permissions');
+const { isBlueCollarEmployee } = require('../utils/blueCollarKpiCatalog');
 const Project = require('../models/hr/Project');
 const Department = require('../models/hr/Department');
 
 const router = express.Router();
 
-const EMPLOYEE_SELECT = '_id reportingLine manager hod firstName lastName employeeId';
+const EMPLOYEE_SELECT = '_id reportingLine manager hod firstName lastName employeeId employeeCategory placementDesignation';
 
 async function employeeFromUser(userCtx) {
   if (!userCtx || typeof userCtx !== 'object') return null;
@@ -79,6 +80,13 @@ async function isAncestorInReportingLine(managerEmployeeId, subjectEmployeeId) {
   return false;
 }
 
+async function loadSubjectEmployee(subjectEmployeeId) {
+  return Employee.findById(subjectEmployeeId)
+    .select('employeeCategory placementDesignation position firstName lastName employeeId reportingLine manager hod')
+    .populate('placementDesignation', 'title')
+    .lean();
+}
+
 async function worksheetEditFlags(req, subjectEmployeeId) {
   const me = await employeeFromUser(req.user);
   const hr = isHrAdmin(req.user?.role);
@@ -86,12 +94,28 @@ async function worksheetEditFlags(req, subjectEmployeeId) {
   const subId = String(subjectEmployeeId);
   const owner = me && String(me._id) === subId;
   const managerOf = me ? await isAncestorInReportingLine(me._id, subId) : false;
+  const subject = await loadSubjectEmployee(subjectEmployeeId);
+  const blueCollar = isBlueCollarEmployee(subject);
+
+  // Blue collar: supervisor marks only — employee never self-scores.
+  if (blueCollar) {
+    return {
+      canEditStructure: kpiElevated,
+      canEditEmployeeCols: false,
+      canEditManagerCols: managerOf || kpiElevated,
+      canDeleteRowsAsReportingLine: managerOf || kpiElevated,
+      employeeCategory: 'blue_collar',
+      scoredBy: 'manager_only'
+    };
+  }
 
   return {
     canEditStructure: owner || kpiElevated,
     canEditEmployeeCols: owner || kpiElevated,
     canEditManagerCols: (managerOf && !owner) || kpiElevated,
-    canDeleteRowsAsReportingLine: (managerOf && !owner) || kpiElevated
+    canDeleteRowsAsReportingLine: (managerOf && !owner) || kpiElevated,
+    employeeCategory: subject?.employeeCategory === 'white_collar' ? 'white_collar' : (subject?.employeeCategory || 'white_collar'),
+    scoredBy: 'employee_and_manager'
   };
 }
 
@@ -120,13 +144,29 @@ function validateRowDeletions(prevRows, newRows, flags) {
 async function populateWorksheetEmployee(doc) {
   await doc.populate({
     path: 'employee',
-    select: 'firstName lastName employeeId reportingLine manager hod',
+    select: 'firstName lastName employeeId reportingLine manager hod employeeCategory placementDesignation',
     populate: [
       { path: 'reportingLine', select: '_id firstName lastName employeeId' },
       { path: 'manager', select: '_id firstName lastName employeeId' },
-      { path: 'hod', select: '_id firstName lastName employeeId' }
+      { path: 'hod', select: '_id firstName lastName employeeId' },
+      { path: 'placementDesignation', select: 'title' }
     ]
   });
+}
+
+function resolveEmployeeCategoryLabel(emp) {
+  if (isBlueCollarEmployee(emp)) return 'blue_collar';
+  if (String(emp?.employeeCategory || '').toLowerCase() === 'white_collar') return 'white_collar';
+  return emp?.employeeCategory || 'white_collar';
+}
+
+function worksheetSubmissionStatusForCategory(rows, employeeCategory) {
+  if (employeeCategory === 'blue_collar') {
+    if (!Array.isArray(rows) || !rows.length) return 'not_started';
+    if (worksheetManagerReviewed(rows)) return 'manager_reviewed';
+    return 'draft';
+  }
+  return worksheetSubmissionStatus(rows);
 }
 
 async function canAccessWorksheet(req, worksheetEmployeeId) {
@@ -304,7 +344,7 @@ async function getSubordinateTreeByReportingLine(managerEmployeeId) {
       isActive: true,
       isDeleted: { $ne: true }
     })
-      .select('firstName lastName employeeId placementProject placementDepartment department placementDesignation reportingLine')
+      .select('firstName lastName employeeId placementProject placementDepartment department placementDesignation reportingLine employeeCategory')
       .populate('placementProject', 'name code')
       .populate('placementDepartment', 'name code')
       .populate('department', 'name code')
@@ -360,6 +400,7 @@ router.get(
       const reportingLineName = s.reportingLine
         ? `${s.reportingLine.firstName || ''} ${s.reportingLine.lastName || ''}`.trim()
         : '—';
+      const employeeCategory = resolveEmployeeCategoryLabel(s);
 
       out.push({
         employee: {
@@ -368,7 +409,8 @@ router.get(
           lastName: s.lastName,
           employeeId: s.employeeId,
           designation: s.placementDesignation?.title || '—',
-          reportingLine: reportingLineName
+          reportingLine: reportingLineName,
+          employeeCategory
         },
         project: {
           _id: project._id || null,
@@ -383,11 +425,16 @@ router.get(
       });
     }
 
-    res.json({ success: true, data: out, year, month });
+    const category = String(req.query.employeeCategory || '').trim().toLowerCase();
+    const filtered = category === 'blue_collar' || category === 'white_collar'
+      ? out.filter((row) => row.employee.employeeCategory === category)
+      : out;
+
+    res.json({ success: true, data: filtered, year, month });
   })
 );
 
-/** GET /api/kpi/worksheets/submissions?year=&month=&projectId=&departmentId=&submittedOnly= */
+/** GET /api/kpi/worksheets/submissions?year=&month=&projectId=&departmentId=&submittedOnly=&employeeCategory= */
 router.get(
   '/submissions',
   asyncHandler(async (req, res) => {
@@ -405,6 +452,7 @@ router.get(
     const departmentId = String(req.query.departmentId || '').trim();
     const submittedOnly = String(req.query.submittedOnly || 'true').toLowerCase() !== 'false';
     const search = String(req.query.search || '').trim().toLowerCase();
+    const employeeCategoryFilter = String(req.query.employeeCategory || '').trim().toLowerCase();
 
     const empQuery = { isActive: true, isDeleted: { $ne: true } };
     if (projectId) empQuery.placementProject = projectId;
@@ -413,7 +461,7 @@ router.get(
     }
 
     const employees = await Employee.find(empQuery)
-      .select('firstName lastName employeeId placementProject placementDepartment department placementDesignation reportingLine')
+      .select('firstName lastName employeeId placementProject placementDepartment department placementDesignation reportingLine employeeCategory')
       .populate('placementProject', 'name code')
       .populate('placementDepartment', 'name code')
       .populate('department', 'name code')
@@ -430,7 +478,8 @@ router.get(
     let records = employees.map((emp) => {
       const ws = worksheetByEmployee.get(String(emp._id));
       const rows = ws?.rows || [];
-      const status = ws ? worksheetSubmissionStatus(rows) : 'not_started';
+      const employeeCategory = resolveEmployeeCategoryLabel(emp);
+      const status = ws ? worksheetSubmissionStatusForCategory(rows, employeeCategory) : 'not_started';
       const project = emp.placementProject || { _id: null, name: 'Unassigned project' };
       const department = emp.placementDepartment || emp.department || { _id: null, name: 'Unassigned department' };
       return {
@@ -440,8 +489,10 @@ router.get(
           lastName: emp.lastName,
           employeeId: emp.employeeId,
           designation: emp.placementDesignation?.title || '—',
-          reportingLine: emp.reportingLine ? `${emp.reportingLine.firstName} ${emp.reportingLine.lastName}`.trim() : '—'
+          reportingLine: emp.reportingLine ? `${emp.reportingLine.firstName} ${emp.reportingLine.lastName}`.trim() : '—',
+          employeeCategory
         },
+        employeeCategory,
         project: {
           _id: project?._id || null,
           name: project?.name || 'Unassigned project',
@@ -461,10 +512,22 @@ router.get(
       };
     });
 
+    const categoryTotals = {
+      blueCollar: records.filter((row) => row.employeeCategory === 'blue_collar').length,
+      whiteCollar: records.filter((row) => row.employeeCategory === 'white_collar').length
+    };
+
+    if (employeeCategoryFilter === 'blue_collar' || employeeCategoryFilter === 'white_collar') {
+      records = records.filter((row) => row.employeeCategory === employeeCategoryFilter);
+    }
+
     const allRecords = records;
 
     if (submittedOnly) {
-      records = records.filter((row) => row.status === 'submitted' || row.status === 'manager_reviewed');
+      records = records.filter((row) => {
+        if (row.employeeCategory === 'blue_collar') return row.status === 'manager_reviewed';
+        return row.status === 'submitted' || row.status === 'manager_reviewed';
+      });
     }
 
     if (search) {
@@ -483,8 +546,10 @@ router.get(
     }
 
     const summary = {
-      totalEmployees: employees.length,
+      totalEmployees: allRecords.length,
       shown: records.length,
+      blueCollar: categoryTotals.blueCollar,
+      whiteCollar: categoryTotals.whiteCollar,
       submitted: allRecords.filter((row) => row.status === 'submitted').length,
       managerReviewed: allRecords.filter((row) => row.status === 'manager_reviewed').length,
       draft: allRecords.filter((row) => row.status === 'draft').length,
