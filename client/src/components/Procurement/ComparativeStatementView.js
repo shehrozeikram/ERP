@@ -20,6 +20,13 @@ import {
 import { Print as PrintIcon, CheckCircle as CheckCircleIcon, Save as SaveIcon, CallSplit as SplitIcon } from '@mui/icons-material';
 import { DigitalSignatureImage } from '../common/DigitalSignatureImage';
 import { comparativeAuthoritySelectionLocked } from '../../utils/comparativeStatementAuthority';
+import {
+  getQuoteItemForIndentItem as matchQuoteItemForIndentItem,
+  getQuoteLineAmount,
+  getComparativeQuoteVisibleTotal,
+  getComparativeQuoteGrandTotal,
+  isBlankQuoteItem
+} from '../../utils/comparativeQuoteItemMatch';
 
 /**
  * Shared Comparative Statement view. Used in Procurement (Comparative Statements page) and Pre-Audit (PO view tab).
@@ -161,79 +168,10 @@ const ComparativeStatementView = ({
     }
   };
 
-  const getQuoteItemForIndentItem = (quote, item, itemIndex) => {
-    if (!quote?.items?.length) return null;
+  const indentItems = selectedRequisition?.items || [];
 
-    const normalize = (value) =>
-      String(value || '')
-        .trim()
-        .toLowerCase()
-        .replace(/['′’]/g, "'")
-        .replace(/[″""]/g, '"')
-        .replace(/\s+/g, ' ');
-
-    const isBlankQuoteItem = (qi) =>
-      (Number(qi?.quantity) || 0) === 0 && (Number(qi?.unitPrice) || 0) === 0;
-
-    const indentName = normalize(item?.itemName);
-    const indentSpec = normalize(item?.description);
-    const indentLabel = indentName || indentSpec;
-
-    // 1) Prefer exact pot/spec match (description or quotation specification)
-    if (indentSpec) {
-      const bySpec = quote.items.find((qi) => {
-        const qDesc = normalize(qi?.description);
-        const qSpec = normalize(qi?.specification);
-        return (qDesc && qDesc === indentSpec) || (qSpec && qSpec === indentSpec);
-      });
-      if (bySpec && !isBlankQuoteItem(bySpec)) return bySpec;
-    }
-
-    // 2) Match by item name against quotation description/spec.
-    //    When several quote lines share the same name (e.g. two "Money Plant"),
-    //    use the same row index so each indent line maps to its own quote line.
-    if (indentLabel) {
-      const matches = quote.items
-        .map((qi, idx) => ({ qi, idx }))
-        .filter(({ qi }) => {
-          const qDesc = normalize(qi?.description);
-          const qSpec = normalize(qi?.specification);
-          return (
-            (qDesc && (qDesc === indentLabel || (indentName && qDesc === indentName))) ||
-            (qSpec && (qSpec === indentLabel || (indentName && qSpec === indentName)))
-          );
-        });
-
-      if (matches.length === 1 && !isBlankQuoteItem(matches[0].qi)) {
-        return matches[0].qi;
-      }
-
-      if (matches.length > 1 && itemIndex != null) {
-        const atSameIndex = matches.find((m) => m.idx === itemIndex);
-        if (atSameIndex && !isBlankQuoteItem(atSameIndex.qi)) return atSameIndex.qi;
-
-        // Same-name duplicates: align by indent row order among matching quote lines
-        const sameNameIndentOrdinal = (selectedRequisition?.items || [])
-          .slice(0, itemIndex + 1)
-          .filter((it) => {
-            const n = normalize(it?.itemName) || normalize(it?.description);
-            return n && (n === indentLabel || (indentName && n === indentName));
-          }).length - 1;
-        if (sameNameIndentOrdinal >= 0 && sameNameIndentOrdinal < matches.length) {
-          const ordinalMatch = matches[sameNameIndentOrdinal].qi;
-          if (!isBlankQuoteItem(ordinalMatch)) return ordinalMatch;
-        }
-      }
-    }
-
-    // 3) Final fallback: same index as indent row
-    if (itemIndex != null && itemIndex < quote.items.length) {
-      const indexedItem = quote.items[itemIndex];
-      if (indexedItem && !isBlankQuoteItem(indexedItem)) return indexedItem;
-    }
-
-    return null;
-  };
+  const getQuoteItemForIndentItem = (quote, item, itemIndex) =>
+    matchQuoteItemForIndentItem(quote, item, itemIndex, indentItems);
 
   return (
     <Paper
@@ -385,10 +323,8 @@ const ComparativeStatementView = ({
                           <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{item.quantity ?? '___'}</td>
                           {quotations.map((quote, quoteIdx) => {
                             const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
-                            const isNotQuoted = !quoteItem || ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0);
-                            const itemTotal = !isNotQuoted
-                              ? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0))
-                              : 0;
+                            const isNotQuoted = !quoteItem || isBlankQuoteItem(quoteItem);
+                            const itemTotal = !isNotQuoted ? getQuoteLineAmount(quoteItem) : 0;
                             const isAssignedToThis = vendorAssignments[itemIndex] === quote._id;
                             const cellBg = isAssignedToThis ? '#c8e6c9' : undefined;
                             const canAssign = !isAlreadyOrdered && !isNotQuoted && !readOnly && onCreateSplitPOs;
@@ -424,7 +360,7 @@ const ComparativeStatementView = ({
                           </td>
                           {quotations.map((quote, quoteIdx) => {
                             const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
-                            const isNotQuoted = !quoteItem || ((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0);
+                            const isNotQuoted = !quoteItem || isBlankQuoteItem(quoteItem);
                             return (
                               <td key={`tech-${quoteIdx}`} colSpan={2} style={{ border: '1px solid #000', padding: '5px 6px', verticalAlign: 'top', fontSize: '0.75rem', textAlign: 'left' }}>
                                 {isNotQuoted ? (
@@ -452,19 +388,10 @@ const ComparativeStatementView = ({
                 <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#e8e8e8', fontWeight: 700 }}>
                   <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>TOTAL</td>
                   {quotations.map((quote, idx) => {
-                    const visibleTotal = (selectedRequisition?.items || []).reduce((sum, item, itemIndex) => {
-                      const isQuoted = quotations.some(q => getQuoteItemForIndentItem(q, item, itemIndex) != null);
-                      if (!isQuoted) return sum;
-                      const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
-                      if (!quoteItem) return sum;
-                      const itemTotal = !((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)
-                        ? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0))
-                        : 0;
-                      return sum + (Number(itemTotal) || 0);
-                    }, 0);
+                    const visibleTotal = getComparativeQuoteVisibleTotal(quote, indentItems, quotations);
                     return (
                       <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.8rem' }}>
-                        {formatNumber(visibleTotal || quote.subtotal || quote.totalAmount || 0)}
+                        {formatNumber(visibleTotal)}
                       </td>
                     );
                   })}
@@ -488,22 +415,7 @@ const ComparativeStatementView = ({
                 <tr style={{ borderTop: '2px solid #000', borderBottom: '1px solid #000', backgroundColor: '#d0d0d0', fontWeight: 700 }}>
                   <td colSpan={4} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>Grand Total</td>
                   {quotations.map((quote, idx) => {
-                    const visibleTotal = (selectedRequisition?.items || []).reduce((sum, item, itemIndex) => {
-                      const isQuoted = quotations.some(q => getQuoteItemForIndentItem(q, item, itemIndex) != null);
-                      if (!isQuoted) return sum;
-                      const quoteItem = getQuoteItemForIndentItem(quote, item, itemIndex);
-                      if (!quoteItem) return sum;
-                      const itemTotal = !((Number(quoteItem.quantity) || 0) === 0 && (Number(quoteItem.unitPrice) || 0) === 0)
-                        ? ((quoteItem.quantity || 0) * (quoteItem.unitPrice || 0))
-                        : 0;
-                      return sum + (Number(itemTotal) || 0);
-                    }, 0);
-                    const baseTotal = visibleTotal || quote.subtotal || quote.totalAmount || 0;
-                    // If baseTotal is totalAmount, discount might already be applied.
-                    // But visibleTotal (calculated above) and quote.subtotal do NOT have discount applied.
-                    // If visibleTotal or subtotal is used, we must subtract discount.
-                    const isTotalAmountFallback = !visibleTotal && !quote.subtotal;
-                    const grand = Math.max(0, baseTotal - (isTotalAmountFallback ? 0 : (quote.discountAmount || 0)));
+                    const grand = getComparativeQuoteGrandTotal(quote, indentItems, quotations);
                     return (
                       <td key={idx} colSpan={2} style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'right', fontSize: '0.85rem' }}>
                         {formatNumber(grand)}

@@ -182,11 +182,9 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
             <Typography variant="subtitle1" fontWeight={700}>
               Candidates recommended for hiring
             </Typography>
-            {!editData && (
-              <Button startIcon={<AddIcon />} variant="outlined" size="small" onClick={addRecord}>
-                Add Row
-              </Button>
-            )}
+            <Button startIcon={<AddIcon />} variant="outlined" size="small" onClick={addRecord}>
+              Add Row
+            </Button>
           </Box>
 
           <TableContainer component={Paper} variant="outlined" sx={{ mb: 3, overflowX: 'auto' }}>
@@ -202,7 +200,7 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
                   <TableCell sx={cellSx} align="right"><b>Current Package Monthly</b></TableCell>
                   <TableCell sx={cellSx}><b>Tentative DOJ</b></TableCell>
                   <TableCell sx={cellSx}><b>Remark</b></TableCell>
-                  {!editData && <TableCell sx={cellSx} width={48} />}
+                  <TableCell sx={cellSx} width={48} />
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -290,15 +288,13 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
                         onChange={(e) => handleRecordChange(index, 'remark', e.target.value)}
                       />
                     </TableCell>
-                    {!editData && (
-                      <TableCell sx={cellSx}>
-                        {records.length > 1 && (
-                          <IconButton color="error" size="small" onClick={() => removeRecord(index)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        )}
-                      </TableCell>
-                    )}
+                    <TableCell sx={cellSx}>
+                      {records.length > 1 && (
+                        <IconButton color="error" size="small" onClick={() => removeRecord(index)} title="Remove row">
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

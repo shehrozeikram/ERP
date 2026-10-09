@@ -50,6 +50,11 @@ import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import {
+  getQuoteItemForIndentItem,
+  getQuoteLineAmount,
+  isBlankQuoteItem
+} from '../../utils/comparativeQuoteItemMatch';
 import dayjs from 'dayjs';
 
 const ITEM_DESC_PREVIEW_CHARS = 72;
@@ -1319,15 +1324,21 @@ const Requisitions = () => {
                                 {item.quantity || '___'}
                               </td>
                               {quotations.map((quote, quoteIdx) => {
-                                const quoteItem = quote.items?.find((qi, idx) => idx === itemIndex) || quote.items?.[itemIndex];
-                                const itemTotal = quoteItem ? (quoteItem.quantity || 0) * (quoteItem.unitPrice || 0) : 0;
+                                const quoteItem = getQuoteItemForIndentItem(
+                                  quote,
+                                  item,
+                                  itemIndex,
+                                  viewDialog.data.items || []
+                                );
+                                const isNotQuoted = !quoteItem || isBlankQuoteItem(quoteItem);
+                                const itemTotal = !isNotQuoted ? getQuoteLineAmount(quoteItem) : 0;
                                 return (
                                   <React.Fragment key={quoteIdx}>
                                     <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', verticalAlign: 'top' }}>
-                                      {quoteItem ? formatNumber(quoteItem.unitPrice) : '___________'}
+                                      {!isNotQuoted ? formatNumber(quoteItem.unitPrice) : '___________'}
                                     </td>
                                     <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', verticalAlign: 'top' }}>
-                                      {quoteItem ? formatNumber(itemTotal) : '___________'}
+                                      {!isNotQuoted ? formatNumber(itemTotal) : '___________'}
                                     </td>
                                   </React.Fragment>
                                 );
