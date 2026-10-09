@@ -151,7 +151,7 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
         departmentSubject: String(r.departmentSubject || '').trim(),
         project: String(r.project || '').trim(),
         location: String(r.location || '').trim(),
-        currentPackageMonthly: Number(r.currentPackageMonthly) || 0,
+        currentPackageMonthly: String(r.currentPackageMonthly ?? '').trim(),
         tentativeDoj: r.tentativeDoj || null,
         remark: String(r.remark || '').trim()
       }));
@@ -175,7 +175,7 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
-      <DialogTitle>{editData ? 'Edit New-Employee Record' : 'New-Employee Record'}</DialogTitle>
+      <DialogTitle>{editData ? 'Edit New-Hiring Approval' : 'New-Hiring Approval'}</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent dividers>
           <Box mb={1} display="flex" justifyContent="space-between" alignItems="center">
@@ -266,9 +266,7 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
                       <TextField
                         size="small"
                         fullWidth
-                        type="number"
-                        inputProps={{ min: 0, step: 1 }}
-                        placeholder="0"
+                        placeholder="e.g. 80000 or As per negotiation"
                         value={record.currentPackageMonthly}
                         onChange={(e) => handleRecordChange(index, 'currentPackageMonthly', e.target.value)}
                       />

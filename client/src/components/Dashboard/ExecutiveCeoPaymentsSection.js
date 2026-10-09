@@ -680,8 +680,10 @@ const ExecutiveCeoPaymentsSection = () => {
       Boolean(doc.cnic) ||
       doc.itemType === 'Onboarding' ||
       doc.itemType === 'New-Employee Onboarding' ||
+      doc.itemType === 'New-Hiring Approval' ||
       doc.typeLabel === 'Onboarding' ||
-      doc.typeLabel === 'New-Employee Onboarding';
+      doc.typeLabel === 'New-Employee Onboarding' ||
+      doc.typeLabel === 'New-Hiring Approval';
     const isManualSalary =
       Boolean(flags.isManualSalary) ||
       Boolean(doc.isManualSalary) ||
@@ -721,7 +723,7 @@ const ExecutiveCeoPaymentsSection = () => {
         : isCashApproval
           ? 'Cash Approval'
           : isOnboarding
-            ? 'New-Employee Onboarding'
+            ? 'New-Hiring Approval'
             : isManualSalary
               ? 'Manual Salary'
             : isIndent
@@ -886,7 +888,7 @@ const ExecutiveCeoPaymentsSection = () => {
           comments: approvalComments,
           signature: effectiveSig
         });
-        toast.success(`New-Employee Onboarding ${item.displayRef} approved`);
+        toast.success(`New-Hiring Approval ${item.displayRef} approved`);
       } else if (item.isManualSalary) {
         await approveManualSalaryForStatus(item, {
           comments: approvalComments,
@@ -1967,7 +1969,7 @@ const ExecutiveCeoPaymentsSection = () => {
                 : viewDialog.isManualSalary
                 ? 'Manual Salary Details'
                 : viewDialog.isOnboarding
-                ? 'New-Employee Onboarding Details'
+                ? 'New-Hiring Approval Details'
                 : viewDialog.isIndent
                 ? 'Indent Details'
                 : viewDialog.isUtilityBill

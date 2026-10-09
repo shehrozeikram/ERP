@@ -173,7 +173,7 @@ const isNonProductionRuntime = () => {
 };
 
 /**
- * Development-only: Hamza Tanveer is the New-Employee Onboarding Sr Director.
+ * Development-only: Hamza Tanveer is the New-Hiring Approval Sr Director.
  * Matches by email/name so local assignee/role mismatches still allow approve/reject.
  */
 const isDevNewEmployeeSrDirectorApprover = (user) => {

@@ -181,7 +181,7 @@ const NonEmployeeOnboarding = () => {
   return (
     <Box p={3}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4">New-Employee Onboarding</Typography>
+        <Typography variant="h4">New-Hiring Approval</Typography>
         <Button 
           variant="contained" 
           color="primary" 
@@ -231,7 +231,7 @@ const NonEmployeeOnboarding = () => {
                 const assigned = String(field?._id || field || '');
                 return Boolean(userId && assigned && userId === assigned);
               };
-              // Dev-only: Hamza Tanveer is Sr Director for New-Employee Onboarding
+              // Dev-only: Hamza Tanveer is Sr Director for New-Hiring Approval
               const isDevSrDirector = process.env.NODE_ENV !== 'production' && (
                 String(user?.email || '').toLowerCase() === 'hamzatanveer@tovus.net'
                 || `${user?.firstName || ''} ${user?.lastName || ''}`.trim().toLowerCase().replace(/\s+/g, '') === 'hamzatanveer'
@@ -285,8 +285,13 @@ const NonEmployeeOnboarding = () => {
                 : 'N/A';
               const displayPackage = numEmployees > 0
                 ? record.employees.map((e) => {
-                    const n = Number(empPackage(e) || 0);
-                    return n ? n.toLocaleString('en-PK') : '—';
+                    const v = empPackage(e);
+                    if (v == null || String(v).trim() === '' || String(v) === '0') return '—';
+                    const n = Number(v);
+                    if (Number.isFinite(n) && String(v).trim() !== '' && /^-?\d+(\.\d+)?$/.test(String(v).trim())) {
+                      return n.toLocaleString('en-PK');
+                    }
+                    return String(v);
                   }).join(', ')
                 : 'N/A';
 
@@ -402,7 +407,7 @@ const NonEmployeeOnboarding = () => {
       />
 
       <Dialog open={approvalDialog.open} onClose={() => setApprovalDialog({ open: false, record: null })} maxWidth="sm" fullWidth>
-        <DialogTitle>Approve New-Employee Onboarding</DialogTitle>
+        <DialogTitle>Approve New-Hiring Approval</DialogTitle>
         <DialogContent dividers>
           <Box mb={2}>
             <Typography variant="subtitle1" fontWeight="bold">
@@ -448,7 +453,7 @@ const NonEmployeeOnboarding = () => {
       </Dialog>
 
       <Dialog open={rejectDialog.open} onClose={() => setRejectDialog({ open: false, record: null })} maxWidth="sm" fullWidth>
-        <DialogTitle>Reject New-Employee Onboarding</DialogTitle>
+        <DialogTitle>Reject New-Hiring Approval</DialogTitle>
         <DialogContent dividers>
           <Box mb={2}>
             <Typography variant="subtitle1" fontWeight="bold">
@@ -500,7 +505,7 @@ const NonEmployeeOnboarding = () => {
 
       <Dialog open={viewDialog.open} onClose={() => setViewDialog({ open: false, record: null })} maxWidth="xl" fullWidth>
         <DialogTitle sx={{ bgcolor: alpha(theme.palette.primary.main, 0.05), borderBottom: '1px solid', borderColor: 'divider', fontWeight: 700 }}>
-          New-Employee Batch Record Details - {viewDialog.record?.recordNumber}
+          New-Hiring Approval Details - {viewDialog.record?.recordNumber}
         </DialogTitle>
         <DialogContent sx={{ p: { xs: 2, md: 3 } }}>
           <Box mb={4}>
@@ -539,9 +544,14 @@ const NonEmployeeOnboarding = () => {
                         <TableCell>{emp.project || '—'}</TableCell>
                         <TableCell>{emp.location || '—'}</TableCell>
                         <TableCell align="right">
-                          {pkg != null && Number(pkg) !== 0
-                            ? `${Number(pkg).toLocaleString('en-PK')} PKR`
-                            : '—'}
+                          {(() => {
+                            if (pkg == null || String(pkg).trim() === '' || String(pkg) === '0') return '—';
+                            const n = Number(pkg);
+                            if (Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(String(pkg).trim())) {
+                              return `${n.toLocaleString('en-PK')} PKR`;
+                            }
+                            return String(pkg);
+                          })()}
                         </TableCell>
                         <TableCell>{doj}</TableCell>
                         <TableCell>{emp.remark || emp.justification || '—'}</TableCell>

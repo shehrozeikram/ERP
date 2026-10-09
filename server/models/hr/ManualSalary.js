@@ -90,7 +90,7 @@ const manualSalarySchema = new mongoose.Schema({
     default: ''
   },
 
-  // Workflow (same pattern as New-Employee Onboarding, without Chairman / Sr Director)
+  // Workflow (same pattern as New-Hiring Approval, without Chairman / Sr Director)
   workflowStatus: {
     type: String,
     enum: [

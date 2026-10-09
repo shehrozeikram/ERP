@@ -10,8 +10,8 @@ const employeeLineSchema = new mongoose.Schema({
   departmentSubject: { type: String, trim: true, default: '' },
   project: { type: String, trim: true, default: '' },
   location: { type: String, trim: true, default: '' },
-  /** Current Package Monthly (PKR) */
-  currentPackageMonthly: { type: Number, default: 0 },
+  /** Current Package Monthly — free text (numbers and/or words, e.g. "80,000" or "As per negotiation") */
+  currentPackageMonthly: { type: String, trim: true, default: '' },
   /** Tentative Date of Joining */
   tentativeDoj: { type: Date, default: null },
   remark: { type: String, trim: true, default: '' },
@@ -103,9 +103,11 @@ nonEmployeeRecordSchema.statics.normalizeEmployeeLine = (raw = {}) => {
   const name = String(raw.name || '').trim()
     || [raw.firstName, raw.lastName].filter(Boolean).join(' ').trim();
   const designation = String(raw.designation || raw.role || '').trim();
-  const packageVal = raw.currentPackageMonthly != null && raw.currentPackageMonthly !== ''
-    ? Number(raw.currentPackageMonthly)
-    : (raw.expectedWages != null && raw.expectedWages !== '' ? Number(raw.expectedWages) : 0);
+  const packageRaw = raw.currentPackageMonthly != null && String(raw.currentPackageMonthly).trim() !== ''
+    ? String(raw.currentPackageMonthly).trim()
+    : (raw.expectedWages != null && String(raw.expectedWages).trim() !== ''
+      ? String(raw.expectedWages).trim()
+      : '');
   let tentativeDoj = raw.tentativeDoj || null;
   if (tentativeDoj && !(tentativeDoj instanceof Date)) {
     const d = new Date(tentativeDoj);
@@ -119,7 +121,7 @@ nonEmployeeRecordSchema.statics.normalizeEmployeeLine = (raw = {}) => {
     departmentSubject: String(raw.departmentSubject || raw.department || '').trim(),
     project: String(raw.project || '').trim(),
     location: String(raw.location || '').trim(),
-    currentPackageMonthly: Number.isFinite(packageVal) ? packageVal : 0,
+    currentPackageMonthly: packageRaw,
     tentativeDoj,
     remark: String(raw.remark || raw.justification || '').trim()
   };
