@@ -147,7 +147,7 @@ const RequisitionPrintView = () => {
           <Box
             component="img"
             src="/images/taj-logo.png"
-            alt="Taj Residencia Logo"
+            alt="Company Logo"
             sx={{
               height: { xs: 150, print: 130 },
               width: 'auto',
@@ -170,7 +170,7 @@ const RequisitionPrintView = () => {
               textAlign: 'center'
             }}
           >
-            Taj Residencia
+            {requisition?.companyId?.name || '—'}
           </Typography>
         </Box>
 

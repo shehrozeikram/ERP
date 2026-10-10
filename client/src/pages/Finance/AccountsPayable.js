@@ -2779,7 +2779,9 @@ const AccountsPayable = () => {
                       >
                         <Typography variant="h4" fontWeight={700} align="center" sx={{ textTransform: 'uppercase', mb: 1, fontSize: { xs: '1.25rem', print: '1.05rem' }, '@media print': { mb: 0.5 } }}>Purchase Order</Typography>
                         <Box sx={{ mb: 0.75, '@media print': { mb: 0.4 } }}>
-                          <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.9rem', '@media print': { fontSize: '0.78rem' } }}>Taj Residencia</Typography>
+                          <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.9rem', '@media print': { fontSize: '0.78rem' } }}>
+                            {selectedBill.poDetail.po.companyId?.name || selectedBill.poDetail.po.indent?.companyId?.name || '—'}
+                          </Typography>
                           <Typography variant="body2" sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>Link Road I-14, adjacent to CDA Sectors I-14 and I-15</Typography>
                         </Box>
                         <Divider sx={{ my: 0.75, '@media print': { my: 0.4 } }} />
@@ -2970,7 +2972,12 @@ const AccountsPayable = () => {
                           <Paper key={grn._id} sx={{ p: 4, mb: 4, maxWidth: '210mm', mx: 'auto', backgroundColor: '#fff', boxShadow: 'none', border: '1px solid', borderColor: 'divider' }}>
                             <Typography variant="overline" color="textSecondary" sx={{ display: 'block', mb: 1 }}>Attached GRN (copy)</Typography>
                             <Grid container sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', pb: 2 }} alignItems="center">
-                              <Grid item xs={4}><Typography variant="h6" fontWeight="bold">Taj Residencia</Typography><Typography variant="body2" color="textSecondary">Head Office</Typography></Grid>
+                              <Grid item xs={4}>
+                                <Typography variant="h6" fontWeight="bold">
+                                  {selectedBill.poDetail?.po?.companyId?.name || selectedBill.poDetail?.po?.indent?.companyId?.name || '—'}
+                                </Typography>
+                                <Typography variant="body2" color="textSecondary">Head Office</Typography>
+                              </Grid>
                               <Grid item xs={4} sx={{ textAlign: 'center' }}><Typography variant="h5" fontWeight="bold">Goods Received Note</Typography></Grid>
                               <Grid item xs={4} />
                             </Grid>

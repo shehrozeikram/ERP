@@ -776,7 +776,7 @@ const Requisitions = () => {
                   <Box
                     component="img"
                     src="/images/taj-logo.png"
-                    alt="Taj Residencia Logo"
+                    alt="Company Logo"
                     sx={{
                       height: { xs: 150, print: 130 },
                       width: 'auto',
@@ -799,7 +799,7 @@ const Requisitions = () => {
                       textAlign: 'center'
                     }}
                   >
-                    Taj Residencia
+                    {viewDialog.data.companyId?.name || '—'}
                   </Typography>
                 </Box>
 
@@ -1155,7 +1155,7 @@ const Requisitions = () => {
                   <Box
                     component="img"
                     src="/images/taj-logo.png"
-                    alt="Taj Residencia Logo"
+                    alt="Company Logo"
                     sx={{
                       height: { xs: 150, print: 130 },
                       width: 'auto',
@@ -1178,7 +1178,7 @@ const Requisitions = () => {
                       textAlign: 'center'
                     }}
                   >
-                    Taj Residencia
+                    {viewDialog.data.companyId?.name || '—'}
                   </Typography>
                 </Box>
 

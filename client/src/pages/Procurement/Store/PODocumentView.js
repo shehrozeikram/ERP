@@ -1,6 +1,7 @@
 import React from 'react';
-import { Box, Typography, Paper, Divider, Chip, alpha, useTheme } from '@mui/material';
-import { ProcurementDigitalSignaturesRow } from '../../../components/common/DigitalSignatureImage';
+import { Box, Typography, Paper, Divider, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, alpha, useTheme } from '@mui/material';
+import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../../components/common/DigitalSignatureImage';
+import { sanitizeApprovalAuthorities } from '../../../utils/purchaseOrderAuthority';
 
 const formatDateForPrint = (date) => {
   if (!date) return '';
@@ -68,16 +69,90 @@ const PODocumentView = ({ data }) => {
       }));
   const hasObservations = Array.isArray(observations) && observations.length > 0;
   const hasChangeSummary = data?.resubmissionChangeSummary && String(data.resubmissionChangeSummary).trim().length > 0;
-  const auth = data?.approvalAuthorities || {};
-
-  const signatureColumns = [
-    { label: 'Prepared By', value: auth.preparedBy },
-    { label: 'Manager Procurement', value: auth.managerProcurement },
-    ...(auth.srManagerProcurement ? [{ label: 'Sr Manager Procurement', value: auth.srManagerProcurement }] : []),
-    { label: 'Chief operating officer', value: auth.chiefOperatingOfficer || auth.verifiedBy },
-    { label: 'AVP Taj', value: auth.avpTaj || auth.authorisedRep },
-    ...(auth.technicalDepartment ? [{ label: 'Technical Department', value: auth.technicalDepartment }] : [])
+  const auth = sanitizeApprovalAuthorities(data?.approvalAuthorities || {}, data?.createdAt);
+  const csa = data?.indent?.comparativeStatementApprovals || {};
+  const approverLabel = (u) => {
+    if (!u) return '';
+    return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || '';
+  };
+  const formatDateTime = (date) => {
+    if (!date) return '—';
+    try {
+      return new Date(date).toLocaleString();
+    } catch {
+      return '—';
+    }
+  };
+  const authorityRows = [
+    {
+      key: 'preparedBy',
+      label: 'Prepared By',
+      user: csa.preparedByUser || null,
+      fallback: auth.preparedBy || csa.preparedBy || ''
+    },
+    {
+      key: 'managerProcurement',
+      label: 'Manager Procurement',
+      user: csa.managerProcurementUser || null,
+      fallback: auth.managerProcurement || csa.managerProcurement || ''
+    },
+    ...(auth.srManagerProcurement
+      ? [{
+          key: 'srManagerProcurement',
+          label: 'Sr Manager Procurement',
+          user: null,
+          fallback: auth.srManagerProcurement || ''
+        }]
+      : []),
+    {
+      key: 'chiefOperatingOfficer',
+      label: 'Chief operating officer',
+      user: null,
+      fallback: auth.chiefOperatingOfficer || auth.verifiedBy || csa.verifiedBy || ''
+    },
+    {
+      key: 'avpTaj',
+      label: 'AVP Taj',
+      user: null,
+      fallback: auth.avpTaj || auth.authorisedRep || csa.authorisedRep || ''
+    },
+    ...(auth.technicalDepartment || csa.technicalDepartment
+      ? [{
+          key: 'technicalDepartment',
+          label: 'Technical Department',
+          user: null,
+          fallback: auth.technicalDepartment || csa.technicalDepartment || ''
+        }]
+      : [])
   ];
+  const authorityApprovalHistory = Array.isArray(data?.workflowHistory)
+    ? [...data.workflowHistory]
+        .reverse()
+        .find((h) => h?.fromStatus === 'Pending Approval' && h?.toStatus === 'Pending Audit')
+    : null;
+  const authorityApprovedBy = data?.approvedBy || authorityApprovalHistory?.changedBy || null;
+  const authorityApprovedAt = data?.approvedAt || authorityApprovalHistory?.changedAt || null;
+  const authorityApprovals = Array.isArray(data?.authorityApprovals) ? data.authorityApprovals : [];
+  const authorityApprovalByKey = new Map(
+    authorityApprovals
+      .map((approval) => [String(approval?.authorityKey || '').trim(), approval])
+      .filter(([key]) => Boolean(key))
+  );
+  const normalizeToken = (value) => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const getUserTokens = (u) => {
+    if (!u || typeof u !== 'object') return [];
+    return [
+      [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
+      u.email,
+      u.employeeId
+    ].map(normalizeToken).filter(Boolean);
+  };
+  const authorityTokens = getUserTokens(authorityApprovedBy);
+  const matchesAuthority = (value) => {
+    const token = normalizeToken(value);
+    if (!token || authorityTokens.length === 0) return false;
+    return authorityTokens.some((at) => at === token || at.includes(token) || token.includes(at));
+  };
 
   return (
     <Paper
@@ -177,7 +252,9 @@ const PODocumentView = ({ data }) => {
       )}
 
       <Box sx={{ mb: 2.5 }}>
-        <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>Taj Residencia</Typography>
+        <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
+          {data.companyId?.name || data.indent?.companyId?.name || '—'}
+        </Typography>
         <Typography sx={{ fontSize: '0.9rem' }}>Link Road I-14, adjacent to CDA Sectors I-14 and I-15</Typography>
       </Box>
 
@@ -313,21 +390,96 @@ const PODocumentView = ({ data }) => {
         </Box>
       </Box>
 
-      {/* Approval authorities (signature section) */}
-      <Box sx={{ mt: 4 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', fontFamily: 'Arial, sans-serif' }}>
-          <tbody>
-            <tr>
-              {signatureColumns.map(({ label, value }) => (
-                <td key={label} style={{ padding: '20px 10px', textAlign: 'center', width: signatureColumns.length ? `${Math.floor(100 / signatureColumns.length)}%` : '25%', verticalAlign: 'bottom' }}>
-                  <Box sx={{ minHeight: '60px', borderBottom: '1px solid #000', mb: 1, '@media print': { minHeight: '40px', mb: 0.5 } }} />
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', '@media print': { fontSize: '0.65rem' } }}>{label}</Typography>
-                  {value && <Typography variant="caption" sx={{ display: 'block', mt: 0.25, fontWeight: 600 }}>{value}</Typography>}
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
+      {/* Approval authorities with digital signatures */}
+      <Box sx={{ mt: 4, '@media print': { mt: 2 } }}>
+        <Typography
+          variant="subtitle2"
+          fontWeight={800}
+          sx={{ mb: 0.5, fontSize: '0.75rem', color: '#1e293b', '@media print': { fontSize: '10px', mb: 0.35 } }}
+        >
+          Finance Document Approval Authority
+        </Typography>
+        <TableContainer component={Box} sx={{ border: '1.5px solid #334155' }}>
+          <Table
+            size="small"
+            sx={{
+              '& th': {
+                bgcolor: '#f1f5f9',
+                fontWeight: 800,
+                fontSize: 12,
+                border: '1px solid #cbd5e1',
+                py: 0.45,
+                px: 0.8,
+                '@media print': { py: 0.25, px: 0.5, fontSize: '9.5px' }
+              },
+              '& td': {
+                fontSize: 12,
+                border: '1px solid #cbd5e1',
+                py: 0.4,
+                px: 0.8,
+                verticalAlign: 'middle',
+                '@media print': { py: 0.2, px: 0.5, fontSize: '9.5px' }
+              }
+            }}
+          >
+            <TableHead>
+              <TableRow>
+                <TableCell>Authority</TableCell>
+                <TableCell>Name</TableCell>
+                <TableCell align="center">Digital Signature</TableCell>
+                <TableCell>Date & Time</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {(() => {
+                let legacyAuthorityApplied = false;
+                return authorityRows.map((row) => {
+                  const authorityApproval = authorityApprovalByKey.get(row.key);
+                  const authorityUser = authorityApproval?.approver || row.user;
+                  const isLegacyApproved = !authorityApproval && !legacyAuthorityApplied && matchesAuthority(row.fallback);
+                  if (isLegacyApproved) legacyAuthorityApplied = true;
+                  const signatureUser = authorityApproval?.approver || row.user || (isLegacyApproved ? authorityApprovedBy : null);
+                  const isApprovedRow = Boolean(authorityApproval || isLegacyApproved);
+                  const actedAt = authorityApproval?.approvedAt || (isLegacyApproved ? authorityApprovedAt : null);
+                  return (
+                    <TableRow key={row.key}>
+                      <TableCell sx={{ fontWeight: 800 }}>{row.label}</TableCell>
+                      <TableCell>{row.fallback || (authorityUser ? approverLabel(authorityUser) : '—')}</TableCell>
+                      <TableCell align="center">
+                        {isApprovedRow && signatureUser?.digitalSignature ? (
+                          <Box
+                            sx={{
+                              maxHeight: 28,
+                              display: 'flex',
+                              justifyContent: 'center',
+                              '& img': { maxHeight: 28, width: 'auto', objectFit: 'contain' },
+                              '@media print': { maxHeight: 22, '& img': { maxHeight: 22 } }
+                            }}
+                          >
+                            <DigitalSignatureImage
+                              userOrPath={signatureUser}
+                              alt={`Signature ${row.label}`}
+                              sx={{ maxHeight: 28, maxWidth: 100, '@media print': { maxHeight: 22, maxWidth: 85 } }}
+                            />
+                          </Box>
+                        ) : isApprovedRow ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                            Approved
+                          </Typography>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                            —
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>{actedAt ? formatDateTime(actedAt) : '—'}</TableCell>
+                    </TableRow>
+                  );
+                });
+              })()}
+            </TableBody>
+          </Table>
+        </TableContainer>
       </Box>
 
       <ProcurementDigitalSignaturesRow purchaseOrder={data} />

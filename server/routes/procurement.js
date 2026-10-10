@@ -743,9 +743,10 @@ const canViewQuotationsByIndentRead = (user, indent) => {
 const purchaseOrderIndentPopulate = {
   path: 'indent',
   select:
-    'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes company companyName comparativeStatementApprovals comparativeApproval comparativeApprovals splitPOAssignments approvalChain justification signatures attachments',
+    'indentNumber title erpRef requestedDate requiredDate department requestedBy items notes companyId comparativeStatementApprovals comparativeApproval comparativeApprovals splitPOAssignments approvalChain justification signatures attachments',
   populate: [
     { path: 'department', select: 'name code' },
+    { path: 'companyId', select: 'name code symbol' },
     { path: 'requestedBy', select: 'firstName lastName email digitalSignature' },
     { path: 'approvalChain.approver', select: 'firstName lastName email digitalSignature' },
     { path: 'comparativeApproval.approvers.approver', select: 'firstName lastName email employeeId digitalSignature' },
@@ -1059,10 +1060,12 @@ router.get('/purchase-orders',
     try {
       const purchaseOrders = await PurchaseOrder.find(query)
         .populate('vendor', 'name email phone contactPerson ntnCnic ntnNo cnic address payeeName')
+        .populate('companyId', 'name code symbol')
         .populate({
           path: 'indent',
-          select: 'comparativeStatementApprovals comparativeApproval',
+          select: 'comparativeStatementApprovals comparativeApproval companyId',
           populate: [
+            { path: 'companyId', select: 'name code symbol' },
             { path: 'comparativeStatementApprovals.preparedByUser', select: 'firstName lastName email' },
             { path: 'comparativeStatementApprovals.verifiedByUser', select: 'firstName lastName email' },
             { path: 'comparativeStatementApprovals.authorisedRepUser', select: 'firstName lastName email' },
@@ -1239,6 +1242,7 @@ router.get('/purchase-orders/ceo-secretariat',
 
     const purchaseOrders = await PurchaseOrder.find(filter)
       .populate('vendor', 'name email phone contactPerson')
+      .populate('companyId', 'name code symbol')
       .populate('createdBy', 'firstName lastName email')
       .populate(purchaseOrderIndentPopulate)
       .populate('quotation', 'quotationNumber quotationDate')
@@ -1260,6 +1264,7 @@ router.get('/purchase-orders/:id',
   asyncHandler(async (req, res) => {
     const purchaseOrder = await PurchaseOrder.findById(req.params.id)
       .populate('vendor', 'name email phone contactPerson address ntnCnic ntnNo cnic payeeName')
+      .populate('companyId', 'name code symbol')
       .populate(purchaseOrderIndentPopulate)
       .populate('quotation', 'quotationNumber quotationDate')
       .populate('createdBy', 'firstName lastName email digitalSignature')

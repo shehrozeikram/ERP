@@ -51,6 +51,7 @@ import api from '../../../services/api';
 import dayjs from 'dayjs';
 import WorkflowHistoryDialog from '../../../components/WorkflowHistoryDialog';
 import { resolveUploadFileHref } from '../../../utils/uploadPaths';
+import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
 
 const approverDisplayName = (u) => {
   if (!u) return '';
@@ -686,58 +687,162 @@ const IndentDetail = ({
             </CardContent>
           </Card>
 
-          {(indent.approvalChain || []).length > 0 && (
-            <Card sx={{ mb: 3 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
-                  Approver progress
-                </Typography>
-                <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell><strong>Step</strong></TableCell>
-                        <TableCell><strong>Approver</strong></TableCell>
-                        <TableCell><strong>Status</strong></TableCell>
-                        <TableCell><strong>When</strong></TableCell>
-                        <TableCell><strong>Approver Comment / Reason</strong></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {['Head of Department'].map((label, idx) => {
-                        const step = indent.approvalChain[idx];
-                        const st = step?.status || '—';
-                        return (
-                          <TableRow key={label}>
-                            <TableCell>{label}</TableCell>
-                            <TableCell>
-                              {step?.approver ? approverDisplayName(step.approver) : '—'}
-                            </TableCell>
-                            <TableCell>
-                              <Chip
-                                size="small"
-                                label={st === 'pending' ? 'Pending' : st === 'approved' ? 'Approved' : st === 'rejected' ? 'Rejected' : st}
-                                color={st === 'approved' ? 'success' : st === 'rejected' ? 'error' : 'default'}
-                                variant={st === 'pending' ? 'outlined' : 'filled'}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              {step?.actedAt ? dayjs(step.actedAt).format('DD-MMM-YYYY HH:mm') : '—'}
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="body2" color="text.secondary">
-                                {step?.comment || indent.rejectionReason || indent.lastRejectionReason || '—'}
+          <Card sx={{ mb: 3 }}>
+            <CardContent>
+              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+                Initiator & Approver Signatures
+              </Typography>
+              <TableContainer
+                component={Box}
+                sx={{
+                  overflowX: 'auto',
+                  WebkitOverflowScrolling: 'touch',
+                  border: '1.5px solid #334155'
+                }}
+              >
+                <Table
+                  size="small"
+                  sx={{
+                    '& th': {
+                      bgcolor: '#f1f5f9',
+                      fontWeight: 800,
+                      fontSize: 12,
+                      border: '1px solid #cbd5e1',
+                      py: 0.5,
+                      px: 0.8
+                    },
+                    '& td': {
+                      fontSize: 12,
+                      border: '1px solid #cbd5e1',
+                      py: 0.45,
+                      px: 0.8,
+                      verticalAlign: 'middle'
+                    }
+                  }}
+                >
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Role</TableCell>
+                      <TableCell>Name</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="center">Digital Signature</TableCell>
+                      <TableCell>Date & Time</TableCell>
+                      <TableCell>Comment / Reason</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(() => {
+                      const initiatorName =
+                        indent.signatures?.requester?.name ||
+                        approverDisplayName(indent.requestedBy) ||
+                        '—';
+                      const initiatorAt =
+                        indent.signatures?.requester?.date ||
+                        indent.requestedDate ||
+                        indent.createdAt ||
+                        null;
+                      const chainLabels = ['Head of Department', 'GM/PD', 'SVP/AVP'];
+                      const chain = Array.isArray(indent.approvalChain) ? indent.approvalChain : [];
+                      const rows = [
+                        {
+                          key: 'initiator',
+                          role: 'Initiator / Requester',
+                          name: initiatorName,
+                          status: 'Submitted',
+                          statusColor: 'info',
+                          signatureUser: indent.requestedBy,
+                          showSignature: Boolean(indent.requestedBy?.digitalSignature),
+                          actedAt: initiatorAt,
+                          comment: '—'
+                        },
+                        ...chain.map((step, idx) => {
+                          const st = step?.status || 'pending';
+                          const label =
+                            step?.role ||
+                            step?.label ||
+                            chainLabels[idx] ||
+                            `Approver ${idx + 1}`;
+                          return {
+                            key: `approver-${idx}`,
+                            role: label,
+                            name: step?.approver ? approverDisplayName(step.approver) : '—',
+                            status:
+                              st === 'pending'
+                                ? 'Pending'
+                                : st === 'approved'
+                                  ? 'Approved'
+                                  : st === 'rejected'
+                                    ? 'Rejected'
+                                    : st,
+                            statusColor:
+                              st === 'approved' ? 'success' : st === 'rejected' ? 'error' : 'default',
+                            signatureUser: step?.approver || null,
+                            showSignature: st === 'approved' && Boolean(step?.approver?.digitalSignature),
+                            actedAt: step?.actedAt || null,
+                            comment:
+                              step?.comment ||
+                              (st === 'rejected'
+                                ? indent.rejectionReason || indent.lastRejectionReason || '—'
+                                : '—')
+                          };
+                        })
+                      ];
+                      return rows.map((row) => (
+                        <TableRow key={row.key}>
+                          <TableCell sx={{ fontWeight: 800 }}>{row.role}</TableCell>
+                          <TableCell>{row.name}</TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={row.status}
+                              color={row.statusColor}
+                              variant={row.status === 'Pending' ? 'outlined' : 'filled'}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            {row.showSignature ? (
+                              <Box
+                                sx={{
+                                  maxHeight: 28,
+                                  display: 'flex',
+                                  justifyContent: 'center',
+                                  '& img': { maxHeight: 28, width: 'auto', objectFit: 'contain' }
+                                }}
+                              >
+                                <DigitalSignatureImage
+                                  userOrPath={row.signatureUser}
+                                  alt={`Signature ${row.role}`}
+                                  sx={{ maxHeight: 28, maxWidth: 100 }}
+                                />
+                              </Box>
+                            ) : row.status === 'Approved' || row.key === 'initiator' ? (
+                              <Typography variant="caption" color="text.secondary">
+                                {row.key === 'initiator' && !row.showSignature
+                                  ? 'No signature on file'
+                                  : 'Approved'}
                               </Typography>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </CardContent>
-            </Card>
-          )}
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">
+                                —
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {row.actedAt ? dayjs(row.actedAt).format('DD-MMM-YYYY HH:mm') : '—'}
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" color="text.secondary">
+                              {row.comment || '—'}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ));
+                    })()}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </CardContent>
+          </Card>
 
           {/* Items */}
           <Card>

@@ -2062,7 +2062,7 @@ const PurchaseOrders = () => {
                 {/* Buyer Information - First Row */}
                 <Box sx={{ mb: 2.5 }}>
                   <Typography variant="h6" fontWeight={600} sx={{ mb: 1, fontSize: '1.1rem' }}>
-                    Taj Residencia
+                    {viewDialog.data.companyId?.name || viewDialog.data.indent?.companyId?.name || '—'}
                   </Typography>
                   <Typography sx={{ fontSize: '0.9rem' }}>
                     Link Road I-14, adjacent to CDA Sectors I-14 and I-15
@@ -2498,7 +2498,9 @@ const PurchaseOrders = () => {
                   <Typography variant="overline" color="textSecondary" sx={{ display: 'block', mb: 1 }}>Attached GRN (copy)</Typography>
                   <Grid container sx={{ mb: 2, borderBottom: 1, borderColor: 'divider', pb: 2 }} alignItems="center">
                     <Grid item xs={4}>
-                      <Typography variant="h6" fontWeight="bold">Taj Residencia</Typography>
+                      <Typography variant="h6" fontWeight="bold">
+                        {viewDialog.data.companyId?.name || viewDialog.data.indent?.companyId?.name || '—'}
+                      </Typography>
                       <Typography variant="body2" color="textSecondary">Head Office</Typography>
                     </Grid>
                     <Grid item xs={4} sx={{ textAlign: 'center' }}>

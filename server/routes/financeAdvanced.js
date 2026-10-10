@@ -3681,7 +3681,11 @@ router.get('/accounts-payable/:id',
       const Indent = require('../models/general/Indent');
       const po = await PurchaseOrder.findById(targetPoId)
         .populate('vendor', 'name email phone address payeeName cnic ntnCnic ntnNo')
-        .populate('indent')
+        .populate('companyId', 'name code symbol')
+        .populate({
+          path: 'indent',
+          populate: [{ path: 'companyId', select: 'name code symbol' }]
+        })
         .populate('auditApprovedBy', 'firstName lastName email digitalSignature')
         .populate('auditReturnedBy', 'firstName lastName email')
         .populate('authorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
@@ -3699,6 +3703,7 @@ router.get('/accounts-payable/:id',
             .populate('approvedBy', 'firstName lastName email digitalSignature')
             .populate('movedToProcurementBy', 'firstName lastName email digitalSignature')
             .populate('department', 'name code')
+            .populate('companyId', 'name code symbol')
             .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
             .lean();
           quotations = await Quotation.find({ indent: indentId }).populate('vendor', 'name email payeeName cnic ntnCnic').lean();

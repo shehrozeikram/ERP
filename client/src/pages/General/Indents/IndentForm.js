@@ -752,6 +752,10 @@ const IndentForm = () => {
     );
   }
 
+  const selectedCompanyName =
+    companyOptions.find((c) => String(c._id) === String(formData.companyId))?.name ||
+    '';
+
   return (
     <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
       {/* Header */}
@@ -761,14 +765,14 @@ const IndentForm = () => {
             <Box
               component="img"
               src="/images/taj-logo.png"
-              alt="Taj Residencia Logo"
+              alt="Company Logo"
               sx={{ height: 50, width: 'auto' }}
               onError={(e) => {
                 e.target.style.display = 'none';
               }}
             />
             <Typography variant="h5" fontWeight={700} sx={{ textTransform: 'uppercase' }}>
-              Taj Residencia
+              {selectedCompanyName || 'Select Company'}
             </Typography>
           </Box>
           <Button

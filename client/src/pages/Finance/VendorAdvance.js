@@ -1911,7 +1911,7 @@ const VendorAdvance = () => {
 
                     <Box sx={{ mb: 0.6, '@media print': { mb: 0.35 } }}>
                       <Typography fontWeight={600} sx={{ mb: 0.15, fontSize: '0.85rem', '@media print': { fontSize: '0.75rem' } }}>
-                        Taj Residencia
+                        {viewDialog.po.companyId?.name || viewDialog.po.indent?.companyId?.name || '—'}
                       </Typography>
                       <Typography sx={{ fontSize: '0.75rem', lineHeight: 1.25, '@media print': { fontSize: '0.65rem' } }}>
                         Link Road I-14, adjacent to CDA Sectors I-14 and I-15

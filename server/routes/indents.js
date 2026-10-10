@@ -674,6 +674,7 @@ router.get('/:id',
   asyncHandler(async (req, res) => {
     const indent = await Indent.findById(req.params.id)
       .populate('department', 'name code')
+      .populate('companyId', 'name code symbol')
       .populate('requestedBy', 'firstName lastName email employeeId department digitalSignature')
       .populate('approvedBy', 'firstName lastName email digitalSignature')
       .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature')

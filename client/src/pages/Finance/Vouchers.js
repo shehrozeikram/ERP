@@ -1519,7 +1519,7 @@ const Vouchers = () => {
                       {/* Buyer Information */}
                       <Box sx={{ mb: 0.75, '@media print': { mb: 0.4 } }}>
                         <Typography variant="h6" fontWeight={600} sx={{ mb: 0.25, fontSize: '0.9rem', '@media print': { fontSize: '0.78rem', mb: 0.15 } }}>
-                          Taj Residencia
+                          {viewDialog.po.companyId?.name || viewDialog.po.indent?.companyId?.name || '—'}
                         </Typography>
                         <Typography sx={{ fontSize: '0.78rem', lineHeight: 1.25, '@media print': { fontSize: '0.68rem' } }}>
                           Link Road I-14, adjacent to CDA Sectors I-14 and I-15

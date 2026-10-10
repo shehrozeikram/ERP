@@ -200,7 +200,7 @@ const ComparativeStatementView = ({
           Comparative Statement
         </Typography>
         <Typography variant="h6" align="center" sx={{ mb: { xs: 2, print: 0.5 }, fontSize: { xs: '1.2rem', print: '0.9rem' }, fontWeight: 500 }}>
-          Taj Residencia
+          {selectedRequisition?.companyId?.name || '—'}
         </Typography>
         <Box sx={{ position: 'absolute', top: 0, right: 0, textAlign: 'right', fontSize: { xs: '0.9rem', print: '0.75rem' } }}>
           <Typography sx={{ mb: 0.5 }}>POR {selectedRequisition?.erpRef?.split('#').pop() || selectedRequisition?.indentNumber || 'N/A'}</Typography>

@@ -143,7 +143,7 @@ const IndentPrintView = () => {
           <Box
             component="img"
             src="/images/taj-logo.png"
-            alt="Taj Residencia Logo"
+            alt="Company Logo"
             sx={{
               height: { xs: 72, sm: 150 },
               width: 'auto',
@@ -167,7 +167,7 @@ const IndentPrintView = () => {
               textAlign: 'center'
             }}
           >
-            Taj Residencia
+            {indent.companyId?.name || '—'}
           </Typography>
         </Box>
 
