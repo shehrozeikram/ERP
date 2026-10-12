@@ -237,13 +237,14 @@ router.get('/employees',
       // Get all employees without pagination for dropdowns and forms
       // Select only essential fields and populate only what's needed for list view
       employees = await Employee.find(query)
-        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate hireDate probationPeriodMonths endOfProbationDate confirmationDate terminationDate terminationReason updatedAt placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus employeeCategory createdAt profileImage user cashSalary salary')
+        .select('firstName lastName employeeId idCard religion maritalStatus qualification bankName bankAccountNumber accountNumber spouseName appointmentDate hireDate probationPeriodMonths endOfProbationDate confirmationDate terminationDate terminationReason updatedAt placementCompany placementDepartment placementProject placementSection placementDesignation email phone isActive employmentStatus employeeCategory reportingLine createdAt profileImage user cashSalary salary')
         .populate('bankName', 'name type')
         .populate('placementCompany', 'name type')
         .populate('placementProject', 'name company')
         .populate('placementDepartment', 'name code')
         .populate('placementSection', 'name department')
         .populate('placementDesignation', 'title level')
+        .populate('reportingLine', 'firstName lastName employeeId')
         .populate('user', '_id firstName lastName email department')
         .sort({ 
           // First priority: Active employees first, inactive at the end
@@ -267,6 +268,7 @@ router.get('/employees',
         .populate('placementLocation', 'name type')
         .populate('manager', 'firstName lastName employeeId')
         .populate('hod', 'firstName lastName employeeId')
+        .populate('reportingLine', 'firstName lastName employeeId')
         .limit(limit * 1)
         .skip((page - 1) * limit)
         .sort({ 
@@ -602,12 +604,18 @@ router.post('/employees', [
       }
     });
 
-    // Set employeeCategory based on designation
-    if (employeeData.placementDesignation) {
+    // Prefer explicit category (Employees / KPI Management); else infer from designation
+    if (req.body.employeeCategory === 'white_collar' || req.body.employeeCategory === 'blue_collar') {
+      employeeData.employeeCategory = req.body.employeeCategory;
+    } else if (employeeData.placementDesignation) {
       const designation = await Designation.findById(employeeData.placementDesignation);
       if (designation) {
         employeeData.employeeCategory = classifyDesignationCategory(designation.title, designation.level);
       }
+    }
+
+    if (employeeData.reportingLine === '' || employeeData.reportingLine === null) {
+      delete employeeData.reportingLine;
     }
 
     // Ensure profileImage is preserved (keep it even if empty string for potential clearing)
@@ -931,7 +939,8 @@ router.get('/employees/:id',
       .populate('address.state', 'name code')
       .populate('address.country', 'name code')
       .populate('manager', 'firstName lastName employeeId')
-      .populate('hod', 'firstName lastName employeeId');
+      .populate('hod', 'firstName lastName employeeId')
+      .populate('reportingLine', 'firstName lastName employeeId');
 
     if (!employee) {
       return res.status(404).json({
@@ -1063,7 +1072,7 @@ router.put('/employees/:id', [
 
     // Clean up all ObjectId fields that might be sent as empty strings
     const objectIdFields = [
-      'user', 'city', 'state', 'country', 'department', 'position', 'manager',
+      'user', 'city', 'state', 'country', 'department', 'position', 'manager', 'hod',
       'placementCompany', 'placementSector', 'placementProject', 'placementDepartment',
       'placementSection', 'placementDesignation', 'placementLocation', 'oldDesignation',
       'bankName'
@@ -1074,6 +1083,26 @@ router.put('/employees/:id', [
         delete employeeData[field];
       }
     });
+
+    // reportingLine: allow clear via empty string / null (Employees + KPI Management)
+    if ('reportingLine' in req.body) {
+      if (req.body.reportingLine === '' || req.body.reportingLine === null) {
+        delete employeeData.reportingLine;
+        employeeData.$unset = { ...(employeeData.$unset || {}), reportingLine: 1 };
+      } else if (!mongoose.Types.ObjectId.isValid(req.body.reportingLine)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid reporting line employee id'
+        });
+      } else if (String(req.body.reportingLine) === String(req.params.id)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Reporting line cannot be the same employee'
+        });
+      } else {
+        employeeData.reportingLine = req.body.reportingLine;
+      }
+    }
     
     // Handle employeeCategory - prioritize user's manual selection
     if ('employeeCategory' in req.body) {

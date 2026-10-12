@@ -760,6 +760,22 @@ const EmployeeView = () => {
                   </Grid>
                 )}
                 <Grid item xs={6}>
+                  <Typography variant="body2" color="textSecondary">Reporting Line</Typography>
+                  <Typography variant="body1">
+                    {employee.reportingLine
+                      ? [
+                          employee.reportingLine.firstName,
+                          employee.reportingLine.lastName
+                        ].filter(Boolean).join(' ') ||
+                        employee.reportingLine.employeeId ||
+                        '—'
+                      : '—'}
+                    {employee.reportingLine?.employeeId
+                      ? ` (${employee.reportingLine.employeeId})`
+                      : ''}
+                  </Typography>
+                </Grid>
+                <Grid item xs={6}>
                   <Typography variant="body2" color="textSecondary">Qualification</Typography>
                   <Typography variant="body1">{employee.qualification}</Typography>
                 </Grid>

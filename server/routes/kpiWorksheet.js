@@ -3,12 +3,17 @@ const mongoose = require('mongoose');
 const { asyncHandler } = require('../middleware/errorHandler');
 const KPIWorksheet = require('../models/hr/KPIWorksheet');
 const Employee = require('../models/hr/Employee');
-const { getOrCreateWorksheet, ensureWorksheetsForMonth } = require('../utils/kpiWorksheetService');
+const {
+  getOrCreateWorksheet,
+  ensureWorksheetsForMonth,
+  rowsFromBlueCollarDesignation
+} = require('../utils/kpiWorksheetService');
 const { findEmployeeForAuthUser } = require('../utils/employeeUserLink');
 const { checkSubRoleAccess } = require('../config/permissions');
 const { isBlueCollarEmployee } = require('../utils/blueCollarKpiCatalog');
 const Project = require('../models/hr/Project');
 const Department = require('../models/hr/Department');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -680,6 +685,129 @@ router.post(
     const month = parseInt(req.body.month, 10) || now.getMonth() + 1;
     const result = await ensureWorksheetsForMonth(year, month);
     res.json({ success: true, data: result });
+  })
+);
+
+/**
+ * PATCH /api/kpi/worksheets/employee-settings/:employeeId
+ * Update employeeCategory (blue/white collar) and/or reportingLine from KPI Management.
+ * Writes to the same Employee fields used by HR Employees module.
+ */
+router.patch(
+  '/employee-settings/:employeeId',
+  asyncHandler(async (req, res) => {
+    const elevated =
+      isHrAdmin(req.user?.role) || (await canAccessKpiManagement(req.user, 'update'));
+    if (!elevated) {
+      return res.status(403).json({ success: false, message: 'KPI management update access required' });
+    }
+
+    const employeeId = req.params.employeeId;
+    if (!mongoose.Types.ObjectId.isValid(employeeId)) {
+      return res.status(400).json({ success: false, message: 'Invalid employee id' });
+    }
+
+    const emp = await Employee.findOne({ _id: employeeId, isDeleted: { $ne: true } });
+    if (!emp) {
+      return res.status(404).json({ success: false, message: 'Employee not found' });
+    }
+
+    const updates = {};
+    const hasCategory = Object.prototype.hasOwnProperty.call(req.body, 'employeeCategory');
+    const hasReporting = Object.prototype.hasOwnProperty.call(req.body, 'reportingLine');
+
+    if (!hasCategory && !hasReporting) {
+      return res.status(400).json({
+        success: false,
+        message: 'Provide employeeCategory and/or reportingLine'
+      });
+    }
+
+    if (hasCategory) {
+      const raw = String(req.body.employeeCategory || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+      if (raw !== 'blue_collar' && raw !== 'white_collar') {
+        return res.status(400).json({
+          success: false,
+          message: 'employeeCategory must be blue_collar or white_collar'
+        });
+      }
+      updates.employeeCategory = raw;
+      emp.employeeCategory = raw;
+    }
+
+    if (hasReporting) {
+      const rl = req.body.reportingLine;
+      if (rl === '' || rl === null) {
+        emp.reportingLine = undefined;
+        updates.reportingLine = null;
+      } else {
+        if (!mongoose.Types.ObjectId.isValid(rl)) {
+          return res.status(400).json({ success: false, message: 'Invalid reporting line id' });
+        }
+        if (String(rl) === String(emp._id)) {
+          return res.status(400).json({ success: false, message: 'Reporting line cannot be the same employee' });
+        }
+        const supervisor = await Employee.findOne({
+          _id: rl,
+          isDeleted: { $ne: true },
+          isActive: true
+        }).select('_id');
+        if (!supervisor) {
+          return res.status(400).json({
+            success: false,
+            message: 'Reporting line employee not found or inactive'
+          });
+        }
+        emp.reportingLine = supervisor._id;
+        updates.reportingLine = String(supervisor._id);
+      }
+    }
+
+    await emp.save();
+
+    // Keep User.reportingLine in sync (clear legacy field; source of truth is Employee)
+    if (hasReporting && emp.user) {
+      await User.findByIdAndUpdate(emp.user, { $unset: { reportingLine: 1 } });
+    }
+
+    // When switched to blue collar, seed empty current-month sheet from designation pack
+    let worksheetSeeded = false;
+    if (updates.employeeCategory === 'blue_collar') {
+      const now = new Date();
+      const year = parseInt(req.body.year, 10) || now.getFullYear();
+      const month = parseInt(req.body.month, 10) || now.getMonth() + 1;
+      const sheet = await getOrCreateWorksheet(emp._id, year, month);
+      if (!sheet.rows?.length) {
+        const rows = await rowsFromBlueCollarDesignation(emp._id);
+        if (rows.length) {
+          sheet.rows = rows;
+          sheet.recomputeDerived?.();
+          await sheet.save();
+          worksheetSeeded = true;
+        }
+      }
+    }
+
+    await emp.populate([
+      { path: 'reportingLine', select: '_id firstName lastName employeeId' },
+      { path: 'placementDesignation', select: 'title level' }
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Employee KPI settings updated',
+      data: {
+        _id: emp._id,
+        employeeId: emp.employeeId,
+        firstName: emp.firstName,
+        lastName: emp.lastName,
+        employeeCategory: emp.employeeCategory || null,
+        reportingLine: emp.reportingLine || null,
+        placementDesignation: emp.placementDesignation || null
+      },
+      updates,
+      worksheetSeeded
+    });
   })
 );
 

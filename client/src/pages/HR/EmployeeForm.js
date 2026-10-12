@@ -76,7 +76,7 @@ const EmployeeForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { fetchEmployees } = useData();
+  const { fetchEmployees, employees: allEmployees = [] } = useData();
   
   // Get the page number from location state (passed when navigating from EmployeeList)
   const savedPage = location.state?.page || 0;
@@ -739,6 +739,7 @@ const EmployeeForm = () => {
         oldDesignation: employeeData.oldDesignation?._id || employeeData.oldDesignation || undefined,
         placementLocation: employeeData.placementLocation?._id || employeeData.placementLocation || '',
         employeeCategory: employeeData.employeeCategory || '',
+        reportingLine: employeeData.reportingLine?._id || employeeData.reportingLine || '',
         salary: {
           gross: employeeData.salary?.gross || 0,
           basic: employeeData.salary?.basic || 0
@@ -931,6 +932,7 @@ const EmployeeForm = () => {
     fetchProvinces();
     fetchCities();
     fetchNextEmployeeId();
+    fetchEmployees(); // for Reporting Line dropdown
   }, []); // Empty dependency array - only run once
 
   // Fetch employee data when ID changes
@@ -1019,6 +1021,7 @@ const EmployeeForm = () => {
       placementLocation: '',
       oldDesignation: undefined,
       employeeCategory: '',
+      reportingLine: '',
       isActive: true,
       cashSalary: false,
       employmentStatus: 'Draft', // Default to Draft for new employees
@@ -3389,6 +3392,29 @@ const EmployeeForm = () => {
                 >
                   <MenuItem value="white_collar">White Collar</MenuItem>
                   <MenuItem value="blue_collar">Blue Collar</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+
+            {/* Reporting Line (KPI / hierarchy) */}
+            <Grid item xs={12} md={6}>
+              <FormControl fullWidth>
+                <InputLabel>Reporting Line</InputLabel>
+                <Select
+                  name="reportingLine"
+                  value={formik.values.reportingLine || ''}
+                  onChange={formik.handleChange}
+                  label="Reporting Line"
+                >
+                  <MenuItem value="">— None —</MenuItem>
+                  {(allEmployees || [])
+                    .filter((e) => String(e._id) !== String(id))
+                    .map((e) => (
+                      <MenuItem key={e._id} value={e._id}>
+                        {[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeId}
+                        {e.employeeId ? ` (${e.employeeId})` : ''}
+                      </MenuItem>
+                    ))}
                 </Select>
               </FormControl>
             </Grid>

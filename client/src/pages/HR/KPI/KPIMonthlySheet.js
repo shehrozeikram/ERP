@@ -46,8 +46,10 @@ import {
   fetchKpiWorksheetHistory,
   updateKpiWorksheet,
   fetchTeamKpiWorksheets,
-  fetchEmployeeKpiWorksheet
+  fetchEmployeeKpiWorksheet,
+  updateKpiEmployeeSettings
 } from '../../../services/kpiWorksheetService';
+import { getEmployeeCategoryLabel, normalizeEmployeeCategory } from '../../../utils/employeeCategory';
 
 const MONTHS = [
   { v: 1, label: 'January' },
@@ -274,6 +276,9 @@ const KPIMonthlySheet = () => {
   const [loadError, setLoadError] = useState(null);
   const [editRowIndex, setEditRowIndex] = useState(null);
   const [editRowDraft, setEditRowDraft] = useState(null);
+  const [settingsCategory, setSettingsCategory] = useState('');
+  const [settingsReportingLineId, setSettingsReportingLineId] = useState('');
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const targetEmployeeId = useMemo(() => {
     if (isHrPage && hrEmployeeId) return hrEmployeeId;
@@ -343,6 +348,8 @@ const KPIMonthlySheet = () => {
       setSheet(null);
       setRows([]);
       setEditFlags(defaultFlags);
+      setSettingsCategory('');
+      setSettingsReportingLineId('');
       setLoadError(null);
       setLoading(false);
       return;
@@ -360,6 +367,13 @@ const KPIMonthlySheet = () => {
       const flags = res.data?.editFlags || defaultFlags;
       setEditFlags(flags);
       setSheet(data);
+      const cat =
+        normalizeEmployeeCategory(flags?.employeeCategory) ||
+        normalizeEmployeeCategory(data?.employee?.employeeCategory) ||
+        '';
+      setSettingsCategory(cat || 'white_collar');
+      const rl = data?.employee?.reportingLine;
+      setSettingsReportingLineId(rl?._id ? String(rl._id) : rl ? String(rl) : '');
       const r = (data?.rows || []).map((x) => {
         const base = {
           ...x,
@@ -383,10 +397,36 @@ const KPIMonthlySheet = () => {
       setSheet(null);
       setRows([]);
       setEditFlags(defaultFlags);
+      setSettingsCategory('');
+      setSettingsReportingLineId('');
     } finally {
       setLoading(false);
     }
   }, [year, month, targetEmployeeId, isTeamReviewPage, teamMemberId, isHrPage, hrEmployeeId]);
+
+  const handleSaveEmployeeSettings = async () => {
+    if (!hrEmployeeId || !isHrAdmin) return;
+    if (!settingsCategory) {
+      toast.error('Select Blue Collar or White Collar');
+      return;
+    }
+    setSavingSettings(true);
+    try {
+      await updateKpiEmployeeSettings(hrEmployeeId, {
+        employeeCategory: settingsCategory,
+        reportingLine: settingsReportingLineId || null,
+        year,
+        month
+      });
+      toast.success('Employee category & reporting line saved (also applies in Employees)');
+      await loadSheet();
+      await loadHrEmployees();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to save employee settings');
+    } finally {
+      setSavingSettings(false);
+    }
+  };
 
   useEffect(() => {
     loadHistory();
@@ -759,26 +799,124 @@ const KPIMonthlySheet = () => {
       {isHrPage && isHrAdmin && (
         <Card sx={{ mb: 2 }}>
           <CardContent>
-            <TextField
-              select
-              fullWidth
-              label="Employee (HR view)"
-              value={hrEmployeeId}
-              onChange={(e) => {
-                const v = e.target.value;
-                setHrEmployeeId(v);
-                if (v) setSearchParams({ employeeId: v });
-                else setSearchParams({});
-              }}
-              size="small"
-            >
-              <MenuItem value="">Select employee…</MenuItem>
-              {hrEmployees.map((e) => (
-                <MenuItem key={e._id} value={e._id}>
-                  {[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeId} ({e.employeeId})
-                </MenuItem>
-              ))}
-            </TextField>
+            <Stack spacing={2}>
+              <TextField
+                select
+                fullWidth
+                label="Employee (HR view)"
+                value={hrEmployeeId}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setHrEmployeeId(v);
+                  if (v) setSearchParams({ employeeId: v, year: String(year), month: String(month) });
+                  else setSearchParams({});
+                }}
+                size="small"
+              >
+                <MenuItem value="">Select employee…</MenuItem>
+                {hrEmployees.map((e) => (
+                  <MenuItem key={e._id} value={e._id}>
+                    {[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeId} ({e.employeeId})
+                    {e.employeeCategory
+                      ? ` — ${getEmployeeCategoryLabel(e.employeeCategory)}`
+                      : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              {hrEmployeeId && (
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    bgcolor: 'grey.50'
+                  }}
+                >
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+                    Collar type &amp; reporting line
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
+                    Changes save on the employee record and show in HR → Employees as well.
+                  </Typography>
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={2}
+                    alignItems={{ md: 'flex-start' }}
+                  >
+                    <TextField
+                      select
+                      size="small"
+                      label="Employee category"
+                      value={settingsCategory || 'white_collar'}
+                      onChange={(e) => setSettingsCategory(e.target.value)}
+                      sx={{ minWidth: 200 }}
+                      helperText={
+                        settingsCategory === 'blue_collar'
+                          ? 'Supervisor marks only (no employee self-score)'
+                          : 'Employee + reporting line scoring'
+                      }
+                    >
+                      <MenuItem value="blue_collar">Blue Collar</MenuItem>
+                      <MenuItem value="white_collar">White Collar</MenuItem>
+                    </TextField>
+                    <TextField
+                      select
+                      size="small"
+                      fullWidth
+                      label="Reporting line (supervisor)"
+                      value={settingsReportingLineId}
+                      onChange={(e) => setSettingsReportingLineId(e.target.value)}
+                      helperText="Who scores / reviews this employee’s KPI"
+                    >
+                      <MenuItem value="">— None —</MenuItem>
+                      {hrEmployees
+                        .filter((e) => String(e._id) !== String(hrEmployeeId))
+                        .map((e) => (
+                          <MenuItem key={e._id} value={e._id}>
+                            {[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeId}{' '}
+                            ({e.employeeId})
+                          </MenuItem>
+                        ))}
+                    </TextField>
+                    <Button
+                      variant="contained"
+                      onClick={handleSaveEmployeeSettings}
+                      disabled={savingSettings || loading}
+                      sx={{ whiteSpace: 'nowrap', mt: { md: 0.5 } }}
+                    >
+                      {savingSettings ? 'Saving…' : 'Save settings'}
+                    </Button>
+                  </Stack>
+                  {sheet?.employee && (
+                    <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap" useFlexGap>
+                      <Chip
+                        size="small"
+                        color={isBlueCollar ? 'info' : 'success'}
+                        label={getEmployeeCategoryLabel(
+                          settingsCategory || sheet.employee.employeeCategory
+                        )}
+                      />
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={
+                          sheet.employee.reportingLine
+                            ? `Current RL: ${[
+                                sheet.employee.reportingLine.firstName,
+                                sheet.employee.reportingLine.lastName
+                              ]
+                                .filter(Boolean)
+                                .join(' ') || sheet.employee.reportingLine.employeeId}`
+                            : 'No reporting line set'
+                        }
+                      />
+                    </Stack>
+                  )}
+                </Box>
+              )}
+            </Stack>
           </CardContent>
         </Card>
       )}
