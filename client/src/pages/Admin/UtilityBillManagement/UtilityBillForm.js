@@ -24,6 +24,7 @@ import {
   TableRow,
   FormControlLabel,
   Switch,
+  Checkbox,
   ToggleButton,
   ToggleButtonGroup,
   Link,
@@ -53,6 +54,7 @@ import {
   optionsForManagerApprover,
   optionsForHodApprover
 } from '../../../utils/dualApproverAutocomplete';
+import { buildApprovalSlotsPayload } from '../../../utils/utilityBillApprovalSlots';
 import {
   isWorkflowAuditBlockingEditStatus,
   WorkflowAuditFeedbackPanel
@@ -332,6 +334,10 @@ const UtilityBillForm = () => {
   const [masterDataLoading, setMasterDataLoading] = useState(false);
   const [managerApprover, setManagerApprover] = useState(null);
   const [hodApprover, setHodApprover] = useState(null);
+  const [enableSrManager, setEnableSrManager] = useState(false);
+  const [srManagerApprover, setSrManagerApprover] = useState(null);
+  const [enableAvpTaj, setEnableAvpTaj] = useState(false);
+  const [avpTajApprover, setAvpTajApprover] = useState(null);
   const [approverOptions, setApproverOptions] = useState([]);
   const [approverLoading, setApproverLoading] = useState(false);
   const [workflowLocksEdit, setWorkflowLocksEdit] = useState(false);
@@ -360,17 +366,67 @@ const UtilityBillForm = () => {
 
   const requesterId = getUserId(user);
   const mergedApproverOptions = useMemo(
-    () => mergeApproverOptionList(approverOptions, managerApprover, hodApprover),
-    [approverOptions, managerApprover, hodApprover]
+    () =>
+      mergeApproverOptionList(
+        approverOptions,
+        managerApprover,
+        hodApprover,
+        srManagerApprover,
+        avpTajApprover
+      ),
+    [approverOptions, managerApprover, hodApprover, srManagerApprover, avpTajApprover]
   );
   const managerApproverSelectOptions = useMemo(
-    () => optionsForManagerApprover({ optionsMerged: mergedApproverOptions, requesterId, hodApprover }),
-    [mergedApproverOptions, requesterId, hodApprover]
+    () =>
+      optionsForManagerApprover({
+        optionsMerged: mergedApproverOptions,
+        requesterId,
+        hodApprover
+      }).filter((o) => {
+        const oid = String(o?._id || '');
+        if (srManagerApprover?._id && oid === String(srManagerApprover._id)) return false;
+        if (avpTajApprover?._id && oid === String(avpTajApprover._id)) return false;
+        return true;
+      }),
+    [mergedApproverOptions, requesterId, hodApprover, srManagerApprover, avpTajApprover]
   );
   const hodApproverSelectOptions = useMemo(
-    () => optionsForHodApprover({ optionsMerged: mergedApproverOptions, requesterId, managerApprover }),
-    [mergedApproverOptions, requesterId, managerApprover]
+    () =>
+      optionsForHodApprover({
+        optionsMerged: mergedApproverOptions,
+        requesterId,
+        managerApprover
+      }).filter((o) => {
+        const oid = String(o?._id || '');
+        if (srManagerApprover?._id && oid === String(srManagerApprover._id)) return false;
+        if (avpTajApprover?._id && oid === String(avpTajApprover._id)) return false;
+        return true;
+      }),
+    [mergedApproverOptions, requesterId, managerApprover, srManagerApprover, avpTajApprover]
   );
+  const srManagerApproverSelectOptions = useMemo(() => {
+    const exclude = new Set(
+      [requesterId, getUserId(managerApprover), getUserId(hodApprover), getUserId(avpTajApprover)].filter(Boolean)
+    );
+    const selfId = getUserId(srManagerApprover);
+    return mergedApproverOptions.filter((o) => {
+      const oid = String(o?._id || '');
+      if (selfId && oid === selfId) return true;
+      return oid && !exclude.has(oid);
+    });
+  }, [mergedApproverOptions, requesterId, managerApprover, hodApprover, avpTajApprover, srManagerApprover]);
+
+  const avpTajApproverSelectOptions = useMemo(() => {
+    const exclude = new Set(
+      [requesterId, getUserId(managerApprover), getUserId(hodApprover), getUserId(srManagerApprover)].filter(Boolean)
+    );
+    const selfId = getUserId(avpTajApprover);
+    return mergedApproverOptions.filter((o) => {
+      const oid = String(o?._id || '');
+      if (selfId && oid === selfId) return true;
+      return oid && !exclude.has(oid);
+    });
+  }, [mergedApproverOptions, requesterId, managerApprover, hodApprover, srManagerApprover, avpTajApprover]);
 
   useEffect(() => {
     fetchMasterData();
@@ -735,11 +791,31 @@ const UtilityBillForm = () => {
       }
 
 
-      const draftApprovers = bill.draftApproverIds || [];
-      const chainApprovers = (bill.approvalChain || []).map((step) => step.approver).filter(Boolean);
-      const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
-      setManagerApprover(approvers[0] && typeof approvers[0] === 'object' ? approvers[0] : null);
-      setHodApprover(approvers[1] && typeof approvers[1] === 'object' ? approvers[1] : null);
+      const draftSlots = Array.isArray(bill.draftApprovalSlots) ? bill.draftApprovalSlots : [];
+      const chainSteps = Array.isArray(bill.approvalChain) ? bill.approvalChain : [];
+      const pickSlotUser = (role, indexFallback) => {
+        const fromDraft = draftSlots.find((s) => s.role === role)?.approver;
+        if (fromDraft && typeof fromDraft === 'object') return fromDraft;
+        const fromChain = chainSteps.find((s) => s.role === role)?.approver;
+        if (fromChain && typeof fromChain === 'object') return fromChain;
+        // Legacy bills without role: fall back to ordered draftApproverIds / chain
+        if (!draftSlots.length && !chainSteps.some((s) => s.role && s.role !== 'manager')) {
+          const draftApprovers = bill.draftApproverIds || [];
+          const chainApprovers = chainSteps.map((step) => step.approver).filter(Boolean);
+          const approvers = draftApprovers.length ? draftApprovers : chainApprovers;
+          const u = approvers[indexFallback];
+          return u && typeof u === 'object' ? u : null;
+        }
+        return null;
+      };
+      setManagerApprover(pickSlotUser('manager', 0));
+      setHodApprover(pickSlotUser('hod', 1));
+      const sr = pickSlotUser('sr_manager', 2);
+      const avp = pickSlotUser('avp_taj', 3);
+      setEnableSrManager(Boolean(sr));
+      setSrManagerApprover(sr);
+      setEnableAvpTaj(Boolean(avp));
+      setAvpTajApprover(avp);
 
       setWorkflowLocksEdit(
         bill.approvalStatus === 'Approved' && isWorkflowAuditBlockingEditStatus(bill.auditStatus)
@@ -823,9 +899,17 @@ const UtilityBillForm = () => {
       return;
     }
     if (mode === 'submit') {
-      if (useStoreBill) {
+      if (useStoreBill || isCentralizedStoreBill) {
         if (!managerApprover?._id && !hodApprover?._id) {
           setError('Please select at least Manager Approver or Head Of Department Approver before submitting.');
+          return;
+        }
+        if (enableSrManager && !srManagerApprover?._id) {
+          setError('Sr Manager approval is enabled — please select Sr Manager.');
+          return;
+        }
+        if (enableAvpTaj && !avpTajApprover?._id) {
+          setError('AVP Taj approval is enabled — please select AVP Taj.');
           return;
         }
       } else {
@@ -838,15 +922,24 @@ const UtilityBillForm = () => {
 
     const managerApproverId = getUserId(managerApprover);
     const hodApproverId = getUserId(hodApprover);
+    const srManagerApproverId = getUserId(srManagerApprover);
+    const avpTajApproverId = getUserId(avpTajApprover);
     const requesterId = getUserId(user);
 
-    if (mode === 'submit' && [managerApproverId, hodApproverId].includes(requesterId)) {
-      setError('Requester cannot be selected as Manager or Head Of Department approver.');
+    const selectedApproverIds = [
+      managerApproverId,
+      hodApproverId,
+      enableSrManager ? srManagerApproverId : '',
+      enableAvpTaj ? avpTajApproverId : ''
+    ].filter(Boolean);
+
+    if (mode === 'submit' && selectedApproverIds.includes(requesterId)) {
+      setError('Requester cannot be selected as an approval authority.');
       return;
     }
 
-    if (mode === 'submit' && managerApproverId && hodApproverId && managerApproverId === hodApproverId) {
-      setError('Manager Approver and Head Of Department Approver must be different.');
+    if (mode === 'submit' && new Set(selectedApproverIds).size !== selectedApproverIds.length) {
+      setError('Each approval authority must be a different person.');
       return;
     }
 
@@ -975,9 +1068,18 @@ const UtilityBillForm = () => {
         }
       }
 
-      const approverIds = [managerApproverId, hodApproverId].filter(Boolean);
+      const approvalSlots = buildApprovalSlotsPayload({
+        managerApprover,
+        hodApprover,
+        enableSrManager: Boolean(isCentralizedStoreBill && enableSrManager),
+        srManagerApprover,
+        enableAvpTaj: Boolean(isCentralizedStoreBill && enableAvpTaj),
+        avpTajApprover
+      });
+      const approverIds = approvalSlots.map((s) => s.approverId);
       if (showSubmitForApproval) {
         submitData.append('draftApproverIds', JSON.stringify(approverIds));
+        submitData.append('draftApprovalSlots', JSON.stringify(approvalSlots));
       }
 
       // Add image if selected
@@ -995,7 +1097,7 @@ const UtilityBillForm = () => {
       }
 
       if (mode === 'submit') {
-        await utilityBillService.submitUtilityBill(savedBill._id, { approverIds });
+        await utilityBillService.submitUtilityBill(savedBill._id, { approverIds, approvalSlots });
         if (isFinanceBill) {
           navigate(`/finance/utility-bills/${savedBill._id}`);
         } else if (isProcurementBill) {
@@ -1999,7 +2101,7 @@ const UtilityBillForm = () => {
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   {isCentralizedStoreBill
-                    ? 'Choose at least one approver (Manager or Head Of Department) before submitting. All active users are listed.'
+                    ? 'Choose at least Manager or HOD before submitting. Tick a checkbox to add Sr Manager and/or AVP Taj (sequential after Manager/HOD). All active users are listed.'
                     : 'Choose Manager and Head Of Department approvers before submitting. You can also save as draft. Only users whose department in User Management is Administration (code ADMIN) are listed.'}
                 </Typography>
               </Grid>
@@ -2053,6 +2155,88 @@ const UtilityBillForm = () => {
                   )}
                 />
               </Grid>
+
+              {isCentralizedStoreBill && (
+                <>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 1 }}>
+                      Additional approval authorities (optional)
+                    </Typography>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={enableSrManager}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setEnableSrManager(on);
+                            if (!on) setSrManagerApprover(null);
+                          }}
+                        />
+                      }
+                      label="Require Sr Manager approval"
+                    />
+                    {enableSrManager && (
+                      <Autocomplete
+                        sx={{ mt: 1 }}
+                        options={srManagerApproverSelectOptions}
+                        value={srManagerApprover}
+                        loading={approverLoading}
+                        onChange={(_, value) => setSrManagerApprover(value)}
+                        onOpen={() => loadApproverOptions('')}
+                        onInputChange={approverSearchOnInputChange(loadApproverOptions)}
+                        getOptionLabel={(option) => userDisplayName(option) || ''}
+                        isOptionEqualToValue={(option, value) => !!option?._id && !!value?._id && option._id === value._id}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="Sr Manager"
+                            placeholder="Search Sr Manager"
+                            required
+                          />
+                        )}
+                      />
+                    )}
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={enableAvpTaj}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            setEnableAvpTaj(on);
+                            if (!on) setAvpTajApprover(null);
+                          }}
+                        />
+                      }
+                      label="Require AVP Taj approval"
+                    />
+                    {enableAvpTaj && (
+                      <Autocomplete
+                        sx={{ mt: 1 }}
+                        options={avpTajApproverSelectOptions}
+                        value={avpTajApprover}
+                        loading={approverLoading}
+                        onChange={(_, value) => setAvpTajApprover(value)}
+                        onOpen={() => loadApproverOptions('')}
+                        onInputChange={approverSearchOnInputChange(loadApproverOptions)}
+                        getOptionLabel={(option) => userDisplayName(option) || ''}
+                        isOptionEqualToValue={(option, value) => !!option?._id && !!value?._id && option._id === value._id}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params}
+                            label="AVP Taj"
+                            placeholder="Search AVP Taj"
+                            required
+                          />
+                        )}
+                      />
+                    )}
+                  </Grid>
+                </>
+              )}
               </>
               )}
             </Grid>

@@ -29,6 +29,12 @@ const {
 const AccountsPayable = require('../models/finance/AccountsPayable');
 const { applyBillLinesToPayload } = require('../utils/utilityBillLines');
 const { validateBillLinesSameKind } = require('../utils/centralizedStoreBillKind');
+const {
+  normalizeApprovalSlots,
+  slotsFromApproverIds,
+  validateCentralizedApprovalSlots,
+  validateStandardApprovalSlots
+} = require('../utils/utilityBillApprovalSlots');
 
 const MAX_BILL_ATTACHMENTS = 50;
 const LINE_ATTACHMENT_PREFIX = 'lineAttachment_';
@@ -169,6 +175,7 @@ const populateUtilityBill = (query) => query
   .populate('createdBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('approvalChain.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('draftApproverIds', 'firstName lastName email employeeId digitalSignature approvalStamp')
+  .populate('draftApprovalSlots.approver', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('approvedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('rejectedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
   .populate('workflowHistory.changedBy', 'firstName lastName email employeeId digitalSignature approvalStamp')
@@ -191,6 +198,7 @@ const populateUtilityBillDocument = async (bill) => {
     { path: 'createdBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
     { path: 'approvalChain.approver', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
     { path: 'draftApproverIds', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
+    { path: 'draftApprovalSlots.approver', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
     { path: 'approvedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
     { path: 'rejectedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
     { path: 'workflowHistory.changedBy', select: 'firstName lastName email employeeId digitalSignature approvalStamp' },
@@ -266,6 +274,53 @@ const normalizeApproverIds = (value) => {
 
 const uniqueApproverIds = (ids = []) => [...new Set(ids.map(String).filter(Boolean))];
 const getActorId = (req) => String(req?.user?._id || req?.user?.id || '');
+
+/** Resolve approval slots from request body and/or existing bill draft. */
+const resolveApprovalSlots = (body = {}, bill = null) => {
+  const fromBodySlots = normalizeApprovalSlots(body.approvalSlots || body.draftApprovalSlots);
+  if (fromBodySlots.length) return fromBodySlots;
+
+  const fromBodyIds = normalizeApproverIds(body.approverIds);
+  if (fromBodyIds.length) return slotsFromApproverIds(fromBodyIds);
+
+  if (bill?.draftApprovalSlots?.length) {
+    return normalizeApprovalSlots(
+      bill.draftApprovalSlots.map((s) => ({
+        role: s.role,
+        approverId: s.approver?._id || s.approver
+      }))
+    );
+  }
+
+  const fromDraftIds = normalizeApproverIds(bill?.draftApproverIds || []);
+  if (fromDraftIds.length) return slotsFromApproverIds(fromDraftIds);
+
+  return [];
+};
+
+const applyDraftApprovalSlotsToPayload = (payload, body, { isCentralized }) => {
+  const slots = normalizeApprovalSlots(body.draftApprovalSlots || body.approvalSlots);
+  if (!slots.length && body.draftApproverIds !== undefined) {
+    const ids = uniqueApproverIds(normalizeApproverIds(body.draftApproverIds));
+    const max = isCentralized ? 4 : 2;
+    payload.draftApproverIds = ids.slice(0, max);
+    payload.draftApprovalSlots = slotsFromApproverIds(payload.draftApproverIds).map((s) => ({
+      role: s.role,
+      approver: s.approverId
+    }));
+    return payload.draftApproverIds;
+  }
+
+  if (!slots.length) {
+    return [];
+  }
+
+  const max = isCentralized ? 4 : 2;
+  const trimmed = slots.slice(0, max);
+  payload.draftApprovalSlots = trimmed.map((s) => ({ role: s.role, approver: s.approverId }));
+  payload.draftApproverIds = trimmed.map((s) => s.approverId);
+  return payload.draftApproverIds;
+};
 
 /**
  * Leadership / oversight roles may see all centralized-store bills.
@@ -867,15 +922,19 @@ router.post('/', upload.any(), requireBillPermission('create'), async (req, res)
       return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
-    billData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
-    if (billData.draftApproverIds.length) {
+    {
       const useAllUsersApprovers =
         billData.useCentralizedStore === true || billData.useCentralizedStore === 'true';
-      const approverCheck = useAllUsersApprovers
-        ? await assertActiveUserApproversEligible(billData.draftApproverIds)
-        : await assertUtilityBillApproversEligible(billData.draftApproverIds);
-      if (!approverCheck.ok) {
-        return res.status(400).json({ success: false, message: approverCheck.message });
+      const draftIds = applyDraftApprovalSlotsToPayload(billData, req.body, {
+        isCentralized: useAllUsersApprovers
+      });
+      if (draftIds.length) {
+        const approverCheck = useAllUsersApprovers
+          ? await assertActiveUserApproversEligible(draftIds)
+          : await assertUtilityBillApproversEligible(draftIds);
+        if (!approverCheck.ok) {
+          return res.status(400).json({ success: false, message: approverCheck.message });
+        }
       }
     }
 
@@ -1021,20 +1080,25 @@ router.put('/:id', upload.any(), requireBillPermission('update'), async (req, re
     delete updateData.isConsolidated;
     delete updateData.consolidatedFrom;
     delete updateData.consolidatedIntoBillId;
-    if (req.body.draftApproverIds !== undefined) {
-      updateData.draftApproverIds = uniqueApproverIds(normalizeApproverIds(req.body.draftApproverIds)).slice(0, 2);
-      if (updateData.draftApproverIds.length) {
-        const existingBill = await UtilityBill.findById(req.params.id).select('useCentralizedStore').lean();
-        const useAllUsersApprovers =
-          updateData.useCentralizedStore === true ||
-          updateData.useCentralizedStore === 'true' ||
-          existingBill?.useCentralizedStore === true;
+    if (req.body.draftApproverIds !== undefined || req.body.draftApprovalSlots !== undefined || req.body.approvalSlots !== undefined) {
+      const existingBill = await UtilityBill.findById(req.params.id).select('useCentralizedStore').lean();
+      const useAllUsersApprovers =
+        updateData.useCentralizedStore === true ||
+        updateData.useCentralizedStore === 'true' ||
+        existingBill?.useCentralizedStore === true;
+      const draftIds = applyDraftApprovalSlotsToPayload(updateData, req.body, {
+        isCentralized: useAllUsersApprovers
+      });
+      if (draftIds.length) {
         const approverCheck = useAllUsersApprovers
-          ? await assertActiveUserApproversEligible(updateData.draftApproverIds)
-          : await assertUtilityBillApproversEligible(updateData.draftApproverIds);
+          ? await assertActiveUserApproversEligible(draftIds)
+          : await assertUtilityBillApproversEligible(draftIds);
         if (!approverCheck.ok) {
           return res.status(400).json({ success: false, message: approverCheck.message });
         }
+      } else {
+        updateData.draftApproverIds = [];
+        updateData.draftApprovalSlots = [];
       }
     }
 
@@ -1159,25 +1223,21 @@ router.post('/:id/submit', requireBillPermission('update'), async (req, res) => 
       return res.status(400).json({ success: false, message: 'Only draft, submitted, or rejected bills can be submitted' });
     }
 
-    const fromBody = normalizeApproverIds(req.body?.approverIds);
-    const fromDraft = normalizeApproverIds(bill.draftApproverIds || []);
-    const approverIds = uniqueApproverIds(fromBody.length ? fromBody : fromDraft);
-
-    if (bill.useCentralizedStore) {
-      if (approverIds.length < 1 || approverIds.length > 2) {
-        return res.status(400).json({ success: false, message: 'Select at least one approver (Manager Approver or Head Of Department)' });
-      }
-    } else {
-      if (approverIds.length !== 2) {
-        return res.status(400).json({ success: false, message: 'Select Manager Approver and Head Of Department Approver' });
-      }
+    const slots = resolveApprovalSlots(req.body || {}, bill);
+    const slotValidation = bill.useCentralizedStore
+      ? validateCentralizedApprovalSlots(slots)
+      : validateStandardApprovalSlots(slots);
+    if (!slotValidation.ok) {
+      return res.status(400).json({ success: false, message: slotValidation.message });
     }
+
+    const approverIds = slots.map((s) => s.approverId);
 
     const actorId = getActorId(req);
     if (actorId && approverIds.includes(actorId)) {
       return res.status(400).json({
         success: false,
-        message: 'Requester cannot be selected as Manager or Head Of Department approver'
+        message: 'Requester cannot be selected as an approval authority'
       });
     }
 
@@ -1190,20 +1250,19 @@ router.post('/:id/submit', requireBillPermission('update'), async (req, res) => 
     }
 
     const approvers = await User.find({ _id: { $in: approverIds }, isActive: true }).select('_id');
-    if (bill.useCentralizedStore) {
-      if (approvers.length < 1 || approvers.length > 2) {
-        return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });
-      }
-    } else {
-      if (approvers.length !== 2) {
-        return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });
-      }
+    if (approvers.length !== approverIds.length) {
+      return res.status(400).json({ success: false, message: 'Selected approval authorities are not valid' });
     }
 
     const previousStatus = bill.approvalStatus;
     bill.approvalStatus = 'Submitted';
-    bill.approvalChain = approverIds.map((approverId) => ({ approver: approverId, status: 'pending' }));
+    bill.approvalChain = slots.map((s) => ({
+      approver: s.approverId,
+      role: s.role,
+      status: 'pending'
+    }));
     bill.draftApproverIds = [];
+    bill.draftApprovalSlots = [];
     bill.approvedBy = undefined;
     bill.approvedAt = undefined;
     bill.rejectedBy = undefined;
@@ -1249,12 +1308,18 @@ router.post('/:id/approve', requireBillPermission('update'), async (req, res) =>
         message: 'Requester cannot approve Manager or Head Of Department approval authority'
       });
     }
+    const firstPendingIndex = (bill.approvalChain || []).findIndex((step) => step.status === 'pending');
     const pendingIndex = (bill.approvalChain || []).findIndex((step) => (
       step.approver?.toString() === userId && step.status === 'pending'
     ));
 
-    if (pendingIndex === -1) {
-      return res.status(403).json({ success: false, message: 'You are not the pending approval authority for this bill' });
+    if (pendingIndex === -1 || firstPendingIndex !== pendingIndex) {
+      return res.status(403).json({
+        success: false,
+        message: pendingIndex === -1
+          ? 'You are not the pending approval authority for this bill'
+          : 'Earlier approval authorities must approve first'
+      });
     }
 
     bill.approvalChain[pendingIndex].status = 'approved';
@@ -1308,12 +1373,18 @@ router.post('/:id/reject', requireBillPermission('update'), async (req, res) => 
         message: 'Requester cannot reject Manager or Head Of Department approval authority'
       });
     }
+    const firstPendingIndex = (bill.approvalChain || []).findIndex((step) => step.status === 'pending');
     const pendingIndex = (bill.approvalChain || []).findIndex((step) => (
       step.approver?.toString() === userId && step.status === 'pending'
     ));
 
-    if (pendingIndex === -1) {
-      return res.status(403).json({ success: false, message: 'You are not the pending approval authority for this bill' });
+    if (pendingIndex === -1 || firstPendingIndex !== pendingIndex) {
+      return res.status(403).json({
+        success: false,
+        message: pendingIndex === -1
+          ? 'You are not the pending approval authority for this bill'
+          : 'Earlier approval authorities must approve first'
+      });
     }
 
     bill.approvalChain[pendingIndex].status = 'rejected';

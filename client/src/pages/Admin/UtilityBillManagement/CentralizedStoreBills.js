@@ -542,7 +542,7 @@ const CentralizedStoreBills = () => {
                             <TableCell align="right">
                               <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
                                 {isUtilityBillDeptApproved(bill) && (
-                                  <Tooltip title="Manager / HOD approval completed">
+                                  <Tooltip title="Department approval completed (Manager / HOD / optional authorities)">
                                     <CheckCircleIcon fontSize="small" color="success" sx={{ mx: 0.5 }} />
                                   </Tooltip>
                                 )}

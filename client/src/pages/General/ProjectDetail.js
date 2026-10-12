@@ -3161,6 +3161,7 @@ const OverviewTab = ({ project, onRefresh }) => {
 };
 
 // ─── Main Detail Page ─────────────────────────────────────────────────────────
+/** Construction project detail (tabs: Overview, BOQ, Tasks, Expenses, DPR, Gantt, Invoices). */
 const ProjectDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();

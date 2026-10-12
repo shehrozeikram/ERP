@@ -158,6 +158,12 @@ const utilityBillSchema = new mongoose.Schema({
       ref: 'User',
       required: true
     },
+    /** manager | hod | sr_manager | avp_taj — used for labels & optional extras */
+    role: {
+      type: String,
+      enum: ['manager', 'hod', 'sr_manager', 'avp_taj'],
+      default: 'manager'
+    },
     status: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],
@@ -174,6 +180,19 @@ const utilityBillSchema = new mongoose.Schema({
   draftApproverIds: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  }],
+  /** Draft slots with roles (centralized store optional Sr Manager / AVP Taj). */
+  draftApprovalSlots: [{
+    role: {
+      type: String,
+      enum: ['manager', 'hod', 'sr_manager', 'avp_taj'],
+      required: true
+    },
+    approver: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    }
   }],
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,

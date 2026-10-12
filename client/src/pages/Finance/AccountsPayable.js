@@ -76,6 +76,7 @@ import ComparativeStatementView from '../../components/Procurement/ComparativeSt
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/CentralizedStoreBillInvoiceBody';
 import { DigitalSignatureImage } from '../../components/common/DigitalSignatureImage';
+import { getApprovalRoleLabel } from '../../utils/utilityBillApprovalSlots';
 import NarrationTableCell from '../../components/common/NarrationTableCell';
 import { getBillNarrationDisplay } from '../../utils/documentNarrationDisplay';
 import {
@@ -2438,15 +2439,15 @@ const AccountsPayable = () => {
                         });
 
                         // ─── 2. Department Approval Authorities ───
-                        // Centralized Store: sourceUtilityBill.approvalChain (Manager / HOD)
+                        // Centralized Store: sourceUtilityBill.approvalChain (Manager / HOD / optional Sr Manager / AVP Taj)
                         // Chart of Accounts bills: bill.approvalChain (Sr Manager Finance / GM Finance)
                         if (isCentralizedStore && srcBill) {
                           const approvalChain = Array.isArray(srcBill.approvalChain) ? srcBill.approvalChain : [];
                           if (approvalChain.length > 0) {
-                            approvalChain.forEach((step) => {
+                            approvalChain.forEach((step, idx) => {
                               if (step.status === 'approved' && step.approver) {
                                 rows.push({
-                                  authority: 'Manager / HOD Approver',
+                                  authority: getApprovalRoleLabel(step.role, idx),
                                   name: userDisplayName(step.approver),
                                   signatureUser: step.approver || null,
                                   signaturePath: step.approver?.digitalSignature || '',
@@ -2456,7 +2457,7 @@ const AccountsPayable = () => {
                             });
                           }
                           // Fallback: if no approvalChain but approvedBy exists
-                          if (!rows.some(r => r.authority === 'Manager / HOD Approver') && srcBill.approvedBy) {
+                          if (approvalChain.length === 0 && srcBill.approvedBy) {
                             rows.push({
                               authority: 'Manager / HOD Approver',
                               name: userDisplayName(srcBill.approvedBy),

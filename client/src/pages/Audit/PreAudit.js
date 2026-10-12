@@ -94,6 +94,7 @@ import CentralizedStoreBillInvoiceBody from '../../components/UtilityBill/Centra
 import CentralizedStoreItemsAuditPanel from '../../components/Audit/CentralizedStoreItemsAuditPanel';
 import FinanceVendorsAuditPanel from '../../components/Audit/FinanceVendorsAuditPanel';
 import { collectUtilityBillWorkflowImages } from '../../utils/utilityBillAttachments';
+import { getApprovalRoleLabel } from '../../utils/utilityBillApprovalSlots';
 import {
   getStoreInvoiceOrgTitle,
   getCentralizedStoreDocumentTypeLabel,
@@ -708,25 +709,26 @@ const PreAudit = () => {
       'approved (from send to audit)'
     ]);
 
-    return [
+    const rows = [
       {
         authority: 'Sig of Requester',
         name: userDisplayName(bill?.createdBy),
         signatureUser: bill?.createdBy,
         dateTime: bill?.createdAt ? formatDateTime(bill.createdAt) : ''
-      },
-      {
-        authority: 'Manager Approver',
-        name: userDisplayName(chain[0]?.approver),
-        signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null,
-        dateTime: chain[0]?.status === 'approved' && chain[0]?.actedAt ? formatDateTime(chain[0].actedAt) : ''
-      },
-      {
-        authority: 'Head Of Department Approver',
-        name: userDisplayName(chain[1]?.approver),
-        signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null,
-        dateTime: chain[1]?.status === 'approved' && chain[1]?.actedAt ? formatDateTime(chain[1].actedAt) : ''
-      },
+      }
+    ];
+
+    (Array.isArray(chain) ? chain : []).forEach((step, idx) => {
+      const approved = step?.status === 'approved';
+      rows.push({
+        authority: getApprovalRoleLabel(step?.role, idx),
+        name: userDisplayName(step?.approver),
+        signatureUser: approved ? step?.approver : null,
+        dateTime: approved && step?.actedAt ? formatDateTime(step.actedAt) : ''
+      });
+    });
+
+    rows.push(
       {
         authority: 'Pre-Audit Authority',
         name: userDisplayName(preAuditActorEntry?.changedBy),
@@ -742,7 +744,9 @@ const PreAudit = () => {
           : directorApproval?.changedBy?.digitalSignature || '',
         dateTime: directorApproval?.changedAt ? formatDateTime(directorApproval.changedAt) : ''
       }
-    ];
+    );
+
+    return rows;
   };
   const getUtilityStampRows = (bill) => {
     const workflowHistory = bill?.workflowHistory || [];

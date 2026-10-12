@@ -200,11 +200,13 @@ router.get('/projects/:id', asyncHandler(async (req, res) => {
     .populate('projectManager', 'firstName lastName email')
     .populate('budgetApprovedBy', 'firstName lastName')
     .populate('createdBy', 'firstName lastName')
+    .populate('parentProject', 'name projectNumber isMasterProject projectType status')
     .lean();
 
   if (!project) return notFound(res, 'Project');
   res.json({ success: true, data: project });
 }));
+
 
 // POST /api/project-management/projects — create
 router.post('/projects', asyncHandler(async (req, res) => {

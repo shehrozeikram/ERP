@@ -54,6 +54,7 @@ import {
   optionsForManagerApprover,
   optionsForHodApprover
 } from '../../../utils/dualApproverAutocomplete';
+import { getApprovalRoleLabel } from '../../../utils/utilityBillApprovalSlots';
 import {
   AuditReturnFeedbackSection,
   ResendToPreAuditDialog,
@@ -254,22 +255,19 @@ const UtilityBillDetails = ({
         signature: '',
         signatureUser: bill?.createdBy,
         dateTime: formatDateTime(bill?.createdAt)
-      },
-      {
-        authority: 'Manager Approver',
-        name: userDisplayName(chain[0]?.approver),
-        signature: chain[0]?.status === 'approved' ? userDisplayName(chain[0]?.approver) : '',
-        signatureUser: chain[0]?.status === 'approved' ? chain[0]?.approver : null,
-        dateTime: chain[0]?.status === 'approved' ? formatDateTime(chain[0]?.actedAt) : ''
-      },
-      {
-        authority: 'Head Of Department Approver',
-        name: userDisplayName(chain[1]?.approver),
-        signature: chain[1]?.status === 'approved' ? userDisplayName(chain[1]?.approver) : '',
-        signatureUser: chain[1]?.status === 'approved' ? chain[1]?.approver : null,
-        dateTime: chain[1]?.status === 'approved' ? formatDateTime(chain[1]?.actedAt) : ''
       }
     ];
+
+    (Array.isArray(chain) ? chain : []).forEach((step, idx) => {
+      const approved = step?.status === 'approved';
+      rows.push({
+        authority: getApprovalRoleLabel(step?.role, idx),
+        name: userDisplayName(step?.approver),
+        signature: approved ? userDisplayName(step?.approver) : '',
+        signatureUser: approved ? step?.approver : null,
+        dateTime: approved ? formatDateTime(step?.actedAt) : ''
+      });
+    });
 
     rows.push(
       {
