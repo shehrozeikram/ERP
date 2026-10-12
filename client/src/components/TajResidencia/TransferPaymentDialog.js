@@ -26,7 +26,7 @@ import toast from 'react-hot-toast';
 import landAcquisitionTransferService from '../../services/landAcquisitionTransferService';
 import api from '../../services/api';
 import { fetchPayFromAccounts, formatPayFromAccountLabel } from '../../utils/payFromAccounts';
-import { mapTransferPaymentsFromApi } from './LandTransferPaymentsPanel';
+import { getTransferPaymentRowId, mapTransferPaymentsFromApi } from './LandTransferPaymentsPanel';
 import { numberToWords } from '../../utils/numberToWords';
 
 const PAYMENT_MODES = ['Cash', 'Cheque', 'Bank Transfer', 'Pay Order'];
@@ -50,8 +50,8 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
   const [meta, setMeta] = useState(emptyMeta());
   const [bankAccounts, setBankAccounts] = useState([]);
   const [transferPayments, setTransferPayments] = useState([]);
-  // selectedTypes: Set of paymentType strings the user has checked
-  const [selectedTypes, setSelectedTypes] = useState(new Set());
+  // One selected row id per line (supports duplicate paymentType labels)
+  const [selectedRowIds, setSelectedRowIds] = useState(new Set());
 
   const loadTransfer = async () => {
     if (!transferId || !open) return;
@@ -71,7 +71,7 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
     if (open) {
       setMeta(emptyMeta());
       setError('');
-      setSelectedTypes(new Set());
+      setSelectedRowIds(new Set());
       loadTransfer();
       fetchPayFromAccounts(api)
         .then(setBankAccounts)
@@ -93,9 +93,9 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
   // Auto-sum amounts of selected pending rows
   const totalSelectedAmount = useMemo(() => {
     return transferPayments
-      .filter((r) => selectedTypes.has(r.paymentType))
+      .filter((r) => selectedRowIds.has(getTransferPaymentRowId(r)))
       .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-  }, [selectedTypes, transferPayments]);
+  }, [selectedRowIds, transferPayments]);
 
   // Grand total of all rows
   const grandTotal = useMemo(
@@ -103,29 +103,30 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
     [transferPayments]
   );
 
-  const handleTypeToggle = (paymentType) => {
-    setSelectedTypes((prev) => {
+  const handleRowToggle = (rowId) => {
+    if (!rowId) return;
+    setSelectedRowIds((prev) => {
       const next = new Set(prev);
-      next.has(paymentType) ? next.delete(paymentType) : next.add(paymentType);
+      next.has(rowId) ? next.delete(rowId) : next.add(rowId);
       return next;
     });
   };
 
   const handleSelectAll = () => {
-    if (selectedTypes.size === pendingRows.length) {
-      setSelectedTypes(new Set());
+    if (selectedRowIds.size === pendingRows.length) {
+      setSelectedRowIds(new Set());
     } else {
-      setSelectedTypes(new Set(pendingRows.map((r) => r.paymentType)));
+      setSelectedRowIds(new Set(pendingRows.map((r) => getTransferPaymentRowId(r)).filter(Boolean)));
     }
   };
 
   const handleSave = async () => {
-    if (!selectedTypes.size) {
-      toast.error('Please select at least one payment type');
+    if (!selectedRowIds.size) {
+      toast.error('Please select at least one payment row');
       return;
     }
     if (!totalSelectedAmount || totalSelectedAmount <= 0) {
-      toast.error('Selected payment types have no amount set');
+      toast.error('Selected rows have no amount set');
       return;
     }
     if (!meta.paymentDate) {
@@ -140,13 +141,17 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
     setSaving(true);
     setError('');
     try {
-      const paymentTypesWithAmounts = transferPayments
-        .filter((r) => selectedTypes.has(r.paymentType))
-        .map((r) => ({ paymentType: r.paymentType, amount: Number(r.amount) || 0 }));
+      const selectedRows = transferPayments.filter((r) =>
+        selectedRowIds.has(getTransferPaymentRowId(r))
+      );
+      const paymentRowsWithAmounts = selectedRows.map((r) => ({
+        rowId: getTransferPaymentRowId(r),
+        paymentType: r.paymentType,
+        amount: Number(r.amount) || 0
+      }));
 
       await landAcquisitionTransferService.addTransferPayment(transferId, {
-        paymentTypesWithAmounts,
-        paymentTypes: Array.from(selectedTypes),
+        paymentRowsWithAmounts,
         amount: totalSelectedAmount,
         amountInWords: numberToWords(totalSelectedAmount),
         paymentMode: meta.paymentMode,
@@ -169,8 +174,8 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
     }
   };
 
-  const allPendingSelected = pendingRows.length > 0 && selectedTypes.size === pendingRows.length;
-  const somePendingSelected = selectedTypes.size > 0 && selectedTypes.size < pendingRows.length;
+  const allPendingSelected = pendingRows.length > 0 && selectedRowIds.size === pendingRows.length;
+  const somePendingSelected = selectedRowIds.size > 0 && selectedRowIds.size < pendingRows.length;
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
@@ -244,13 +249,14 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
                 ) : (
                   transferPayments.map((row) => {
                     const isPending = row.status !== 'Paid';
-                    const isSelected = selectedTypes.has(row.paymentType);
+                    const rowId = getTransferPaymentRowId(row);
+                    const isSelected = selectedRowIds.has(rowId);
 
                     return (
                       <TableRow
-                        key={row._localId || row.paymentType}
+                        key={rowId || row.paymentType}
                         hover={isPending}
-                        onClick={isPending ? () => handleTypeToggle(row.paymentType) : undefined}
+                        onClick={isPending && rowId ? () => handleRowToggle(rowId) : undefined}
                         sx={{
                           cursor: isPending ? 'pointer' : 'default',
                           bgcolor: isSelected ? 'primary.50' : 'inherit',
@@ -264,7 +270,7 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
                               <Checkbox
                                 size="small"
                                 checked={isSelected}
-                                onChange={() => handleTypeToggle(row.paymentType)}
+                                onChange={() => handleRowToggle(rowId)}
                                 onClick={(e) => e.stopPropagation()}
                                 color="primary"
                               />
@@ -319,11 +325,11 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
           </TableContainer>
 
           {/* Selected summary */}
-          {selectedTypes.size > 0 && (
+          {selectedRowIds.size > 0 && (
             <Box sx={{ px: 2, py: 1.5, bgcolor: 'primary.main', borderTop: '2px solid', borderColor: 'primary.dark' }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center">
                 <Typography variant="body2" fontWeight={600} color="primary.contrastText">
-                  Selected ({selectedTypes.size} type{selectedTypes.size > 1 ? 's' : ''}) — Payment Amount
+                  Selected ({selectedRowIds.size} row{selectedRowIds.size > 1 ? 's' : ''}) — Payment Amount
                 </Typography>
                 <Typography variant="subtitle1" fontWeight={700} color="primary.contrastText">
                   PKR {formatMoney(totalSelectedAmount)}
@@ -355,9 +361,9 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
                 InputLabelProps={{ shrink: true }}
                 sx={{ '& .MuiInputBase-root': { bgcolor: 'grey.50' } }}
                 helperText={
-                  selectedTypes.size === 0
-                    ? 'Check rows above to select payment types'
-                    : `Sum of ${selectedTypes.size} selected type(s)`
+                  selectedRowIds.size === 0
+                    ? 'Check rows above to select payments'
+                    : `Sum of ${selectedRowIds.size} selected row(s)`
                 }
                 FormHelperTextProps={{ sx: { mx: 0 } }}
               />
@@ -455,7 +461,7 @@ export default function TransferPaymentDialog({ open, transferId, onClose, onSav
         <Button
           variant="contained"
           onClick={handleSave}
-          disabled={saving || loading || selectedTypes.size === 0}
+          disabled={saving || loading || selectedRowIds.size === 0}
           startIcon={saving ? <CircularProgress size={16} color="inherit" /> : null}
         >
           Save Payment

@@ -323,8 +323,9 @@ const PODocumentView = ({ data }) => {
               <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Specification</th>
               <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'left', width: '10%' }}>Brand</th>
               <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'center', width: '8%' }}>Quantity Unit</th>
-              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '9%' }}>Rate</th>
-              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '10%' }}>Amount</th>
+              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '8%' }}>Rate</th>
+              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '8%' }}>Discount</th>
+              <th style={{ border: '1px solid #000', padding: '10px 8px', fontWeight: 700, textAlign: 'right', width: '9%' }}>Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -338,12 +339,13 @@ const PODocumentView = ({ data }) => {
                   <td style={{ border: '1px solid #000', padding: '8px' }}>{item.brand || '-'}</td>
                   <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center' }}>{item.quantity} {item.unit || 'pcs'}</td>
                   <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right' }}>{formatNumber(item.unitPrice || 0)}</td>
+                  <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right' }}>{formatNumber(item.discount || 0)}</td>
                   <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right' }}>{formatNumber(item.amount || 0)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={8} style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>No items</td>
+                <td colSpan={9} style={{ border: '1px solid #000', padding: '10px', textAlign: 'center' }}>No items</td>
               </tr>
             )}
           </tbody>

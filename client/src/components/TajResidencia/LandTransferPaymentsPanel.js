@@ -46,11 +46,14 @@ export const defaultTransferPaymentRows = () =>
     amountInWords: ''
   }));
 
+export const getTransferPaymentRowId = (row) =>
+  String(row?._localId || row?._id || '');
+
 export const mapTransferPaymentsFromApi = (rows = []) => {
   if (!rows.length) return defaultTransferPaymentRows();
   return rows.map((row) => ({
     ...row,
-    _localId: row._id || makeRowId(),
+    _localId: row._id ? String(row._id) : makeRowId(),
     paymentType: row.paymentType || '',
     status: row.status || 'Pending',
     amount: row.amount ?? '',

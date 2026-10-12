@@ -624,7 +624,7 @@ const UtilityBillDetails = ({
         padding: 0;
         background: #fff;
         color: #111;
-        font-family: Georgia, "Times New Roman", Times, serif;
+        font-family: Arial, Helvetica, sans-serif;
         font-size: 11px;
         -webkit-print-color-adjust: exact;
         print-color-adjust: exact;
@@ -694,7 +694,12 @@ const UtilityBillDetails = ({
         vertical-align: top;
         font-size: 10.5px;
       }
-      table.inv .c-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+      table.inv .c-num {
+        text-align: right;
+        font-family: Arial, Helvetica, sans-serif;
+        font-variant-numeric: normal;
+        white-space: nowrap;
+      }
       table.inv .c-center { text-align: center; }
       table.inv .c-code { font-size: 10px; word-break: break-word; }
       table.inv .c-desc { text-align: left; line-height: 1.3; word-break: break-word; }
@@ -715,7 +720,8 @@ const UtilityBillDetails = ({
         padding-bottom: 2px;
         min-width: 90px;
         text-align: right;
-        font-variant-numeric: tabular-nums;
+        font-family: Arial, Helvetica, sans-serif;
+        font-variant-numeric: normal;
       }
       .approval-table {
         margin-top: 18px;
@@ -1116,7 +1122,7 @@ const UtilityBillDetails = ({
               <Typography
                 variant="h5"
                 sx={{
-                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontFamily: 'Arial, Helvetica, sans-serif',
                   fontWeight: 700,
                   fontSize: { xs: 20, md: 22 },
                   textTransform: 'none',
@@ -1128,7 +1134,7 @@ const UtilityBillDetails = ({
               <Typography
                 variant="h6"
                 sx={{
-                  fontFamily: 'Georgia, "Times New Roman", serif',
+                  fontFamily: 'Arial, Helvetica, sans-serif',
                   fontWeight: 700,
                   fontSize: { xs: 16, md: 18 },
                   mt: 0.5

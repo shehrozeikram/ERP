@@ -35,6 +35,13 @@ const CHARGE_LABELS = [
   'Sales Tax'
 ];
 
+/** Match Finance module print (Arial); avoid Georgia + tabular-nums old-style figures. */
+const amountCellSx = {
+  textAlign: 'right',
+  fontFamily: 'Arial, Helvetica, sans-serif',
+  fontVariantNumeric: 'normal'
+};
+
 /**
  * Centralized store / Chart of Accounts bill invoice table (line items + per-line attachments).
  * Used on bill detail, print, and audit / workflow document views.
@@ -50,7 +57,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
   const isCoa = isChartOfAccountsBill(bill);
 
   return (
-    <>
+    <Box sx={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
       <Box
         sx={{
           display: 'grid',
@@ -219,20 +226,20 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                     <LineAttachmentsView line={line} previewTitle={lineLabel} />
                   </TableCell>
                   <TableCell sx={{ textAlign: 'center' }}>{line.unit || (isCoa ? '—' : 'Nos')}</TableCell>
-                  <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <TableCell sx={amountCellSx}>
                     {formatDecimalPk(qty)}
                   </TableCell>
-                  <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <TableCell sx={amountCellSx}>
                     {formatDecimalPk(rate)}
                   </TableCell>
-                  <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <TableCell sx={amountCellSx}>
                     {formatDecimalPk(amt)}
                   </TableCell>
                   <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
-                  <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                  <TableCell sx={{ ...amountCellSx, fontWeight: 700 }}>
                     {formatDecimalPk(amt)}
                   </TableCell>
-                  <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
+                  <TableCell sx={{ ...amountCellSx, fontWeight: 700 }}>
                     {formatDecimalPk(duePay)}
                   </TableCell>
                 </TableRow>
@@ -272,14 +279,14 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               >
                 Sub Total
               </TableCell>
-              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              <TableCell align="right" sx={amountCellSx}>
                 {formatDecimalPk(totalVal)}
               </TableCell>
               <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
-              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              <TableCell align="right" sx={amountCellSx}>
                 {formatDecimalPk(totalVal)}
               </TableCell>
-              <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+              <TableCell align="right" sx={amountCellSx}>
                 {formatDecimalPk(duePayTotal)}
               </TableCell>
             </TableRow>
@@ -305,7 +312,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                 <Typography component="span" sx={{ fontSize: 11 }}>
                   {label}
                 </Typography>
-                <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>
+                <Typography component="span" sx={{ ...amountCellSx, fontSize: 11 }}>
                   {formatDecimalPk(0)}
                 </Typography>
               </Box>
@@ -324,7 +331,7 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               }}
             >
               <Typography component="span" sx={{ fontWeight: 800 }}>Net Total</Typography>
-              <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>
+              <Typography component="span" sx={{ ...amountCellSx, fontWeight: 800 }}>
                 {formatDecimalPk(totalVal)}
               </Typography>
             </Box>
@@ -341,14 +348,14 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               }}
             >
               <Typography component="span" sx={{ fontWeight: 800 }}>Amount after Due Date</Typography>
-              <Typography component="span" sx={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800 }}>
+              <Typography component="span" sx={{ ...amountCellSx, fontWeight: 800 }}>
                 {formatDecimalPk(duePayTotal)}
               </Typography>
             </Box>
           </Stack>
         </Box>
       )}
-    </>
+    </Box>
   );
 };
 

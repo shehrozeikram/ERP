@@ -876,33 +876,50 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Land transfer not found' });
   }
 
-  // Build a map of { paymentType -> amount } from the request
-  // Preferred: paymentTypesWithAmounts = [{ paymentType, amount }, ...]
-  // Fallback: paymentTypes array + split total equally
-  let typeAmountMap = {};
+  const payEntries = [];
+  const rowAlreadyQueued = (r) =>
+    payEntries.some((e) => String(e.row._id) === String(r._id));
 
-  if (Array.isArray(req.body.paymentTypesWithAmounts) && req.body.paymentTypesWithAmounts.length) {
+  if (Array.isArray(req.body.paymentRowsWithAmounts) && req.body.paymentRowsWithAmounts.length) {
+    for (const entry of req.body.paymentRowsWithAmounts) {
+      const rowId = entry.rowId || entry._id;
+      if (!rowId) continue;
+      const row = existing.transferPayments.id(rowId);
+      if (!row || row.status === 'Paid') continue;
+      payEntries.push({ row, amount: roundMoney(entry.amount) });
+    }
+  } else if (Array.isArray(req.body.paymentTypesWithAmounts) && req.body.paymentTypesWithAmounts.length) {
+    // One array entry = one unpaid row (supports duplicate paymentType labels)
     for (const entry of req.body.paymentTypesWithAmounts) {
       const pt = String(entry.paymentType || '').trim();
-      if (pt) typeAmountMap[pt] = roundMoney(entry.amount);
+      if (!pt) continue;
+      const row = existing.transferPayments.find(
+        (r) => r.paymentType === pt && r.status !== 'Paid' && !rowAlreadyQueued(r)
+      );
+      if (!row) continue;
+      payEntries.push({ row, amount: roundMoney(entry.amount) });
     }
   } else if (Array.isArray(req.body.paymentTypes) && req.body.paymentTypes.length) {
     const pts = req.body.paymentTypes.map((t) => String(t).trim()).filter(Boolean);
     const total = roundMoney(req.body.amount);
     const perType = roundMoney(total / pts.length);
     pts.forEach((pt, i) => {
-      typeAmountMap[pt] = i === pts.length - 1
+      const amount = i === pts.length - 1
         ? roundMoney(total - perType * (pts.length - 1))
         : perType;
+      const row = existing.transferPayments.find(
+        (r) => r.paymentType === pt && r.status !== 'Paid' && !rowAlreadyQueued(r)
+      );
+      if (row) payEntries.push({ row, amount });
     });
   } else if (req.body.paymentType) {
     const pt = String(req.body.paymentType).trim();
-    typeAmountMap[pt] = roundMoney(req.body.amount);
+    const row = existing.transferPayments.find((r) => r.paymentType === pt && r.status !== 'Paid');
+    if (row) payEntries.push({ row, amount: roundMoney(req.body.amount) });
   }
 
-  const paymentTypes = Object.keys(typeAmountMap);
-  if (!paymentTypes.length) {
-    return res.status(400).json({ success: false, message: 'At least one payment type is required' });
+  if (!payEntries.length) {
+    return res.status(400).json({ success: false, message: 'At least one payment row is required' });
   }
 
   const bankAccountId = req.body.bankAccountId || undefined;
@@ -914,43 +931,20 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
   const whtRate = Number(req.body.whtRate) || 0;
   const createdBy = req.user?._id || req.user?.id;
 
-  // Update/insert each selected payment type row — NO per-type voucher
-  const debitLines = []; // collected for the single BPV
-  for (const pt of paymentTypes) {
-    const ptAmount = typeAmountMap[pt];
-
-    const existingRow = existing.transferPayments.find(
-      (row) => row.paymentType === pt && row.status !== 'Paid'
-    );
-
-    if (existingRow) {
-      existingRow.status = 'Paid';
-      if (ptAmount > 0) existingRow.amount = ptAmount;
-      existingRow.paymentDate = paymentDate;
-      existingRow.paymentMode = paymentMode;
-      existingRow.bankAccountId = bankAccountId;
-      existingRow.whtRate = whtRate;
-      existingRow.refNo = refNo;
-      existingRow.payeeName = payeeName;
-      existingRow.narration = narration;
-    } else {
-      existing.transferPayments.push({
-        paymentType: pt,
-        status: 'Paid',
-        amount: ptAmount,
-        amountInWords: String(req.body.amountInWords || '').trim(),
-        paymentDate,
-        paymentMode,
-        bankAccountId,
-        whtRate,
-        refNo,
-        payeeName,
-        narration
-      });
-    }
+  const debitLines = [];
+  for (const { row: existingRow, amount: ptAmount } of payEntries) {
+    existingRow.status = 'Paid';
+    if (ptAmount > 0) existingRow.amount = ptAmount;
+    existingRow.paymentDate = paymentDate;
+    existingRow.paymentMode = paymentMode;
+    existingRow.bankAccountId = bankAccountId;
+    existingRow.whtRate = whtRate;
+    existingRow.refNo = refNo;
+    existingRow.payeeName = payeeName;
+    existingRow.narration = narration;
 
     if (ptAmount > 0) {
-      debitLines.push({ paymentType: pt, amount: ptAmount });
+      debitLines.push({ paymentType: existingRow.paymentType, amount: ptAmount });
     }
   }
 
@@ -984,10 +978,7 @@ router.post('/transfers/:id/payments', asyncHandler(async (req, res) => {
 
     // Attach voucher ID to all rows updated in this session
     if (voucherId) {
-      for (const pt of paymentTypes) {
-        const row = existing.transferPayments.find(
-          (r) => r.paymentType === pt && r.status === 'Paid'
-        );
+      for (const { row } of payEntries) {
         if (row && !row.voucherEntryId) row.voucherEntryId = voucherId;
       }
       await existing.save();

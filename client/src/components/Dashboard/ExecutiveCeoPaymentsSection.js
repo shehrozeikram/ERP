@@ -65,6 +65,7 @@ import executiveApprovalsService from '../../services/executiveApprovalsService'
 import indentService from '../../services/indentService';
 import utilityBillService from '../../services/utilityBillService';
 import { formatPKR } from '../../utils/currency';
+import { getImageUrl } from '../../utils/imageService';
 import { formatDate, formatDateTime } from '../../utils/dateUtils';
 import toast from 'react-hot-toast';
 import WorkflowHistoryDialog from '../WorkflowHistoryDialog';
@@ -1089,9 +1090,198 @@ const ExecutiveCeoPaymentsSection = () => {
 
   const handlePrint = () => {
     if (!viewDialog.settlement) return;
-    const printWindow = window.open('', '_blank');
     const settlement = viewDialog.settlement;
-    const printDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const printDate = new Date().toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      toast.error('Please allow pop-ups to print');
+      return;
+    }
+
+    const escapeHtml = (value) => {
+      if (value == null || value === '') return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    };
+    const display = (value) => (value == null || String(value).trim() === '' ? '—' : escapeHtml(String(value)));
+    const personName = (u) => {
+      if (!u) return '';
+      return `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || '';
+    };
+    const isImageSig = (sig) => {
+      const s = String(sig || '').trim();
+      if (!s) return false;
+      return (
+        s.includes('/uploads/')
+        || s.startsWith('data:image')
+        || s.startsWith('http')
+        || /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(s)
+      );
+    };
+    const signatureHtml = (sig, user, alt) => {
+      const imagePath = isImageSig(sig)
+        ? sig
+        : (user?.digitalSignature && isImageSig(user.digitalSignature) ? user.digitalSignature : '');
+      if (imagePath) {
+        const src = escapeHtml(getImageUrl(imagePath) || imagePath);
+        return `<div class="sig-line"><img src="${src}" alt="${escapeHtml(alt)}" /></div>`;
+      }
+      const typed = String(sig || '').trim() || personName(user);
+      if (!typed) return '<div class="sig-line muted">No Signature</div>';
+      return `<div class="sig-line typed">${escapeHtml(typed)}</div>`;
+    };
+
+    if (viewDialog.isManualSalary) {
+      const period = `${MONTH_NAMES[(Number(settlement.month) || 1) - 1] || '—'} ${settlement.year || ''}`.trim();
+      const allowanceRows = [
+        ['Food Allowance', settlement.foodAllowance],
+        ['House Rent Allowance', settlement.houseRentAllowance],
+        ['Medical Allowance', settlement.medicalAllowance],
+        ['Conveyance Allowance', settlement.conveyanceAllowance],
+        ['Vehicle Allowance', settlement.vehicleAllowance],
+        ['Fuel Allowance', settlement.fuelAllowance],
+        ['Special Allowance', settlement.specialAllowance],
+        ['Other Allowance', settlement.otherAllowance],
+        ['Income Tax', settlement.incomeTax]
+      ].map(([label, value]) => `
+        <tr>
+          <td>${escapeHtml(label)}</td>
+          <td class="right">${escapeHtml(formatPKR(value || 0))}</td>
+        </tr>`).join('');
+
+      const authorityRows = [
+        {
+          label: 'Initiator',
+          by: settlement.initiator,
+          at: settlement.initiatedAt || settlement.createdAt,
+          sig: settlement.requesterSignature,
+          pending: false
+        },
+        {
+          label: 'HOD HR (GM HR)',
+          by: settlement.hodApprovedBy || settlement.assignedHod,
+          at: settlement.hodApprovedAt,
+          sig: settlement.hodSignature,
+          pending: !settlement.hodApprovedBy
+        },
+        {
+          label: 'AVP',
+          by: settlement.avpApprovedBy || settlement.assignedAvp,
+          at: settlement.avpApprovedAt,
+          sig: settlement.avpSignature,
+          pending: !settlement.avpApprovedBy
+        },
+        {
+          label: 'CEO',
+          by: settlement.ceoApprovedBy,
+          at: settlement.ceoApprovedAt,
+          sig: settlement.ceoSignature,
+          pending: !settlement.ceoApprovedBy
+        }
+      ].map((row) => {
+        const name = personName(row.by);
+        const statusText = row.pending
+          ? (name ? `${name} (Pending)` : 'Pending')
+          : (name || (row.label === 'Initiator' ? '—' : 'Approved'));
+        return `
+          <div class="auth-card">
+            <div class="auth-label">${escapeHtml(row.label)}</div>
+            <div class="auth-name">${escapeHtml(statusText)}</div>
+            ${row.at ? `<div class="muted">${escapeHtml(formatDateTime(row.at))}</div>` : ''}
+            ${row.pending ? '<div class="sig-line muted">Awaiting signature</div>' : signatureHtml(row.sig, row.by, `${row.label} Signature`)}
+          </div>`;
+      }).join('');
+
+      printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Manual Salary - ${escapeHtml(settlement.name || settlement.empId || '')}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 24px; font-size: 12px; }
+    .company { font-size: 15px; font-weight: 700; text-align: center; text-transform: uppercase; margin: 0 0 4px; }
+    h1 { font-size: 18px; margin: 0 0 4px; text-align: center; }
+    .sub { text-align: center; color: #555; margin-bottom: 18px; }
+    .header-row { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 16px; border-bottom: 1px solid #ccc; padding-bottom: 12px; }
+    .name { font-size: 16px; font-weight: 800; margin: 0 0 4px; }
+    .meta { color: #555; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .field label { display: block; color: #666; font-size: 11px; margin-bottom: 2px; }
+    .field .val { font-weight: 700; }
+    .net { color: #1b5e20; font-size: 15px; }
+    h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #444; margin: 16px 0 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
+    td.right, th.right { text-align: right; }
+    .auth-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 8px; }
+    .auth-card { border: 1px solid #ccc; border-radius: 4px; padding: 10px; min-height: 110px; page-break-inside: avoid; }
+    .auth-label { font-size: 11px; color: #666; font-weight: 700; margin-bottom: 4px; }
+    .auth-name { font-weight: 700; margin-bottom: 2px; }
+    .muted { color: #777; font-size: 11px; }
+    .sig-line { margin-top: 8px; border-top: 1px solid #ddd; padding-top: 6px; min-height: 36px; }
+    .sig-line img { max-height: 60px; max-width: 150px; object-fit: contain; display: block; }
+    .typed { font-style: italic; font-family: cursive; font-weight: 600; }
+    .remarks { border: 1px dashed #90caf9; background: #f5fbff; padding: 10px; border-radius: 4px; margin-top: 12px; }
+    .footer { margin-top: 28px; font-size: 11px; color: #666; }
+    @media print { body { margin: 12mm; } }
+  </style>
+</head>
+<body>
+  <div class="company">Sardar Group Of Companies</div>
+  <h1>Manual Salary Details</h1>
+  <div class="sub">Status: ${display(settlement.workflowStatus || settlement.status)} · Period: ${display(period)}</div>
+
+  <div class="header-row">
+    <div>
+      <div class="name">${display(settlement.name)}</div>
+      <div class="meta">${display([settlement.designation, settlement.project].filter(Boolean).join(' · ') || 'Manual Salary')}</div>
+    </div>
+    <div class="meta" style="text-align:right">
+      ${settlement.empId ? `<div>Emp ID: ${display(settlement.empId)}</div>` : ''}
+      <div>Period: ${display(period)}</div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="field"><label>Date of Joining</label><div class="val">${display(settlement.doj)}</div></div>
+    <div class="field"><label>Basic Salary</label><div class="val">${escapeHtml(formatPKR(settlement.basicSalary || 0))}</div></div>
+    <div class="field"><label>Gross Salary</label><div class="val">${escapeHtml(formatPKR(settlement.grossSalary || 0))}</div></div>
+    <div class="field"><label>Net Payable</label><div class="val net">${escapeHtml(formatPKR(settlement.netPayable || 0))}</div></div>
+  </div>
+
+  <h2>Allowances &amp; Deductions</h2>
+  <table>
+    <thead><tr><th>Description</th><th class="right">Amount</th></tr></thead>
+    <tbody>${allowanceRows}</tbody>
+  </table>
+
+  ${settlement.remarks ? `<div class="remarks"><strong>Remarks</strong><div>${display(settlement.remarks)}</div></div>` : ''}
+
+  <h2>Approval Signatures</h2>
+  <div class="auth-grid">${authorityRows}</div>
+
+  <div class="footer">
+    <p>Generated from SGC ERP System - CEO Executive Desk</p>
+    <p>Printed: ${escapeHtml(printDate)}</p>
+  </div>
+</body>
+</html>`);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => printWindow.print(), 250);
+      return;
+    }
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>

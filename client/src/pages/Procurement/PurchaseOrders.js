@@ -2191,11 +2191,12 @@ const PurchaseOrders = () => {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ width: '8%', textAlign: 'center' }}>S#</TableCell>
-                        <TableCell sx={{ width: '42%' }}>Item Description</TableCell>
-                        <TableCell sx={{ width: '12%', textAlign: 'center' }}>Qty</TableCell>
-                        <TableCell sx={{ width: '10%', textAlign: 'center' }}>Unit</TableCell>
-                        <TableCell sx={{ width: '14%', textAlign: 'right' }}>Unit Price</TableCell>
+                        <TableCell sx={{ width: '7%', textAlign: 'center' }}>S#</TableCell>
+                        <TableCell sx={{ width: '36%' }}>Item Description</TableCell>
+                        <TableCell sx={{ width: '10%', textAlign: 'center' }}>Qty</TableCell>
+                        <TableCell sx={{ width: '9%', textAlign: 'center' }}>Unit</TableCell>
+                        <TableCell sx={{ width: '12%', textAlign: 'right' }}>Unit Price</TableCell>
+                        <TableCell sx={{ width: '12%', textAlign: 'right' }}>Discount</TableCell>
                         <TableCell sx={{ width: '14%', textAlign: 'right' }}>Amount</TableCell>
                       </TableRow>
                     </TableHead>
@@ -2207,6 +2208,7 @@ const PurchaseOrders = () => {
                           <TableCell sx={{ textAlign: 'center' }}>{item.quantity}</TableCell>
                           <TableCell sx={{ textAlign: 'center' }}>{item.unit}</TableCell>
                           <TableCell sx={{ textAlign: 'right' }}>{formatNumber(item.unitPrice)}</TableCell>
+                          <TableCell sx={{ textAlign: 'right' }}>{formatNumber(item.discount || 0)}</TableCell>
                           <TableCell sx={{ textAlign: 'right', fontWeight: 600 }}>{formatNumber(item.amount)}</TableCell>
                         </TableRow>
                       ))}

@@ -2320,7 +2320,7 @@ const AccountsPayable = () => {
                         <Typography
                           variant="h5"
                           sx={{
-                            fontFamily: 'Georgia, "Times New Roman", serif',
+                            fontFamily: 'Arial, Helvetica, sans-serif',
                             fontWeight: 700,
                             fontSize: { xs: 20, md: 22 },
                             textTransform: 'none',
@@ -2336,7 +2336,7 @@ const AccountsPayable = () => {
                         <Typography
                           variant="h6"
                           sx={{
-                            fontFamily: 'Georgia, "Times New Roman", serif',
+                            fontFamily: 'Arial, Helvetica, sans-serif',
                             fontWeight: 700,
                             fontSize: { xs: 16, md: 18 },
                             mt: 0.5
@@ -2830,6 +2830,7 @@ const AccountsPayable = () => {
                                 <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Brand</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }}>Qty Unit</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Rate</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Discount</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold', border: '1px solid', borderColor: 'divider' }} align="right">Amount</TableCell>
                               </TableRow>
                             </TableHead>
@@ -2845,7 +2846,8 @@ const AccountsPayable = () => {
                                     <TableCell sx={{ border: '1px solid', borderColor: 'divider' }}>{item.brand || indentItem?.brand || '—'}</TableCell>
                                     <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="center">{item.quantity} {item.unit || 'pcs'}</TableCell>
                                     <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatPKR(item.unitPrice)}</TableCell>
-                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatPKR((item.quantity || 0) * (item.unitPrice || 0))}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatPKR(item.discount || 0)}</TableCell>
+                                    <TableCell sx={{ border: '1px solid', borderColor: 'divider' }} align="right">{formatPKR(item.amount != null ? item.amount : ((item.quantity || 0) * (item.unitPrice || 0) - (item.discount || 0)))}</TableCell>
                                   </TableRow>
                                 );
                               })}

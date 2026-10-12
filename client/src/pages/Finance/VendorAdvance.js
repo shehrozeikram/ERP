@@ -2014,7 +2014,8 @@ const VendorAdvance = () => {
                             <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'left', width: '14%' }}>Specification</th>
                             <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'left', width: '11%' }}>Brand</th>
                             <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'center', width: '11%' }}>Quantity Unit</th>
-                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Rate</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'right', width: '9%' }}>Rate</th>
+                            <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'right', width: '9%' }}>Discount</th>
                             <th style={{ border: '1px solid #000', padding: '3px', fontWeight: 700, textAlign: 'right', width: '11%' }}>Amount</th>
                           </tr>
                         </thead>
@@ -2046,7 +2047,10 @@ const VendorAdvance = () => {
                                   {item.quantity ? `${Math.round(Number(item.quantity)).toLocaleString()} ${item.unit || 'Nos'}` : '___________'}
                                 </td>
                                 <td style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'right', verticalAlign: 'top' }}>
-                                  {item.unitPrice ? Math.round(Number(item.unitPrice)).toLocaleString() : '___________'}
+                                  {item.unitPrice != null ? Math.round(Number(item.unitPrice)).toLocaleString() : '___________'}
+                                </td>
+                                <td style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'right', verticalAlign: 'top' }}>
+                                  {Math.round(Number(item.discount || 0)).toLocaleString()}
                                 </td>
                                 <td style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'right', verticalAlign: 'top' }}>
                                   {item.totalPrice || item.amount ? Math.round(Number(item.totalPrice || item.amount)).toLocaleString() : '___________'}
@@ -2055,7 +2059,7 @@ const VendorAdvance = () => {
                             ))
                           ) : (
                             <tr>
-                              <td colSpan={8} style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'center' }}>No items</td>
+                              <td colSpan={9} style={{ border: '1px solid #000', padding: '2px 3px', textAlign: 'center' }}>No items</td>
                             </tr>
                           )}
                         </tbody>

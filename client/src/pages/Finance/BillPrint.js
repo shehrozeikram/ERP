@@ -353,7 +353,7 @@ export default function BillPrint() {
               sx={{
                 fontSize: isCentralizedStore ? '1.35rem' : '1.5rem',
                 color: '#1e293b',
-                fontFamily: isCentralizedStore ? 'Georgia, "Times New Roman", serif' : 'inherit'
+                fontFamily: 'inherit'
               }}
             >
               {isCentralizedStore
@@ -367,7 +367,7 @@ export default function BillPrint() {
                 fontSize: isCentralizedStore ? '1.05rem' : '1.15rem',
                 textTransform: isCentralizedStore ? 'none' : 'uppercase',
                 mt: 0.5,
-                fontFamily: isCentralizedStore ? 'Georgia, "Times New Roman", serif' : 'inherit'
+                fontFamily: 'inherit'
               }}
             >
               {isCentralizedStore ? (storeDocTypeLabel || 'Bill') : 'VENDOR BILL INVOICE'}
