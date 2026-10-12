@@ -30,8 +30,14 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import DownloadIcon from '@mui/icons-material/Download';
 import * as XLSX from 'xlsx';
+import toast from 'react-hot-toast';
 import KPITabNavigation from '../../../components/HR/KPITabNavigation';
-import { fetchKpiSubmissions } from '../../../services/kpiWorksheetService';
+import {
+  fetchKpiSubmissions,
+  updateKpiEmployeeSettings
+} from '../../../services/kpiWorksheetService';
+import api from '../../../services/api';
+import { getEmployeeCategoryLabel, normalizeEmployeeCategory } from '../../../utils/employeeCategory';
 
 const MONTHS = [
   { v: 1, label: 'January' },
@@ -75,6 +81,11 @@ const employeeName = (employee) =>
   employee?.employeeId ||
   '—';
 
+const formatEmpOption = (e) =>
+  `${[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeId || 'Employee'}${
+    e.employeeId ? ` (${e.employeeId})` : ''
+  }`;
+
 const KPISubmissionsOverview = () => {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -90,6 +101,8 @@ const KPISubmissionsOverview = () => {
   const [error, setError] = useState('');
   const [summary, setSummary] = useState(null);
   const [groups, setGroups] = useState([]);
+  const [reportingOptions, setReportingOptions] = useState([]);
+  const [savingById, setSavingById] = useState({});
 
   useEffect(() => {
     const loadFilters = async () => {
@@ -109,6 +122,19 @@ const KPISubmissionsOverview = () => {
       }
     };
     loadFilters();
+  }, []);
+
+  useEffect(() => {
+    const loadReportingOptions = async () => {
+      try {
+        const res = await api.get('/hr/employees?limit=500&active=true');
+        const list = res.data?.data || res.data?.employees || res.data || [];
+        setReportingOptions(Array.isArray(list) ? list : []);
+      } catch {
+        setReportingOptions([]);
+      }
+    };
+    loadReportingOptions();
   }, []);
 
   const loadSubmissions = useCallback(async () => {
@@ -147,6 +173,110 @@ const KPISubmissionsOverview = () => {
     [groups]
   );
 
+  const patchLocalEmployee = useCallback((employeeId, patch) => {
+    const id = String(employeeId);
+    setGroups((prev) =>
+      prev.map((group) => ({
+        ...group,
+        departments: group.departments.map((dept) => ({
+          ...dept,
+          employees: dept.employees.map((row) => {
+            if (String(row.employee?._id) !== id) return row;
+            const nextCategory =
+              patch.employeeCategory != null
+                ? normalizeEmployeeCategory(patch.employeeCategory) || row.employeeCategory
+                : row.employeeCategory;
+            const nextRlId =
+              patch.reportingLineId !== undefined
+                ? patch.reportingLineId
+                : row.employee?.reportingLineId;
+            const nextRlName =
+              patch.reportingLineName !== undefined
+                ? patch.reportingLineName
+                : row.employee?.reportingLine;
+            return {
+              ...row,
+              employeeCategory: nextCategory,
+              employee: {
+                ...row.employee,
+                employeeCategory: nextCategory,
+                reportingLineId: nextRlId,
+                reportingLine: nextRlName || '—'
+              }
+            };
+          })
+        }))
+      }))
+    );
+  }, []);
+
+  const handleSaveRowSettings = async (row, { employeeCategory, reportingLineId }) => {
+    const empId = row.employee?._id;
+    if (!empId) return;
+
+    const nextCategory =
+      normalizeEmployeeCategory(employeeCategory) ||
+      normalizeEmployeeCategory(row.employee?.employeeCategory) ||
+      'white_collar';
+    const nextRlId =
+      reportingLineId !== undefined
+        ? reportingLineId
+        : row.employee?.reportingLineId || '';
+
+    const prevCategory = normalizeEmployeeCategory(row.employee?.employeeCategory) || 'white_collar';
+    const prevRlId = row.employee?.reportingLineId || '';
+    if (nextCategory === prevCategory && String(nextRlId || '') === String(prevRlId || '')) {
+      return;
+    }
+
+    const rlOpt = reportingOptions.find((e) => String(e._id) === String(nextRlId || ''));
+    const rlName = rlOpt
+      ? [rlOpt.firstName, rlOpt.lastName].filter(Boolean).join(' ').trim()
+      : nextRlId
+        ? row.employee?.reportingLine
+        : '—';
+
+    // Optimistic UI
+    patchLocalEmployee(empId, {
+      employeeCategory: nextCategory,
+      reportingLineId: nextRlId || null,
+      reportingLineName: rlName || '—'
+    });
+
+    setSavingById((prev) => ({ ...prev, [empId]: true }));
+    try {
+      await updateKpiEmployeeSettings(empId, {
+        employeeCategory: nextCategory,
+        reportingLine: nextRlId || null,
+        year,
+        month
+      });
+      toast.success(
+        `${employeeName(row.employee)} → ${getEmployeeCategoryLabel(nextCategory)}${
+          rlName && rlName !== '—' ? `, RL: ${rlName}` : ''
+        }`
+      );
+      // If filtered by category and employee moved tabs, refresh so they leave this list
+      if (categoryTab !== 'all' && categoryTab !== nextCategory) {
+        await loadSubmissions();
+      }
+    } catch (err) {
+      // Revert
+      patchLocalEmployee(empId, {
+        employeeCategory: prevCategory,
+        reportingLineId: prevRlId || null,
+        reportingLineName: row.employee?.reportingLine || '—'
+      });
+      toast.error(err.response?.data?.message || 'Failed to update employee settings');
+    } finally {
+      setSavingById((prev) => {
+        const next = { ...prev };
+        delete next[empId];
+        return next;
+      });
+    }
+  };
+
   const handleExportExcel = () => {
     const data = [];
     groups.forEach((group) => {
@@ -155,31 +285,32 @@ const KPISubmissionsOverview = () => {
         const deptName = dept.department?.name || 'Unassigned Department';
         dept.employees.forEach((empRow) => {
           const commonInfo = {
-            'Project': projectName,
-            'Department': deptName,
+            Project: projectName,
+            Department: deptName,
             'Employee ID': empRow.employee?.employeeId || '—',
-            'Employee': employeeName(empRow.employee),
-            'Designation': empRow.employee?.designation || '—',
-            'Reporting Line': empRow.employee?.reportingLine || '—',
+            Employee: employeeName(empRow.employee),
+            Designation: empRow.employee?.designation || '—',
+            Category: getEmployeeCategoryLabel(empRow.employee?.employeeCategory || empRow.employeeCategory),
+            'Reporting Line': empRow.employee?.reportingLine || '—'
           };
 
           if (empRow.rows && empRow.rows.length > 0) {
-            empRow.rows.forEach(kpi => {
+            empRow.rows.forEach((kpi) => {
               data.push({
                 ...commonInfo,
                 'KPI Area': kpi.kpiArea || '—',
-                'Weightage': kpi.weight != null ? Number(kpi.weight).toFixed(2) : '—',
-                'Score': kpi.score1to5 != null ? Number(kpi.score1to5).toFixed(2) : '—',
-                'Final Weightage': kpi.finalWeightage != null ? Number(kpi.finalWeightage).toFixed(2) : '—'
+                Weightage: kpi.weight != null ? Number(kpi.weight).toFixed(2) : '—',
+                Score: kpi.score1to5 != null ? Number(kpi.score1to5).toFixed(2) : '—',
+                'Final Weightage':
+                  kpi.finalWeightage != null ? Number(kpi.finalWeightage).toFixed(2) : '—'
               });
             });
           } else {
-            // Employee has no KPI rows
             data.push({
               ...commonInfo,
               'KPI Area': '—',
-              'Weightage': '—',
-              'Score': '—',
+              Weightage: '—',
+              Score: '—',
               'Final Weightage': '—'
             });
           }
@@ -202,7 +333,8 @@ const KPISubmissionsOverview = () => {
             KPI Submissions
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Blue collar = supervisor marks only. White collar = employee + manager flow. Grouped by project and department.
+            Turn off &quot;Show submitted only&quot; to see all staff by department. Change Blue/White collar and
+            reporting line in the table — updates also apply in Employees.
           </Typography>
         </Box>
         <Button
@@ -222,8 +354,14 @@ const KPISubmissionsOverview = () => {
             onChange={(_, v) => setCategoryTab(v)}
             sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
           >
-            <Tab value="blue_collar" label={`Blue collar${summary?.blueCollar != null ? ` (${summary.blueCollar})` : ''}`} />
-            <Tab value="white_collar" label={`White collar${summary?.whiteCollar != null ? ` (${summary.whiteCollar})` : ''}`} />
+            <Tab
+              value="blue_collar"
+              label={`Blue collar${summary?.blueCollar != null ? ` (${summary.blueCollar})` : ''}`}
+            />
+            <Tab
+              value="white_collar"
+              label={`White collar${summary?.whiteCollar != null ? ` (${summary.whiteCollar})` : ''}`}
+            />
             <Tab value="all" label="All" />
           </Tabs>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} useFlexGap flexWrap="wrap">
@@ -236,7 +374,9 @@ const KPISubmissionsOverview = () => {
               sx={{ minWidth: 140 }}
             >
               {MONTHS.map((item) => (
-                <MenuItem key={item.v} value={item.v}>{item.label}</MenuItem>
+                <MenuItem key={item.v} value={item.v}>
+                  {item.label}
+                </MenuItem>
               ))}
             </TextField>
             <TextField
@@ -249,7 +389,11 @@ const KPISubmissionsOverview = () => {
             >
               {[0, 1, 2].map((offset) => {
                 const y = now.getFullYear() - offset;
-                return <MenuItem key={y} value={y}>{y}</MenuItem>;
+                return (
+                  <MenuItem key={y} value={y}>
+                    {y}
+                  </MenuItem>
+                );
               })}
             </TextField>
             <TextField
@@ -304,7 +448,12 @@ const KPISubmissionsOverview = () => {
             {summary && (
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip size="small" label={`Submitted: ${summary.submitted}`} color="success" variant="outlined" />
-                <Chip size="small" label={`Manager reviewed: ${summary.managerReviewed}`} color="primary" variant="outlined" />
+                <Chip
+                  size="small"
+                  label={`Manager reviewed: ${summary.managerReviewed}`}
+                  color="primary"
+                  variant="outlined"
+                />
                 <Chip size="small" label={`Draft: ${summary.draft}`} color="warning" variant="outlined" />
                 <Chip size="small" label={`Not started: ${summary.notStarted}`} variant="outlined" />
               </Stack>
@@ -313,16 +462,18 @@ const KPISubmissionsOverview = () => {
         </CardContent>
       </Card>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress />
         </Box>
       ) : totalShown === 0 ? (
-        <Alert severity="info">
-          No KPI records found for the selected period and filters.
-        </Alert>
+        <Alert severity="info">No KPI records found for the selected period and filters.</Alert>
       ) : (
         <Stack spacing={2}>
           {groups.map((group) => (
@@ -345,14 +496,15 @@ const KPISubmissionsOverview = () => {
                           ({dept.employees.length})
                         </Typography>
                       </Typography>
-                      <TableContainer>
+                      <TableContainer sx={{ overflowX: 'auto' }}>
                         <Table size="small">
                           <TableHead>
                             <TableRow>
                               <TableCell>Employee ID</TableCell>
                               <TableCell>Employee</TableCell>
                               <TableCell>Designation</TableCell>
-                              <TableCell>Reporting Line</TableCell>
+                              <TableCell sx={{ minWidth: 150 }}>Category</TableCell>
+                              <TableCell sx={{ minWidth: 220 }}>Reporting Line</TableCell>
                               <TableCell>Status</TableCell>
                               <TableCell align="right">Total KPI score</TableCell>
                               <TableCell align="right">Weight %</TableCell>
@@ -363,31 +515,90 @@ const KPISubmissionsOverview = () => {
                           <TableBody>
                             {dept.employees.map((row) => {
                               const statusMeta = STATUS_META[row.status] || STATUS_META.not_started;
+                              const empId = row.employee?._id;
+                              const saving = Boolean(savingById[empId]);
+                              const categoryValue =
+                                normalizeEmployeeCategory(row.employee?.employeeCategory) ||
+                                normalizeEmployeeCategory(row.employeeCategory) ||
+                                'white_collar';
+                              const rlValue = row.employee?.reportingLineId || '';
+
                               return (
-                                <TableRow key={row.employee?._id}>
+                                <TableRow key={empId}>
                                   <TableCell>{row.employee?.employeeId || '—'}</TableCell>
                                   <TableCell>{employeeName(row.employee)}</TableCell>
                                   <TableCell>{row.employee?.designation || '—'}</TableCell>
-                                  <TableCell>{row.employee?.reportingLine || '—'}</TableCell>
                                   <TableCell>
-                                    <Chip size="small" label={statusMeta.label} color={statusMeta.color} variant="outlined" />
+                                    <TextField
+                                      select
+                                      size="small"
+                                      fullWidth
+                                      value={categoryValue}
+                                      disabled={saving}
+                                      onChange={(e) =>
+                                        handleSaveRowSettings(row, {
+                                          employeeCategory: e.target.value,
+                                          reportingLineId: rlValue
+                                        })
+                                      }
+                                    >
+                                      <MenuItem value="blue_collar">Blue Collar</MenuItem>
+                                      <MenuItem value="white_collar">White Collar</MenuItem>
+                                    </TextField>
+                                  </TableCell>
+                                  <TableCell>
+                                    <TextField
+                                      select
+                                      size="small"
+                                      fullWidth
+                                      value={rlValue}
+                                      disabled={saving}
+                                      onChange={(e) =>
+                                        handleSaveRowSettings(row, {
+                                          employeeCategory: categoryValue,
+                                          reportingLineId: e.target.value
+                                        })
+                                      }
+                                    >
+                                      <MenuItem value="">— None —</MenuItem>
+                                      {reportingOptions
+                                        .filter((e) => String(e._id) !== String(empId))
+                                        .map((e) => (
+                                          <MenuItem key={e._id} value={e._id}>
+                                            {formatEmpOption(e)}
+                                          </MenuItem>
+                                        ))}
+                                    </TextField>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      size="small"
+                                      label={statusMeta.label}
+                                      color={statusMeta.color}
+                                      variant="outlined"
+                                    />
                                   </TableCell>
                                   <TableCell align="right">
-                                    {row.totalKPIScore != null ? Number(row.totalKPIScore).toFixed(2) : '—'}
+                                    {row.totalKPIScore != null
+                                      ? Number(row.totalKPIScore).toFixed(2)
+                                      : '—'}
                                   </TableCell>
                                   <TableCell align="right">
                                     {row.totalWeight != null ? Number(row.totalWeight).toFixed(0) : '—'}
                                   </TableCell>
                                   <TableCell>{formatDateTime(row.lastSavedAt)}</TableCell>
                                   <TableCell align="right">
-                                    <Button
-                                      component={RouterLink}
-                                      to={`/hr/kpi/sheet?employeeId=${row.employee?._id}&year=${year}&month=${month}`}
-                                      size="small"
-                                      endIcon={<OpenInNewIcon />}
-                                    >
-                                      Open sheet
-                                    </Button>
+                                    <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+                                      {saving && <CircularProgress size={16} />}
+                                      <Button
+                                        component={RouterLink}
+                                        to={`/hr/kpi/sheet?employeeId=${empId}&year=${year}&month=${month}`}
+                                        size="small"
+                                        endIcon={<OpenInNewIcon />}
+                                      >
+                                        Open sheet
+                                      </Button>
+                                    </Stack>
                                   </TableCell>
                                 </TableRow>
                               );

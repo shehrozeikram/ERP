@@ -471,7 +471,7 @@ router.get(
       .populate('placementDepartment', 'name code')
       .populate('department', 'name code')
       .populate('placementDesignation', 'title')
-      .populate('reportingLine', 'firstName lastName')
+      .populate('reportingLine', 'firstName lastName employeeId')
       .sort({ firstName: 1, lastName: 1 })
       .lean();
 
@@ -487,6 +487,9 @@ router.get(
       const status = ws ? worksheetSubmissionStatusForCategory(rows, employeeCategory) : 'not_started';
       const project = emp.placementProject || { _id: null, name: 'Unassigned project' };
       const department = emp.placementDepartment || emp.department || { _id: null, name: 'Unassigned department' };
+      const rlName = emp.reportingLine
+        ? `${emp.reportingLine.firstName || ''} ${emp.reportingLine.lastName || ''}`.trim()
+        : '';
       return {
         employee: {
           _id: emp._id,
@@ -494,7 +497,8 @@ router.get(
           lastName: emp.lastName,
           employeeId: emp.employeeId,
           designation: emp.placementDesignation?.title || '—',
-          reportingLine: emp.reportingLine ? `${emp.reportingLine.firstName} ${emp.reportingLine.lastName}`.trim() : '—',
+          reportingLine: rlName || '—',
+          reportingLineId: emp.reportingLine?._id ? String(emp.reportingLine._id) : null,
           employeeCategory
         },
         employeeCategory,
