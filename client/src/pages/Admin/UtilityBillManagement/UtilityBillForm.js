@@ -652,6 +652,7 @@ const UtilityBillForm = () => {
         site: storeItem.site || '',
         quantity: 1,
         unitPrice: storeItem.defaultAmount || 0,
+        discount: 0,
         amount: storeItem.defaultAmount || 0,
         expenseAccount: storeItem.expenseAccount?._id || storeItem.expenseAccount,
         expenseAccountNumber: storeItem.expenseAccount?.accountNumber || '',
@@ -681,10 +682,12 @@ const UtilityBillForm = () => {
     setBillLines((prev) => prev.map((row, i) => {
       if (i !== index) return row;
       const updatedRow = { ...row, [field]: value };
-      if (isCentralizedStoreBill && (field === 'quantity' || field === 'unitPrice')) {
+      if (isCentralizedStoreBill && (field === 'quantity' || field === 'unitPrice' || field === 'discount')) {
         const qty = updatedRow.quantity === '' || updatedRow.quantity === undefined ? 0 : Number(updatedRow.quantity);
         const price = updatedRow.unitPrice === '' || updatedRow.unitPrice === undefined ? 0 : Number(updatedRow.unitPrice);
-        updatedRow.amount = qty * price;
+        const discount = Math.max(0, updatedRow.discount === '' || updatedRow.discount === undefined ? 0 : Number(updatedRow.discount));
+        updatedRow.discount = discount;
+        updatedRow.amount = Math.max(0, qty * price - discount);
       }
       if (field === 'duePaymentAmount') {
         const pay = value === '' || value === undefined ? 0 : Number(value);
@@ -731,6 +734,7 @@ const UtilityBillForm = () => {
           site: line.site || '',
           quantity: Number(line.quantity) || 1,
           unitPrice: Number(line.unitPrice) || (line.amount && line.quantity ? Number(line.amount) / Number(line.quantity) : line.amount) || 0,
+          discount: Number(line.discount) || 0,
           amount: line.amount || 0,
           expenseAccount: line.expenseAccount?._id || line.expenseAccount,
           expenseAccountNumber: line.expenseAccount?.accountNumber || line.expenseAccountNumber || '',
@@ -1037,6 +1041,7 @@ const UtilityBillForm = () => {
           site: l.site,
           quantity: Number(l.quantity) || 1,
           unitPrice: Number(l.unitPrice) || 0,
+          discount: Math.max(0, Number(l.discount) || 0),
           amount: l.amount,
           expenseAccount: l.expenseAccount,
           expenseAccountNumber: l.expenseAccountNumber,
@@ -1671,6 +1676,7 @@ const UtilityBillForm = () => {
                           <TableCell>Attachment</TableCell>
                           {isCentralizedStoreBill && <TableCell align="right">Qty</TableCell>}
                           {isCentralizedStoreBill && <TableCell align="right">Unit Price</TableCell>}
+                          {isCentralizedStoreBill && <TableCell align="right">Discount</TableCell>}
                           <TableCell align="right">Amount</TableCell>
                           {isUtilityBillForm && <TableCell align="right">Amount after Due Date *</TableCell>}
                           <TableCell width={48} />
@@ -1766,6 +1772,18 @@ const UtilityBillForm = () => {
                                 <TextField size="small" type="number" value={line.unitPrice !== undefined ? line.unitPrice : ''} onChange={(e) => updateBillLine(idx, 'unitPrice', e.target.value)} sx={{ width: 100 }} />
                               </TableCell>
                             )}
+                            {isCentralizedStoreBill && (
+                              <TableCell align="right">
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  value={line.discount !== undefined && line.discount !== null ? line.discount : 0}
+                                  onChange={(e) => updateBillLine(idx, 'discount', e.target.value)}
+                                  inputProps={{ min: 0, step: 0.01 }}
+                                  sx={{ width: 100 }}
+                                />
+                              </TableCell>
+                            )}
                             <TableCell align="right">
                               <TextField size="small" type="number" value={line.amount} onChange={(e) => updateBillLine(idx, 'amount', e.target.value)} sx={{ width: 120 }} InputProps={{ readOnly: isCentralizedStoreBill }} />
                             </TableCell>
@@ -1794,7 +1812,7 @@ const UtilityBillForm = () => {
                         ))}
                         {!billLines.length && (
                           <TableRow>
-                            <TableCell colSpan={isCentralizedStoreBill ? (isUtilityBillForm ? 12 : 11) : 8} align="center" sx={{ color: 'text.secondary' }}>
+                            <TableCell colSpan={isCentralizedStoreBill ? (isUtilityBillForm ? 13 : 12) : 8} align="center" sx={{ color: 'text.secondary' }}>
                               {isUtilityBillForm
                                 ? 'Select category and item, then click Add Item. Fill Due Date and Amount after Due Date (separate from bill Amount).'
                                 : 'Select category and item, then click Add Item'}
@@ -1808,7 +1826,7 @@ const UtilityBillForm = () => {
                     </Typography>
                     {isUtilityBillForm && (
                       <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                        Amount after Due Date is required and does not change the bill Amount (Qty × Rate).
+                        Amount after Due Date is required and does not change the bill Amount (Qty × Rate − Discount).
                         When the due date passes, that amount is applied for payment.
                       </Typography>
                     )}

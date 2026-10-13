@@ -74,6 +74,8 @@ const utilityBillSchema = new mongoose.Schema({
     amount: { type: Number, min: 0, default: 0 },
     quantity: { type: Number, min: 0, default: 1 },
     unitPrice: { type: Number, min: 0, default: 0 },
+    /** Absolute line discount (PKR); net amount = qty × unitPrice − discount */
+    discount: { type: Number, min: 0, default: 0 },
     expenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },
     expenseAccountNumber: { type: String, trim: true, default: '' },
     dueDate: { type: Date },

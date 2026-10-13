@@ -24,7 +24,17 @@ const applyBillLinesToPayload = async (billData) => {
 
   const normalized = [];
   for (const raw of lines) {
-    const amt = round2(raw.amount);
+    const quantity = raw.quantity !== undefined && raw.quantity !== null && raw.quantity !== ''
+      ? Math.max(Number(raw.quantity), 0)
+      : 1;
+    const unitPrice = raw.unitPrice !== undefined && raw.unitPrice !== null && raw.unitPrice !== ''
+      ? round2(raw.unitPrice)
+      : null;
+    const discount = Math.max(0, round2(raw.discount));
+    let amt = round2(raw.amount);
+    if (unitPrice != null) {
+      amt = Math.max(0, round2(quantity * unitPrice - discount));
+    }
     if (amt <= 0) continue;
 
     let lineDue = null;
@@ -54,6 +64,9 @@ const applyBillLinesToPayload = async (billData) => {
     const primaryAttachmentUrl = attachmentUrls[0] || attachmentUrl;
     const itemCode = String(storeItem?.code || raw.itemCode || '').trim();
     const duePaymentAmount = round2(raw.duePaymentAmount);
+    const resolvedUnitPrice = unitPrice != null
+      ? unitPrice
+      : (quantity ? round2((amt + discount) / quantity) : amt);
 
     normalized.push({
       storeItem: storeItem?._id || raw.storeItem || null,
@@ -65,8 +78,9 @@ const applyBillLinesToPayload = async (billData) => {
       location: raw.location || storeItem?.location || '',
       site: raw.site || storeItem?.site || billData.site || '',
       amount: amt,
-      quantity: raw.quantity !== undefined && raw.quantity !== null && raw.quantity !== '' ? Math.max(Number(raw.quantity), 0) : 1,
-      unitPrice: raw.unitPrice !== undefined && raw.unitPrice !== null && raw.unitPrice !== '' ? round2(raw.unitPrice) : (raw.quantity ? round2(amt / Number(raw.quantity)) : amt),
+      quantity,
+      unitPrice: resolvedUnitPrice,
+      discount,
       expenseAccount: expenseAccount || null,
       expenseAccountNumber,
       duePaymentAmount: duePaymentAmount > 0 ? duePaymentAmount : 0,

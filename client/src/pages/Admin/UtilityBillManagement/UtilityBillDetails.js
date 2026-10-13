@@ -566,6 +566,14 @@ const UtilityBillDetails = ({
       .replace(/"/g, '&quot;');
     const lines = bill?.billLines || [];
     const totalVal = getStoreInvoiceLinesTotal();
+    const grossVal = lines.reduce((s, l) => {
+      const qty = l.quantity !== undefined && l.quantity !== null && l.quantity !== '' ? Number(l.quantity) : 1;
+      const rate = l.unitPrice !== undefined && l.unitPrice !== null && l.unitPrice !== ''
+        ? Number(l.unitPrice)
+        : (qty ? (Number(l.amount) || 0) / qty : (Number(l.amount) || 0));
+      return s + Math.max(0, qty * rate);
+    }, 0);
+    const discountVal = lines.reduce((s, l) => s + Math.max(0, Number(l.discount) || 0), 0);
     const duePayTotal =
       Number(bill?.duePaymentAmount) > 0
         ? Number(bill.duePaymentAmount)
@@ -579,6 +587,9 @@ const UtilityBillDetails = ({
       const qty = hasQty ? Number(line.quantity) : 1;
       const hasRate = line.unitPrice !== undefined && line.unitPrice !== null && line.unitPrice !== '';
       const rate = hasRate ? Number(line.unitPrice) : (qty ? amt / qty : amt);
+      const discount = Math.max(0, Number(line.discount) || 0);
+      const valueExTax = Math.max(0, qty * rate);
+      const netAmount = Math.max(0, valueExTax - discount);
       return `<tr class="data-row">
         <td class="c-num">${i + 1}</td>
         <td class="c-code">${esc(getStoreLineProductCode(line))}</td>
@@ -586,9 +597,9 @@ const UtilityBillDetails = ({
         <td class="c-center">Nos</td>
         <td class="c-num">${formatDecimalPk(qty)}</td>
         <td class="c-num">${formatDecimalPk(rate)}</td>
-        <td class="c-num">${formatDecimalPk(amt)}</td>
-        <td class="c-center">0 %</td>
-        <td class="c-num">${formatDecimalPk(amt)}</td>
+        <td class="c-num">${formatDecimalPk(valueExTax)}</td>
+        <td class="c-num">${formatDecimalPk(discount)}</td>
+        <td class="c-num">${formatDecimalPk(amt || netAmount)}</td>
         <td class="c-num">${formatDecimalPk(duePay)}</td>
       </tr>`;
     }).join('');
@@ -801,8 +812,8 @@ const UtilityBillDetails = ({
           ${rowHtml}
           <tr class="subtotal">
             <td colspan="6" style="text-align:right;">Sub Total</td>
-            <td class="c-num">${formatDecimalPk(totalVal)}</td>
-            <td class="c-center"></td>
+            <td class="c-num">${formatDecimalPk(grossVal)}</td>
+            <td class="c-num">${formatDecimalPk(discountVal)}</td>
             <td class="c-num">${formatDecimalPk(totalVal)}</td>
             <td class="c-num">${formatDecimalPk(duePayTotal)}</td>
           </tr>
@@ -1300,6 +1311,9 @@ const UtilityBillDetails = ({
                     const duePay = Number(line.duePaymentAmount) || 0;
                     const qty = line.quantity !== undefined ? Number(line.quantity) : 1;
                     const rate = line.unitPrice !== undefined ? Number(line.unitPrice) : amt;
+                    const discount = Math.max(0, Number(line.discount) || 0);
+                    const valueExTax = Math.max(0, qty * rate);
+                    const netAmount = Math.max(0, valueExTax - discount);
                     return (
                       <TableRow key={line._id || line.storeItem || i}>
                         <TableCell sx={{ textAlign: 'center' }}>{i + 1}</TableCell>
@@ -1311,10 +1325,10 @@ const UtilityBillDetails = ({
                         <TableCell sx={{ textAlign: 'center' }}>Nos</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(qty)}</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(rate)}</TableCell>
-                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(amt)}</TableCell>
-                        <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(valueExTax)}</TableCell>
+                        <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatDecimalPk(discount)}</TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
-                          {formatDecimalPk(amt)}
+                          {formatDecimalPk(amt || netAmount)}
                         </TableCell>
                         <TableCell sx={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>
                           {formatDecimalPk(duePay)}
@@ -1336,9 +1350,19 @@ const UtilityBillDetails = ({
                       Sub Total
                     </TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {formatDecimalPk(getStoreInvoiceLinesTotal())}
+                      {formatDecimalPk(
+                        (bill.billLines || []).reduce((s, l) => {
+                          const qty = l.quantity !== undefined ? Number(l.quantity) : 1;
+                          const rate = l.unitPrice !== undefined ? Number(l.unitPrice) : (Number(l.amount) || 0);
+                          return s + Math.max(0, qty * rate);
+                        }, 0)
+                      )}
                     </TableCell>
-                    <TableCell />
+                    <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {formatDecimalPk(
+                        (bill.billLines || []).reduce((s, l) => s + Math.max(0, Number(l.discount) || 0), 0)
+                      )}
+                    </TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
                       {formatDecimalPk(getStoreInvoiceLinesTotal())}
                     </TableCell>
