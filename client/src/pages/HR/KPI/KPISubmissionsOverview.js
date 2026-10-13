@@ -5,6 +5,7 @@ import {
   AccordionDetails,
   AccordionSummary,
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -24,7 +25,8 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Typography
+  Typography,
+  createFilterOptions
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -85,6 +87,18 @@ const formatEmpOption = (e) =>
   `${[e.firstName, e.lastName].filter(Boolean).join(' ') || e.employeeId || 'Employee'}${
     e.employeeId ? ` (${e.employeeId})` : ''
   }`;
+
+const reportingLineFilter = createFilterOptions({
+  stringify: (option) =>
+    [
+      option?.firstName,
+      option?.lastName,
+      option?.employeeId,
+      formatEmpOption(option)
+    ]
+      .filter(Boolean)
+      .join(' ')
+});
 
 const KPISubmissionsOverview = () => {
   const now = new Date();
@@ -547,28 +561,46 @@ const KPISubmissionsOverview = () => {
                                     </TextField>
                                   </TableCell>
                                   <TableCell>
-                                    <TextField
-                                      select
+                                    <Autocomplete
                                       size="small"
                                       fullWidth
-                                      value={rlValue}
+                                      options={reportingOptions.filter(
+                                        (e) => String(e._id) !== String(empId)
+                                      )}
+                                      value={
+                                        reportingOptions.find(
+                                          (e) => String(e._id) === String(rlValue)
+                                        ) ||
+                                        (rlValue
+                                          ? {
+                                              _id: rlValue,
+                                              firstName: row.employee?.reportingLine || '',
+                                              lastName: '',
+                                              employeeId: ''
+                                            }
+                                          : null)
+                                      }
+                                      getOptionLabel={(option) =>
+                                        option ? formatEmpOption(option) : ''
+                                      }
+                                      isOptionEqualToValue={(option, value) =>
+                                        String(option?._id || '') === String(value?._id || '')
+                                      }
+                                      filterOptions={reportingLineFilter}
                                       disabled={saving}
-                                      onChange={(e) =>
+                                      onChange={(_, selected) =>
                                         handleSaveRowSettings(row, {
                                           employeeCategory: categoryValue,
-                                          reportingLineId: e.target.value
+                                          reportingLineId: selected?._id || ''
                                         })
                                       }
-                                    >
-                                      <MenuItem value="">— None —</MenuItem>
-                                      {reportingOptions
-                                        .filter((e) => String(e._id) !== String(empId))
-                                        .map((e) => (
-                                          <MenuItem key={e._id} value={e._id}>
-                                            {formatEmpOption(e)}
-                                          </MenuItem>
-                                        ))}
-                                    </TextField>
+                                      renderInput={(params) => (
+                                        <TextField
+                                          {...params}
+                                          placeholder="Search name or ID"
+                                        />
+                                      )}
+                                    />
                                   </TableCell>
                                   <TableCell>
                                     <Chip
