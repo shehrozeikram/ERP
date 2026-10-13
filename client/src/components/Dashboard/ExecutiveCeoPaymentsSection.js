@@ -3243,9 +3243,14 @@ const ExecutiveCeoPaymentsSection = () => {
             >
               History
             </Button>
-            {!viewDialog.isPurchaseOrder && !viewDialog.isCashApproval && !viewDialog.isIndent && !viewDialog.isUtilityBill && !viewDialog.isVendorBill && (
-            <Button
-              variant="outlined"
+            {!viewDialog.isPurchaseOrder
+              && !viewDialog.isCashApproval
+              && !viewDialog.isOnboarding
+              && !viewDialog.isIndent
+              && !viewDialog.isUtilityBill
+              && !viewDialog.isVendorBill && (
+              <Button
+                variant="outlined"
                 size="small"
                 startIcon={<PrintIcon />}
                 onClick={handlePrint}
