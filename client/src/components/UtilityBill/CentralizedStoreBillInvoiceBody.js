@@ -50,6 +50,16 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
   if (!bill) return null;
   const lines = bill.billLines || [];
   const totalVal = getStoreInvoiceLinesTotal(bill);
+  const grossVal = lines.reduce((s, l) => {
+    const hasQty = l.quantity !== undefined && l.quantity !== null && l.quantity !== '';
+    const qty = hasQty ? Number(l.quantity) : 1;
+    const hasRate = l.unitPrice !== undefined && l.unitPrice !== null && l.unitPrice !== '';
+    const rate = hasRate
+      ? Number(l.unitPrice)
+      : (qty ? (Number(l.amount) || 0) / qty : (Number(l.amount) || 0));
+    return s + Math.max(0, qty * rate);
+  }, 0);
+  const discountVal = lines.reduce((s, l) => s + Math.max(0, Number(l.discount) || 0), 0);
   const duePayTotal =
     Number(bill.duePaymentAmount) > 0
       ? Number(bill.duePaymentAmount)
@@ -210,6 +220,9 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
               const qty = hasQty ? Number(line.quantity) : 1;
               const hasRate = line.unitPrice !== undefined && line.unitPrice !== null && line.unitPrice !== '';
               const rate = hasRate ? Number(line.unitPrice) : (qty ? amt / qty : amt);
+              const discount = Math.max(0, Number(line.discount) || 0);
+              const valueExTax = Math.max(0, qty * rate);
+              const netAmount = Math.max(0, valueExTax - discount);
               const lineLabel = isCoa
                 ? (line.description || line.itemName || '—')
                 : getStoreLineDescription(line);
@@ -233,11 +246,13 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                     {formatDecimalPk(rate)}
                   </TableCell>
                   <TableCell sx={amountCellSx}>
-                    {formatDecimalPk(amt)}
+                    {formatDecimalPk(valueExTax)}
                   </TableCell>
-                  <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
+                  <TableCell sx={amountCellSx}>
+                    {formatDecimalPk(discount)}
+                  </TableCell>
                   <TableCell sx={{ ...amountCellSx, fontWeight: 700 }}>
-                    {formatDecimalPk(amt)}
+                    {formatDecimalPk(amt || netAmount)}
                   </TableCell>
                   <TableCell sx={{ ...amountCellSx, fontWeight: 700 }}>
                     {formatDecimalPk(duePay)}
@@ -280,9 +295,11 @@ const CentralizedStoreBillInvoiceBody = ({ bill, showChargesSummary = true }) =>
                 Sub Total
               </TableCell>
               <TableCell align="right" sx={amountCellSx}>
-                {formatDecimalPk(totalVal)}
+                {formatDecimalPk(grossVal)}
               </TableCell>
-              <TableCell sx={{ textAlign: 'center' }}>0 %</TableCell>
+              <TableCell align="right" sx={amountCellSx}>
+                {formatDecimalPk(discountVal)}
+              </TableCell>
               <TableCell align="right" sx={amountCellSx}>
                 {formatDecimalPk(totalVal)}
               </TableCell>
