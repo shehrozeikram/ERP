@@ -95,10 +95,30 @@ const FINANCE_EDITABLE_STATUSES = [
 
 const PROCUREMENT_EDITABLE_STATUSES = [
   'Draft',
+  'Rejected',
   'Returned from Audit',
   'Returned from CEO Office',
   'Returned from CEO Secretariat'
 ];
+
+const PROCUREMENT_RESUBMIT_LABEL = {
+  'Returned from Audit': 'Resubmit to Pre-Audit',
+  'Returned from CEO Office': 'Resubmit to CEO',
+  'Returned from CEO Secretariat': 'Resubmit to CEO Secretariat',
+  Rejected: 'Resubmit'
+};
+
+const getProcurementResubmitLabel = (ca) => {
+  if (ca?.status === 'Rejected') {
+    const from = ca?.returnedFromStatus || '';
+    if (from === 'Forwarded to CEO') return 'Resubmit to CEO';
+    if (from === 'Send to CEO Office') return 'Resubmit to CEO Secretariat';
+    if (from === 'Pending Finance') return 'Resubmit to Finance';
+    if (from === 'Pending Approval') return 'Resubmit to Authority';
+    if (from === 'Pending Audit' || from === 'Forwarded to Audit Director') return 'Resubmit to Pre-Audit';
+  }
+  return PROCUREMENT_RESUBMIT_LABEL[ca?.status] || 'Resubmit';
+};
 
 const EMPTY_FINANCE_EDIT_FORM = {
   notes: '',
@@ -787,22 +807,42 @@ const CashApprovalsPage = () => {
   };
   const closeAction = () => { setActionDialog({ open: false, type: '', ca: null }); setActionComments(''); };
 
+  const buildObservationAnswerPayload = (ca) => {
+    if (!ca?.auditObservations?.length) return null;
+    const answers = ca.auditObservations
+      .filter((obs) => observationAnswers[obs._id] && String(observationAnswers[obs._id]).trim())
+      .map((obs) => ({ observationId: obs._id, answer: String(observationAnswers[obs._id]).trim() }));
+    return answers.length ? answers : null;
+  };
+
   const handleSendToAudit = async (id, ca = null) => {
     clearMessages();
     try {
-      let payload = { comments: 'Sent to Pre-Audit' };
-      if (ca && ca.auditObservations && ca.auditObservations.length > 0) {
-        const answers = ca.auditObservations
-          .filter((obs) => observationAnswers[obs._id] && String(observationAnswers[obs._id]).trim())
-          .map((obs) => ({ observationId: obs._id, answer: String(observationAnswers[obs._id]).trim() }));
-        if (answers.length > 0) payload.observationAnswers = answers;
-      }
+      const payload = { comments: 'Sent to Pre-Audit' };
+      const answers = buildObservationAnswerPayload(ca);
+      if (answers) payload.observationAnswers = answers;
       await procurementService.caSendToAudit(id, payload);
       setSuccess('Cash approval sent to audit successfully. It will appear on the Pre-Audit page.');
       setObservationAnswers({});
       refreshList();
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to send cash approval to audit');
+    }
+  };
+
+  const handleResubmitAfterReturn = async (ca) => {
+    if (!ca?._id) return;
+    clearMessages();
+    try {
+      const payload = { comments: `${getProcurementResubmitLabel(ca)} (prior approvals preserved)` };
+      const answers = buildObservationAnswerPayload(ca);
+      if (answers) payload.observationAnswers = answers;
+      const res = await procurementService.caResubmitAfterReturn(ca._id, payload);
+      setSuccess(res?.message || 'Cash approval resubmitted successfully.');
+      setObservationAnswers({});
+      refreshList();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to resubmit cash approval');
     }
   };
 
@@ -814,14 +854,20 @@ const CashApprovalsPage = () => {
       let actionRes = null;
       switch (type) {
         case 'send-to-audit': {
-          let payload = { comments: actionComments || 'Sent to Pre-Audit' };
-          if (ca?.auditObservations?.length) {
-            const answers = ca.auditObservations
-              .filter((obs) => observationAnswers[obs._id] && String(observationAnswers[obs._id]).trim())
-              .map((obs) => ({ observationId: obs._id, answer: String(observationAnswers[obs._id]).trim() }));
-            if (answers.length) payload.observationAnswers = answers;
-          }
+          const payload = { comments: actionComments || 'Sent to Pre-Audit' };
+          const answers = buildObservationAnswerPayload(ca);
+          if (answers) payload.observationAnswers = answers;
           actionRes = await procurementService.caSendToAudit(ca._id, payload);
+          setObservationAnswers({});
+          break;
+        }
+        case 'resubmit-after-return': {
+          const payload = {
+            comments: actionComments || `${getProcurementResubmitLabel(ca)} (prior approvals preserved)`
+          };
+          const answers = buildObservationAnswerPayload(ca);
+          if (answers) payload.observationAnswers = answers;
+          actionRes = await procurementService.caResubmitAfterReturn(ca._id, payload);
           setObservationAnswers({});
           break;
         }
@@ -975,11 +1021,22 @@ const CashApprovalsPage = () => {
         }
         break;
       case 'Draft':
+        if (isProcurement || isAssignedAuthority) {
+          actions.push({ label: 'Send to Audit', type: 'send-to-audit', color: 'primary', icon: <SendIcon /> });
+          actions.push({ label: 'Cancel', type: 'cancel', color: 'error', icon: <RejectIcon /> });
+        }
+        break;
       case 'Returned from Audit':
       case 'Returned from CEO Office':
       case 'Returned from CEO Secretariat':
+      case 'Rejected':
         if (isProcurement || isAssignedAuthority) {
-          actions.push({ label: 'Send to Audit', type: 'send-to-audit', color: 'primary', icon: <SendIcon /> });
+          actions.push({
+            label: getProcurementResubmitLabel(ca),
+            type: 'resubmit-after-return',
+            color: 'primary',
+            icon: <SendIcon />
+          });
           actions.push({ label: 'Cancel', type: 'cancel', color: 'error', icon: <RejectIcon /> });
         }
         break;
@@ -1508,17 +1565,26 @@ const CashApprovalsPage = () => {
                     <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap">
                       <Tooltip title="View"><IconButton size="small" onClick={() => handleView(ca)}><ViewIcon fontSize="small" /></IconButton></Tooltip>
                       {canEditCashApproval(ca) && (
-                        <Tooltip title="Edit"><IconButton size="small" onClick={() => openCashApprovalEdit(ca)}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                        <Tooltip title={['Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'].includes(ca.status) ? 'Edit & Resubmit' : 'Edit'}>
+                          <IconButton size="small" onClick={() => openCashApprovalEdit(ca)}><EditIcon fontSize="small" /></IconButton>
+                        </Tooltip>
                       )}
-                      {['Draft', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat', 'Rejected'].includes(ca.status) && (
+                      {ca.status === 'Draft' && (
                         <Tooltip title="Send to Audit">
                           <IconButton size="small" color="primary" onClick={() => handleSendToAudit(ca._id, ca)}>
                             <SendIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       )}
+                      {['Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat', 'Rejected'].includes(ca.status) && (
+                        <Tooltip title={getProcurementResubmitLabel(ca)}>
+                          <IconButton size="small" color="primary" onClick={() => handleResubmitAfterReturn(ca)}>
+                            <SendIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {/* Finance / Procurement stage quick-action buttons */}
-                      {getAvailableActions(ca).filter(a => !['send-to-audit', 'cancel'].includes(a.type)).map((action) => (
+                      {getAvailableActions(ca).filter(a => !['send-to-audit', 'resubmit-after-return', 'cancel'].includes(a.type)).map((action) => (
                         <Tooltip key={action.type} title={action.label}>
                           <IconButton size="small" color={action.color} onClick={() => openAction(action.type, ca)}>
                             {action.icon}
@@ -1903,6 +1969,7 @@ const CashApprovalsPage = () => {
       <Dialog open={actionDialog.open && !['create-voucher', 'issue-advance'].includes(actionDialog.type)} onClose={closeAction} maxWidth="sm" fullWidth>
         <DialogTitle>
           {actionDialog.type === 'send-to-audit' && 'Send to Audit'}
+          {actionDialog.type === 'resubmit-after-return' && getProcurementResubmitLabel(actionDialog.ca)}
           {actionDialog.type === 'approve' && 'Approve Cash Approval'}
           {actionDialog.type === 'reject' && 'Reject Cash Approval'}
           {actionDialog.type === 'audit-approve' && 'Audit Approval'}
@@ -1924,7 +1991,7 @@ const CashApprovalsPage = () => {
           {actionDialog.type === 'cancel' && 'Cancel Cash Approval'}
         </DialogTitle>
         <DialogContent>
-          {actionDialog.type === 'send-to-audit' && actionDialog.ca?.auditObservations?.length > 0 && (
+          {['send-to-audit', 'resubmit-after-return'].includes(actionDialog.type) && actionDialog.ca?.auditObservations?.length > 0 && (
             <Stack spacing={2} sx={{ mb: 2 }}>
               <Alert severity="info">Provide responses to audit observations (optional fields left blank are skipped).</Alert>
               {actionDialog.ca.auditObservations.map((obs, idx) => (
@@ -1943,6 +2010,12 @@ const CashApprovalsPage = () => {
                 </Box>
               ))}
             </Stack>
+          )}
+          {actionDialog.type === 'resubmit-after-return' && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Prior approval authorities stay intact. This will go directly back to{' '}
+              <strong>{getProcurementResubmitLabel(actionDialog.ca).replace(/^Resubmit to /i, '')}</strong>.
+            </Alert>
           )}
           {actionDialog.type === 'submit-settlement-bill' && (
             <Grid container spacing={2} sx={{ mt: 0.5 }}>

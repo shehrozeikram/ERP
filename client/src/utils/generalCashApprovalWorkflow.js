@@ -1,20 +1,28 @@
 import { getActorUserId } from './departmentApprovalListActions';
 
+export const GENERAL_CA_RETURN_OR_REJECT_STATUSES = [
+  'Rejected',
+  'Returned from Audit',
+  'Returned from CEO Office',
+  'Returned from CEO Secretariat'
+];
+
 export const GENERAL_CA_EDITABLE_STATUSES = [
   'Draft',
   'Pending Approval',
-  'Rejected',
-  'Returned from Audit'
+  ...GENERAL_CA_RETURN_OR_REJECT_STATUSES
 ];
 
+/** Rejected or returned — initiator may edit & resubmit. */
 export const isGeneralCashApprovalRejected = (ca) =>
-  ca?.status === 'Rejected' || ca?.departmentApprovalStatus === 'Rejected';
+  GENERAL_CA_RETURN_OR_REJECT_STATUSES.includes(ca?.status)
+  || ca?.departmentApprovalStatus === 'Rejected';
 
 export const canEditGeneralCashApproval = (ca, user) => {
   if (!ca || !user) return false;
   if (getActorUserId(user) !== getActorUserId(ca.createdBy)) return false;
   if (!GENERAL_CA_EDITABLE_STATUSES.includes(ca.status)) return false;
-  if (ca.status === 'Rejected' || ca.status === 'Returned from Audit') return true;
+  if (GENERAL_CA_RETURN_OR_REJECT_STATUSES.includes(ca.status)) return true;
   return ['Draft', 'Submitted', 'Rejected'].includes(ca.departmentApprovalStatus || 'Draft');
 };
 
@@ -30,19 +38,38 @@ const RESUBMIT_TARGET_BY_FROM_STATUS = {
   'Forwarded to Audit Director': { stage: 'audit', label: 'Pre-Audit' },
   'Send to CEO Office': { stage: 'ceo_secretariat', label: 'CEO Secretariat' },
   'Forwarded to CEO': { stage: 'ceo', label: 'CEO' },
-  'Pending Finance': { stage: 'finance', label: 'Finance' }
+  'Pending Finance': { stage: 'finance', label: 'Finance' },
+  'Returned from Audit': { stage: 'audit', label: 'Pre-Audit' },
+  'Returned from CEO Office': { stage: 'ceo', label: 'CEO' },
+  'Returned from CEO Secretariat': { stage: 'ceo_secretariat', label: 'CEO Secretariat' }
+};
+
+const RETURN_STATUS_DEFAULT_FROM = {
+  'Returned from Audit': 'Pending Audit',
+  'Returned from CEO Office': 'Forwarded to CEO',
+  'Returned from CEO Secretariat': 'Send to CEO Office'
 };
 
 export const getRejectedFromWorkflowStatus = (ca) => {
+  if (ca?.returnedFromStatus && RESUBMIT_TARGET_BY_FROM_STATUS[ca.returnedFromStatus]) {
+    return ca.returnedFromStatus;
+  }
+  if (RETURN_STATUS_DEFAULT_FROM[ca?.status]) {
+    return RETURN_STATUS_DEFAULT_FROM[ca.status];
+  }
   const history = ca?.workflowHistory || [];
   for (let i = history.length - 1; i >= 0; i -= 1) {
-    if (history[i]?.toStatus === 'Rejected') {
-      return history[i]?.fromStatus || '';
+    const toStatus = history[i]?.toStatus;
+    const fromStatus = history[i]?.fromStatus || '';
+    if (toStatus === 'Rejected') return fromStatus || 'Pending Approval';
+    if (RETURN_STATUS_DEFAULT_FROM[toStatus]) {
+      return fromStatus || RETURN_STATUS_DEFAULT_FROM[toStatus];
     }
   }
   const dated = [
     { at: ca?.financeRejectedAt, from: 'Pending Finance' },
     { at: ca?.auditRejectedAt, from: 'Pending Audit' },
+    { at: ca?.ceoReturnedAt, from: 'Forwarded to CEO' },
     { at: ca?.ceoRejectedAt, from: 'Forwarded to CEO' },
     { at: ca?.departmentRejectedAt, from: 'Pending Approval' }
   ].filter((row) => row.at);

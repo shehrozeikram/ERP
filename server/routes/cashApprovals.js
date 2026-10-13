@@ -193,10 +193,70 @@ const hasFinanceAccess = (user) => {
 const PROCUREMENT_EDITABLE_STATUSES = [
   'Pending Approval',
   'Draft',
+  'Rejected',
   'Returned from Audit',
   'Returned from CEO Office',
   'Returned from CEO Secretariat'
 ];
+
+const PROCUREMENT_RESUBMIT_TARGET_BY_FROM = {
+  'Pending Approval': { status: 'Pending Approval', label: 'authority approval', stage: 'authority' },
+  'Pending Audit': { status: 'Pending Audit', label: 'Pre-Audit', stage: 'audit' },
+  'Forwarded to Audit Director': { status: 'Pending Audit', label: 'Pre-Audit', stage: 'audit' },
+  'Send to CEO Office': { status: 'Send to CEO Office', label: 'CEO Secretariat', stage: 'ceo_secretariat' },
+  'Forwarded to CEO': { status: 'Forwarded to CEO', label: 'CEO', stage: 'ceo' },
+  'Pending Finance': { status: 'Pending Finance', label: 'Finance', stage: 'finance' }
+};
+
+const PROCUREMENT_RETURN_STATUS_DEFAULT_FROM = {
+  'Returned from Audit': 'Pending Audit',
+  'Returned from CEO Office': 'Forwarded to CEO',
+  'Returned from CEO Secretariat': 'Send to CEO Office'
+};
+
+const resolveProcurementResubmitTarget = (ca) => {
+  const fromStatus = (ca?.returnedFromStatus && PROCUREMENT_RESUBMIT_TARGET_BY_FROM[ca.returnedFromStatus])
+    ? ca.returnedFromStatus
+    : (PROCUREMENT_RETURN_STATUS_DEFAULT_FROM[ca?.status] || ca?.returnedFromStatus || 'Pending Audit');
+  const target = PROCUREMENT_RESUBMIT_TARGET_BY_FROM[fromStatus]
+    || PROCUREMENT_RESUBMIT_TARGET_BY_FROM['Pending Audit'];
+  return { ...target, fromStatus };
+};
+
+const applyProcurementResubmit = (ca) => {
+  const target = resolveProcurementResubmitTarget(ca);
+  if (target.stage === 'audit') {
+    const snapshot = ca.auditSnapshotAtReturn;
+    if (snapshot) {
+      const summary = buildCAChangeSummary(ca.items, snapshot);
+      ca.resubmissionChangeSummary = summary || ca.resubmissionChangeSummary || '';
+    }
+    ca.auditRejectedBy = undefined;
+    ca.auditRejectedAt = undefined;
+    ca.auditRejectionComments = '';
+  }
+  if (target.stage === 'ceo' || target.stage === 'ceo_secretariat') {
+    ca.ceoRejectedBy = undefined;
+    ca.ceoRejectedAt = undefined;
+    ca.ceoRejectionComments = '';
+    ca.ceoReturnedBy = undefined;
+    ca.ceoReturnedAt = undefined;
+    ca.ceoReturnComments = '';
+  }
+  if (target.stage === 'finance') {
+    ca.financeAuthorityApprovals = (ca.financeAuthorityApprovals || []).filter(
+      (row) => String(row?.decision || 'approved').trim() !== 'rejected'
+    );
+    ca.financeRejectedBy = undefined;
+    ca.financeRejectedAt = undefined;
+    ca.financeRejectionComments = '';
+    ca.markModified('financeAuthorityApprovals');
+  }
+  // Authority / department / audit / CEO approvals already recorded stay intact
+  ca.status = target.status;
+  ca.returnedFromStatus = '';
+  return target;
+};
 
 const FINANCE_EDITABLE_STATUSES = [
   'Pending Finance'
@@ -1298,10 +1358,11 @@ router.put('/:id', authMiddleware, maybeGeneralMultipart, asyncHandler(async (re
       if (resubmitErrors.length) {
         return res.status(400).json({ success: false, message: resubmitErrors.join('; ') });
       }
+      const previousStatus = ca.status;
       const target = await applyGeneralResubmit(ca, approverIds, getActorId(req), {
         buildChangeSummary: buildCAChangeSummary
       });
-      pushHistory(ca, 'Rejected', target.status, req.user.id, target.historyComment, 'General');
+      pushHistory(ca, previousStatus, target.status, req.user.id, target.historyComment, 'General');
       await notifyAfterGeneralResubmit(ca, req.user.id, target);
     }
     ca.updatedBy = req.user.id;
@@ -1413,10 +1474,11 @@ router.put('/:id/submit', authMiddleware, asyncHandler(async (req, res) => {
   }
 
   if (isResubmit) {
+    const previousStatus = ca.status;
     const target = await applyGeneralResubmit(ca, approverIds, getActorId(req), {
       buildChangeSummary: buildCAChangeSummary
     });
-    pushHistory(ca, 'Rejected', target.status, req.user.id, target.historyComment, 'General');
+    pushHistory(ca, previousStatus, target.status, req.user.id, target.historyComment, 'General');
     ca.updatedBy = req.user.id;
     await ca.save();
     await notifyAfterGeneralResubmit(ca, req.user.id, target);
@@ -1621,6 +1683,7 @@ router.put('/:id/reject', authMiddleware, asyncHandler(async (req, res) => {
     ca.departmentRejectionReason = reason;
     pushHistory(ca, 'Pending Approval', 'Rejected', req.user.id, reason, 'General');
     ca.status = 'Rejected';
+    ca.returnedFromStatus = 'Pending Approval';
     ca.updatedBy = req.user.id;
     await ca.save();
     return res.json({ success: true, message: 'Cash Approval rejected', data: await fullPopulate(CashApproval.findById(ca._id)) });
@@ -1636,25 +1699,33 @@ router.put('/:id/reject', authMiddleware, asyncHandler(async (req, res) => {
   const rejectMsg = req.body?.rejectionComments || req.body?.comments || '';
   pushHistory(ca, 'Pending Approval', 'Rejected', req.user.id, rejectMsg || 'Rejected by assigned authority', 'Procurement');
   ca.status = 'Rejected';
+  ca.returnedFromStatus = 'Pending Approval';
   ca.auditRejectionComments = rejectMsg;
   ca.updatedBy = req.user.id;
   await ca.save();
   res.json({ success: true, message: 'Cash Approval rejected successfully', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
-// Phase 4: Send to Audit
+// Phase 4: Send to Audit (Draft / audit-return only — other returns use resubmit-after-return)
 router.put('/:id/send-to-audit', authMiddleware, asyncHandler(async (req, res) => {
   if (!hasProcurementAccess(req.user)) {
     return res.status(403).json({ success: false, message: 'Procurement access required' });
   }
   const ca = await CashApproval.findById(req.params.id);
   if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
-  const allowed = ['Draft', 'Returned from Audit', 'Returned from CEO Secretariat', 'Rejected'];
+  const allowed = ['Draft', 'Returned from Audit'];
   if (!allowed.includes(ca.status)) {
+    // Rejected / CEO returns: route back to the rejector, not always Audit
+    if (['Rejected', 'Returned from CEO Office', 'Returned from CEO Secretariat'].includes(ca.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Use resubmit-after-return so the request goes back to the stage that returned or rejected it'
+      });
+    }
     return res.status(400).json({ success: false, message: `Cannot send to audit from status: ${ca.status}` });
   }
 
-  if ((ca.status === 'Returned from Audit' || ca.status === 'Rejected') && req.body.observationAnswers) {
+  if (ca.status === 'Returned from Audit' && req.body.observationAnswers) {
     const { observationAnswers } = req.body;
     if (Array.isArray(observationAnswers) && ca.auditObservations && ca.auditObservations.length > 0) {
       observationAnswers.forEach(({ observationId, answer }) => {
@@ -1668,7 +1739,7 @@ router.put('/:id/send-to-audit', authMiddleware, asyncHandler(async (req, res) =
       });
     }
   }
-  if (ca.status === 'Returned from Audit' || ca.status === 'Rejected') {
+  if (ca.status === 'Returned from Audit') {
     const snapshot = ca.auditSnapshotAtReturn;
     if (snapshot && (ca.items || []).length >= 0) {
       const summary = buildCAChangeSummary(ca.items, snapshot);
@@ -1679,6 +1750,7 @@ router.put('/:id/send-to-audit', authMiddleware, asyncHandler(async (req, res) =
   const prev = ca.status;
   pushHistory(ca, prev, 'Pending Audit', req.user.id, req.body.comments || 'Sent to Pre-Audit', 'Procurement');
   ca.status = 'Pending Audit';
+  ca.returnedFromStatus = '';
   ca.updatedBy = req.user.id;
   await ca.save();
   const recipients = await getAuditRecipients();
@@ -1692,6 +1764,127 @@ router.put('/:id/send-to-audit', authMiddleware, asyncHandler(async (req, res) =
     metadata: { queueStage: 'pending_audit', targetModule: 'audit', targetTab: 'pre_audit' }
   });
   res.json({ success: true, message: 'Cash Approval sent to Audit', data: await fullPopulate(CashApproval.findById(ca._id)) });
+}));
+
+// Resubmit after return/reject → back to rejector stage; prior approvals stay intact
+router.put('/:id/resubmit-after-return', authMiddleware, asyncHandler(async (req, res) => {
+  const ca = await CashApproval.findById(req.params.id);
+  if (!ca) return res.status(404).json({ success: false, message: 'Cash Approval not found' });
+
+  const returnOrReject = ['Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'];
+  if (!returnOrReject.includes(ca.status)) {
+    return res.status(400).json({
+      success: false,
+      message: `Only returned or rejected cash approvals can be resubmitted (current: ${ca.status})`
+    });
+  }
+
+  if (isGeneralCashApproval(ca)) {
+    if (!canManageGeneralCashApproval(req.user, ca)) {
+      return res.status(403).json({ success: false, message: 'Not allowed to resubmit this cash approval' });
+    }
+    const approverIds = uniqueApproverIds(
+      req.body?.approverIds || ca.draftApproverIds?.map((id) => String(id._id || id)) || []
+    );
+    const previousStatus = ca.status;
+    const target = await applyGeneralResubmit(ca, approverIds, getActorId(req), {
+      buildChangeSummary: buildCAChangeSummary
+    });
+    pushHistory(
+      ca,
+      previousStatus,
+      target.status,
+      req.user.id,
+      req.body?.comments || target.historyComment,
+      'General'
+    );
+    ca.updatedBy = req.user.id;
+    await ca.save();
+    await notifyAfterGeneralResubmit(ca, req.user.id, target);
+    return res.json({
+      success: true,
+      message: `Cash Approval resubmitted to ${target.label}`,
+      data: await fullPopulate(CashApproval.findById(ca._id))
+    });
+  }
+
+  if (!hasProcurementAccess(req.user) && String(ca.createdBy) !== String(req.user.id)) {
+    return res.status(403).json({ success: false, message: 'Not allowed to resubmit this cash approval' });
+  }
+
+  if (req.body?.observationAnswers && Array.isArray(req.body.observationAnswers) && ca.auditObservations?.length) {
+    req.body.observationAnswers.forEach(({ observationId, answer }) => {
+      const observation = ca.auditObservations.id(observationId);
+      if (observation && answer && String(answer).trim()) {
+        observation.answer = String(answer).trim();
+        observation.answeredBy = req.user.id;
+        observation.answeredAt = new Date();
+        observation.resolved = true;
+      }
+    });
+  }
+
+  const previousStatus = ca.status;
+  const target = applyProcurementResubmit(ca);
+  pushHistory(
+    ca,
+    previousStatus,
+    target.status,
+    req.user.id,
+    req.body?.comments || `Resubmitted to ${target.label} (prior approvals preserved)`,
+    'Procurement'
+  );
+  ca.updatedBy = req.user.id;
+  await ca.save();
+
+  if (target.stage === 'audit') {
+    const recipients = await getAuditRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId: req.user.id,
+      title: 'Cash Approval pending Audit review',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to Pre-Audit.`,
+      actionUrl: '/audit',
+      entityId: ca._id,
+      metadata: { queueStage: 'pending_audit', targetModule: 'audit', targetTab: 'pre_audit' }
+    });
+  } else if (target.stage === 'ceo_secretariat') {
+    const recipients = await getCeoSecretariatRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId: req.user.id,
+      title: 'Cash Approval pending CEO Secretariat review',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to CEO Secretariat.`,
+      actionUrl: '/procurement/cash-approvals',
+      entityId: ca._id
+    });
+  } else if (target.stage === 'ceo') {
+    const recipients = await getCeoRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId: req.user.id,
+      title: 'Cash Approval pending CEO approval',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to CEO.`,
+      actionUrl: '/procurement/cash-approvals',
+      entityId: ca._id
+    });
+  } else if (target.stage === 'finance') {
+    const recipients = await getFinanceRecipients();
+    await notify({
+      recipientIds: recipients,
+      actorId: req.user.id,
+      title: 'Cash Approval pending Finance review',
+      message: `Cash Approval ${ca.caNumber} was corrected and resubmitted to Finance.`,
+      actionUrl: '/procurement/cash-approvals',
+      entityId: ca._id
+    });
+  }
+
+  res.json({
+    success: true,
+    message: `Cash Approval resubmitted to ${target.label}`,
+    data: await fullPopulate(CashApproval.findById(ca._id))
+  });
 }));
 
 // Phase 4a: Audit initial approval (Pre-Audit assistant)
@@ -1844,8 +2037,12 @@ router.put('/:id/audit-reject', authMiddleware, asyncHandler(async (req, res) =>
     return res.status(400).json({ success: false, message: 'Can only reject from Pending Audit or Forwarded to Audit Director' });
   }
   const rejectMsg = rejectionComments || req.body.comments || 'Rejected with observations';
-  pushHistory(ca, ca.status, 'Rejected', req.user.id, rejectMsg, 'Pre-Audit');
+  const auditFromStatus = ca.status;
+  pushHistory(ca, auditFromStatus, 'Rejected', req.user.id, rejectMsg, 'Pre-Audit');
   ca.status = 'Rejected';
+  ca.returnedFromStatus = auditFromStatus === 'Forwarded to Audit Director'
+    ? 'Forwarded to Audit Director'
+    : 'Pending Audit';
   ca.auditRejectedBy = req.user.id;
   ca.auditRejectedAt = new Date();
   ca.auditRejectionComments = rejectionComments || req.body.comments || '';
@@ -1869,7 +2066,17 @@ router.put('/:id/audit-reject', authMiddleware, asyncHandler(async (req, res) =>
   ca.updatedBy = req.user.id;
   await ca.save();
   const procRecipients = await getProcurementRecipients();
-  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Rejected by Audit', message: `Cash Approval ${ca.caNumber} was rejected by Audit. Reason: ${rejectMsg}`, actionUrl: '/procurement/cash-approvals', entityId: ca._id });
+  const rejectUrl = isGeneralCashApproval(ca)
+    ? `/general/cash-approvals/${ca._id}`
+    : '/procurement/cash-approvals';
+  await notify({
+    recipientIds: [String(ca.createdBy || ''), ...procRecipients].filter(Boolean),
+    actorId: req.user.id,
+    title: 'Cash Approval Rejected by Audit',
+    message: `Cash Approval ${ca.caNumber} was rejected by Audit. Reason: ${rejectMsg}`,
+    actionUrl: rejectUrl,
+    entityId: ca._id
+  });
   res.json({ success: true, message: 'Cash Approval rejected by Audit', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
@@ -1883,8 +2090,12 @@ router.put('/:id/audit-return', authMiddleware, asyncHandler(async (req, res) =>
     return res.status(400).json({ success: false, message: 'Can only return from Pending Audit or Forwarded to Audit Director' });
   }
   const retMsg = returnComments || req.body.comments || '';
-  pushHistory(ca, ca.status, 'Returned from Audit', req.user.id, retMsg, 'Pre-Audit');
+  const auditFromStatus = ca.status;
+  pushHistory(ca, auditFromStatus, 'Returned from Audit', req.user.id, retMsg, 'Pre-Audit');
   ca.status = 'Returned from Audit';
+  ca.returnedFromStatus = auditFromStatus === 'Forwarded to Audit Director'
+    ? 'Forwarded to Audit Director'
+    : 'Pending Audit';
   ca.auditReturnedBy = req.user.id;
   ca.auditReturnedAt = new Date();
   ca.auditReturnComments = retMsg;
@@ -1981,6 +2192,7 @@ router.put('/:id/ceo-secretariat-return', authMiddleware, asyncHandler(async (re
   }
   pushHistory(ca, 'Send to CEO Office', 'Returned from CEO Secretariat', req.user.id, req.body.returnComments || req.body.comments || '', 'CEO Secretariat');
   ca.status = 'Returned from CEO Secretariat';
+  ca.returnedFromStatus = 'Send to CEO Office';
   ca.ceoReturnedBy = req.user.id;
   ca.ceoReturnedAt = new Date();
   ca.ceoReturnComments = req.body.returnComments || req.body.comments || '';
@@ -2010,6 +2222,7 @@ router.put('/:id/ceo-secretariat-reject', authMiddleware, asyncHandler(async (re
   const rejectionComments = req.body.rejectionComments || req.body.comments || '';
   pushHistory(ca, 'Send to CEO Office', 'Rejected', req.user.id, rejectionComments, 'CEO Secretariat');
   ca.status = 'Rejected';
+  ca.returnedFromStatus = 'Send to CEO Office';
   ca.ceoRejectedBy = req.user.id;
   ca.ceoRejectedAt = new Date();
   ca.ceoRejectionComments = rejectionComments;
@@ -2019,12 +2232,15 @@ router.put('/:id/ceo-secretariat-reject', authMiddleware, asyncHandler(async (re
   ca.updatedBy = req.user.id;
   await ca.save();
   const procRecipients = await getProcurementRecipients();
+  const rejectUrl = isGeneralCashApproval(ca)
+    ? `/general/cash-approvals/${ca._id}`
+    : '/procurement/cash-approvals';
   await notify({
-    recipientIds: procRecipients,
+    recipientIds: [String(ca.createdBy || ''), ...procRecipients].filter(Boolean),
     actorId: req.user.id,
     title: 'Cash Approval rejected by CEO Secretariat',
     message: `Cash Approval ${ca.caNumber} was rejected from Payments (CEO Secretariat).`,
-    actionUrl: '/procurement/cash-approvals',
+    actionUrl: rejectUrl,
     entityId: ca._id
   });
   res.json({ success: true, message: 'Cash Approval rejected by CEO Secretariat', data: await fullPopulate(CashApproval.findById(ca._id)) });
@@ -2077,13 +2293,17 @@ router.put('/:id/ceo-reject', authMiddleware, asyncHandler(async (req, res) => {
   const rejectMsg = req.body.rejectionComments || req.body.comments || '';
   pushHistory(ca, 'Forwarded to CEO', 'Rejected', req.user.id, rejectMsg, 'CEO');
   ca.status = 'Rejected';
+  ca.returnedFromStatus = 'Forwarded to CEO';
   ca.ceoRejectedBy = req.user.id;
   ca.ceoRejectedAt = new Date();
   ca.ceoRejectionComments = rejectMsg;
   ca.updatedBy = req.user.id;
   await ca.save();
   const procRecipients = await getProcurementRecipients();
-  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Rejected by CEO', message: `Cash Approval ${ca.caNumber} was rejected by CEO.`, actionUrl: '/procurement/cash-approvals', entityId: ca._id });
+  const rejectUrl = isGeneralCashApproval(ca)
+    ? `/general/cash-approvals/${ca._id}`
+    : '/procurement/cash-approvals';
+  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Rejected by CEO', message: `Cash Approval ${ca.caNumber} was rejected by CEO.`, actionUrl: rejectUrl, entityId: ca._id });
   res.json({ success: true, message: 'Cash Approval rejected by CEO', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
@@ -2099,13 +2319,33 @@ router.put('/:id/ceo-return', authMiddleware, asyncHandler(async (req, res) => {
   }
   pushHistory(ca, 'Forwarded to CEO', 'Returned from CEO Office', req.user.id, req.body.comments || '', 'CEO');
   ca.status = 'Returned from CEO Office';
+  ca.returnedFromStatus = 'Forwarded to CEO';
   ca.ceoReturnedBy = req.user.id;
   ca.ceoReturnedAt = new Date();
   ca.ceoReturnComments = req.body.comments || '';
+  // Persist observations for initiator (same pattern as New-Hiring)
+  const observations = Array.isArray(req.body.observations) ? req.body.observations : [];
+  if (observations.length) {
+    ca.auditObservations = ca.auditObservations || [];
+    observations.forEach((obs) => {
+      const text = String(obs?.observation || obs?.text || '').trim();
+      if (!text) return;
+      ca.auditObservations.push({
+        observation: text,
+        severity: String(obs?.severity || 'medium').toLowerCase(),
+        addedBy: req.user.id,
+        addedAt: new Date(),
+        resolved: false
+      });
+    });
+  }
   ca.updatedBy = req.user.id;
   await ca.save();
   const procRecipients = await getProcurementRecipients();
-  await notify({ recipientIds: procRecipients, actorId: req.user.id, title: 'Cash Approval Returned from CEO', message: `Cash Approval ${ca.caNumber} was returned from CEO for corrections.`, actionUrl: '/procurement/cash-approvals', entityId: ca._id });
+  const returnUrl = isGeneralCashApproval(ca)
+    ? `/general/cash-approvals/${ca._id}`
+    : '/procurement/cash-approvals';
+  await notify({ recipientIds: [String(ca.createdBy || ''), ...procRecipients].filter(Boolean), actorId: req.user.id, title: 'Cash Approval Returned from CEO', message: `Cash Approval ${ca.caNumber} was returned from CEO for corrections.`, actionUrl: returnUrl, entityId: ca._id });
   res.json({ success: true, message: 'Returned from CEO', data: await fullPopulate(CashApproval.findById(ca._id)) });
 }));
 
@@ -2367,6 +2607,7 @@ router.put('/:id/finance-reject', authMiddleware, asyncHandler(async (req, res) 
   ca.financeRejectionComments = req.body?.comments || req.body?.rejectionComments || '';
   pushHistory(ca, 'Pending Finance', 'Rejected', req.user.id, ca.financeRejectionComments || 'Rejected by finance authority', 'Finance');
   ca.status = 'Rejected';
+  ca.returnedFromStatus = 'Pending Finance';
   ca.updatedBy = req.user.id;
   await ca.save();
   res.json({ success: true, message: 'Finance authority rejection recorded. Cash Approval has been rejected.', data: await fullPopulate(CashApproval.findById(ca._id)) });

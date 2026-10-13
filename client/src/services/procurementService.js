@@ -166,6 +166,11 @@ const procurementService = {
     const response = await api.put(`/cash-approvals/${id}/send-to-audit`, payload);
     return response.data;
   },
+  caResubmitAfterReturn: async (id, body) => {
+    const payload = typeof body === 'string' ? { comments: body } : (body || {});
+    const response = await api.put(`/cash-approvals/${id}/resubmit-after-return`, payload);
+    return response.data;
+  },
   caApprove: async (id, body) => {
     const payload = typeof body === 'string' ? { comments: body } : (body || {});
     const response = await api.put(`/cash-approvals/${id}/approve`, payload);

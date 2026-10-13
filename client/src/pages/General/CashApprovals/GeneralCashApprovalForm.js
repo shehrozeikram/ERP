@@ -471,10 +471,12 @@ const GeneralCashApprovalForm = () => {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {isRejectedEdit && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Rejected by {rejectedApproverLabel(loadedCa || {})}. Update the request below, then resubmit.
+          {(loadedStatus || '').startsWith('Returned') ? 'Returned' : 'Rejected'} by{' '}
+          {rejectedApproverLabel(loadedCa || {})}. Update below, then resubmit — goes directly to{' '}
+          <strong>{resubmitDestination}</strong>
           {departmentStageRejection && preservedApprovals
-            ? ` Department approvals are preserved — resubmit goes directly to ${resubmitDestination} for review.`
-            : ` Resubmit will return the request to ${resubmitDestination}.`}
+            ? ' (prior department approvals stay intact).'
+            : ' (prior approval authorities stay intact).'}
         </Alert>
       )}
       {loadedCa && (

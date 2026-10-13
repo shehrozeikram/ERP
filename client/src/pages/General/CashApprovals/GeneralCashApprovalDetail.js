@@ -172,17 +172,14 @@ const GeneralCashApprovalDetail = () => {
                 {error}
               </Alert>
             )}
-            {ca.status === 'Returned from Audit' && (
-              <Alert severity="warning" sx={{ mb: 2 }}>
-                Returned from audit. Update the request if needed, then resubmit when available.
-              </Alert>
-            )}
             {isGeneralCashApprovalRejected(ca) && (
               <Alert severity="warning" sx={{ mb: 2 }}>
-                Rejected by {rejectedApproverLabel(ca)}. Review the observations below, edit if needed, then resubmit.
+                {ca.status?.startsWith('Returned') ? 'Returned' : 'Rejected'} by {rejectedApproverLabel(ca)}.
+                {' '}Edit if needed, then resubmit — it goes directly back to{' '}
+                <strong>{getResubmitDestinationLabel(ca)}</strong>
                 {isDepartmentStageRejection(ca) && hasPreservedDepartmentApprovals(ca)
-                  ? ` Prior department approvals are preserved — resubmit goes directly to ${getResubmitDestinationLabel(ca)}.`
-                  : ` Resubmit will return the request to ${getResubmitDestinationLabel(ca)}.`}
+                  ? ' (prior department approvals stay intact).'
+                  : ' (prior approval authorities stay intact).'}
               </Alert>
             )}
           </>
@@ -217,7 +214,15 @@ const GeneralCashApprovalDetail = () => {
                 </Button>
               </>
             )}
-            <Tooltip title={auditBlocksEdit ? 'Cannot edit while in audit' : (canEdit ? 'Edit request' : 'Only the requester can edit rejected or draft requests')}>
+            <Tooltip
+              title={
+                auditBlocksEdit
+                  ? 'Cannot edit while in audit'
+                  : (canEdit
+                    ? (canResubmit ? 'Edit & resubmit' : 'Edit request')
+                    : 'Only the requester can edit returned, rejected, or draft requests')
+              }
+            >
               <span>
                 <Button
                   variant="contained"
@@ -225,7 +230,7 @@ const GeneralCashApprovalDetail = () => {
                   disabled={!canEdit || auditBlocksEdit}
                   onClick={() => navigate(`/general/cash-approvals/${id}/edit`)}
                 >
-                  Edit
+                  {canResubmit ? 'Edit & Resubmit' : 'Edit'}
                 </Button>
               </span>
             </Tooltip>

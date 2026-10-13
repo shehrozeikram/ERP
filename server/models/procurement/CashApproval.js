@@ -201,6 +201,12 @@ const cashApprovalSchema = new mongoose.Schema({
   ceoReturnedAt: { type: Date },
   ceoReturnComments: { type: String },
 
+  /**
+   * Status to restore on initiator resubmit after return/reject
+   * (e.g. 'Forwarded to CEO'). Prior approvals stay intact.
+   */
+  returnedFromStatus: { type: String, trim: true, default: '' },
+
   // ─── Finance: Advance ────────────────────────────────────────────────────────
   // Who will physically receive the advance (procurement officer / buyer)
   advanceTo: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

@@ -48,6 +48,7 @@ const statusColor = (status) => {
   if (status === 'Pending Audit' || status === 'Forwarded to Audit Director') return 'info';
   if (['Completed', 'Advance Issued', 'Payment Settled'].includes(status)) return 'success';
   if (['Rejected', 'Cancelled'].includes(status)) return 'error';
+  if (String(status || '').startsWith('Returned')) return 'warning';
   return 'default';
 };
 
@@ -238,7 +239,7 @@ const GeneralCashApprovalsList = () => {
                           </IconButton>
                         </Tooltip>
                         {canEditGeneralCashApproval(row, user) && (
-                          <Tooltip title="Edit">
+                          <Tooltip title={['Rejected', 'Returned from Audit', 'Returned from CEO Office', 'Returned from CEO Secretariat'].includes(row.status) ? 'Edit & Resubmit' : 'Edit'}>
                             <IconButton size="small" onClick={() => navigate(`/general/cash-approvals/${row._id}/edit`)}>
                               <EditIcon fontSize="small" />
                             </IconButton>

@@ -235,10 +235,16 @@ const getActorPendingDepartmentStepIndex = (chain, userId) => {
   return approverIdFromStep(chain[idx]) === uid ? idx : -1;
 };
 
+const GENERAL_RETURN_OR_REJECT_STATUSES = [
+  'Rejected',
+  'Returned from Audit',
+  'Returned from CEO Office',
+  'Returned from CEO Secretariat'
+];
+
 const isGeneralCashApprovalEditable = (ca) => {
   if (!isGeneralCashApproval(ca)) return false;
-  if (ca.status === 'Returned from Audit') return true;
-  if (ca.status === 'Rejected') return true;
+  if (GENERAL_RETURN_OR_REJECT_STATUSES.includes(ca.status)) return true;
   return (
     ['Draft', 'Pending Approval'].includes(ca.status) &&
     ['Draft', 'Submitted', 'Rejected'].includes(ca.departmentApprovalStatus || 'Draft')
@@ -318,20 +324,45 @@ const RESUBMIT_TARGET_BY_FROM_STATUS = {
   'Forwarded to Audit Director': { stage: 'audit', status: 'Pending Audit', label: 'Pre-Audit' },
   'Send to CEO Office': { stage: 'ceo_secretariat', status: 'Send to CEO Office', label: 'CEO Secretariat' },
   'Forwarded to CEO': { stage: 'ceo', status: 'Forwarded to CEO', label: 'CEO' },
-  'Pending Finance': { stage: 'finance', status: 'Pending Finance', label: 'Finance' }
+  'Pending Finance': { stage: 'finance', status: 'Pending Finance', label: 'Finance' },
+  // Current return statuses also map directly
+  'Returned from Audit': { stage: 'audit', status: 'Pending Audit', label: 'Pre-Audit' },
+  'Returned from CEO Office': { stage: 'ceo', status: 'Forwarded to CEO', label: 'CEO' },
+  'Returned from CEO Secretariat': { stage: 'ceo_secretariat', status: 'Send to CEO Office', label: 'CEO Secretariat' }
 };
 
-/** Status the document was in when it was last rejected (workflow history or rejection fields). */
+const RETURN_TO_STATUS_DEFAULT_FROM = {
+  'Returned from Audit': 'Pending Audit',
+  'Returned from CEO Office': 'Forwarded to CEO',
+  'Returned from CEO Secretariat': 'Send to CEO Office',
+  Rejected: ''
+};
+
+/** Status the document was in when it was last returned/rejected. */
 const getRejectedFromStatus = (ca) => {
+  if (ca?.returnedFromStatus && RESUBMIT_TARGET_BY_FROM_STATUS[ca.returnedFromStatus]) {
+    return ca.returnedFromStatus;
+  }
+  // If still in a return status, that status itself encodes the destination
+  if (RETURN_TO_STATUS_DEFAULT_FROM[ca?.status]) {
+    return RETURN_TO_STATUS_DEFAULT_FROM[ca.status] || ca.returnedFromStatus || '';
+  }
+
   const history = Array.isArray(ca?.workflowHistory) ? ca.workflowHistory : [];
   for (let i = history.length - 1; i >= 0; i -= 1) {
-    if (String(history[i]?.toStatus || '') === 'Rejected') {
-      return String(history[i]?.fromStatus || '');
+    const toStatus = String(history[i]?.toStatus || '');
+    const fromStatus = String(history[i]?.fromStatus || '');
+    if (toStatus === 'Rejected') {
+      return fromStatus || 'Pending Approval';
+    }
+    if (RETURN_TO_STATUS_DEFAULT_FROM[toStatus]) {
+      return fromStatus || RETURN_TO_STATUS_DEFAULT_FROM[toStatus];
     }
   }
   const dated = [
     { at: ca?.financeRejectedAt, from: 'Pending Finance' },
     { at: ca?.auditRejectedAt, from: 'Pending Audit' },
+    { at: ca?.ceoReturnedAt, from: 'Forwarded to CEO' },
     { at: ca?.ceoRejectedAt, from: 'Forwarded to CEO' },
     { at: ca?.departmentRejectedAt, from: 'Pending Approval' }
   ].filter((row) => row.at);
@@ -370,6 +401,10 @@ const resubmitHistoryComment = (ca, target) => {
   }
 };
 
+const clearReturnedFromStatus = (ca) => {
+  ca.returnedFromStatus = '';
+};
+
 const resubmitGeneralToAudit = (ca, buildChangeSummary) => {
   const snapshot = ca.auditSnapshotAtReturn;
   if (snapshot && typeof buildChangeSummary === 'function') {
@@ -380,6 +415,7 @@ const resubmitGeneralToAudit = (ca, buildChangeSummary) => {
   ca.auditRejectedBy = undefined;
   ca.auditRejectedAt = undefined;
   ca.auditRejectionComments = '';
+  clearReturnedFromStatus(ca);
 };
 
 const resubmitGeneralToFinance = (ca) => {
@@ -391,6 +427,7 @@ const resubmitGeneralToFinance = (ca) => {
   ca.financeRejectionComments = '';
   ca.status = 'Pending Finance';
   ca.markModified('financeAuthorityApprovals');
+  clearReturnedFromStatus(ca);
 };
 
 const resubmitGeneralToCeoSecretariat = (ca) => {
@@ -398,6 +435,10 @@ const resubmitGeneralToCeoSecretariat = (ca) => {
   ca.ceoRejectedBy = undefined;
   ca.ceoRejectedAt = undefined;
   ca.ceoRejectionComments = '';
+  ca.ceoReturnedBy = undefined;
+  ca.ceoReturnedAt = undefined;
+  ca.ceoReturnComments = '';
+  clearReturnedFromStatus(ca);
 };
 
 const resubmitGeneralToCeo = (ca) => {
@@ -405,18 +446,23 @@ const resubmitGeneralToCeo = (ca) => {
   ca.ceoRejectedBy = undefined;
   ca.ceoRejectedAt = undefined;
   ca.ceoRejectionComments = '';
+  ca.ceoReturnedBy = undefined;
+  ca.ceoReturnedAt = undefined;
+  ca.ceoReturnComments = '';
+  clearReturnedFromStatus(ca);
 };
 
 const isGeneralCashApprovalResubmitState = (ca) => {
   if (!isGeneralCashApproval(ca) || ca.status === 'Draft') return false;
-  if (ca.status === 'Rejected' || ca.departmentApprovalStatus === 'Rejected') return true;
+  if (GENERAL_RETURN_OR_REJECT_STATUSES.includes(ca.status)) return true;
+  if (ca.departmentApprovalStatus === 'Rejected') return true;
   return getRejectedDepartmentStepIndex(ca.departmentApprovalChain) >= 0;
 };
 
 const applyGeneralResubmit = async (ca, approverIds, actorId, { buildChangeSummary } = {}) => {
   const ids = uniqueApproverIds(approverIds);
   const target = resolveGeneralResubmitTarget(ca);
-
+  // Department stage: preserve approved Manager/HOD steps; only reopen rejected/pending
   if (target.stage === 'department') {
     const chain = ca.departmentApprovalChain || [];
     if (chain.length > 0) {
@@ -429,21 +475,26 @@ const applyGeneralResubmit = async (ca, approverIds, actorId, { buildChangeSumma
         });
       }
       resubmitGeneralDepartmentApproval(ca);
+      clearReturnedFromStatus(ca);
     } else {
       if (!isGeneralCashApprovalResubmitState(ca)) {
-        const err = new Error('This cash approval is not in a rejected state that can be resubmitted');
+        const err = new Error('This cash approval is not in a rejected/returned state that can be resubmitted');
         err.statusCode = 400;
         throw err;
       }
       await applyGeneralSubmitApprovers(ca, ids, actorId);
+      clearReturnedFromStatus(ca);
     }
   } else if (target.stage === 'audit') {
+    // Keep department approvals intact — go straight back to Pre-Audit
     resubmitGeneralToAudit(ca, buildChangeSummary);
   } else if (target.stage === 'finance') {
     resubmitGeneralToFinance(ca);
   } else if (target.stage === 'ceo_secretariat') {
+    // Keep all prior approvals — go back to CEO Secretariat
     resubmitGeneralToCeoSecretariat(ca);
   } else if (target.stage === 'ceo') {
+    // Keep all prior approvals — go back to CEO
     resubmitGeneralToCeo(ca);
   }
 
@@ -455,6 +506,7 @@ const applyGeneralResubmit = async (ca, approverIds, actorId, { buildChangeSumma
 
 module.exports = {
   GENERAL_MODULE,
+  GENERAL_RETURN_OR_REJECT_STATUSES,
   isGeneralCashApproval,
   hasGeneralModuleAccess,
   canManageGeneralCashApproval,
