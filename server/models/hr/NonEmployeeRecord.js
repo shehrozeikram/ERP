@@ -88,6 +88,32 @@ const nonEmployeeRecordSchema = new mongoose.Schema({
 
   rejectionComments: { type: String },
   returnComments: { type: String },
+  /** Structured observations from return/reject (shown to initiator). */
+  returnObservations: [{
+    observation: { type: String, trim: true },
+    severity: {
+      type: String,
+      enum: ['low', 'medium', 'high', 'critical'],
+      default: 'medium'
+    },
+    addedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    addedAt: { type: Date, default: Date.now },
+    resolved: { type: Boolean, default: false }
+  }],
+  /**
+   * Stage that rejected/returned the record so resubmit goes back there
+   * (e.g. 'Pending AVP'), not a fresh HOD cycle.
+   */
+  returnedFromStatus: {
+    type: String,
+    enum: [
+      'Pending HOD HR',
+      'Pending AVP',
+      'Pending Chairman',
+      'Pending Sr Director',
+      'Forwarded to CEO'
+    ]
+  },
 
   // Attachments (e.g. CNIC copy, photo)
   attachments: [{

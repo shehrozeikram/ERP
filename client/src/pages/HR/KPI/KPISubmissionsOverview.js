@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   Accordion,
@@ -25,8 +25,7 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Typography,
-  createFilterOptions
+  Typography
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -88,18 +87,6 @@ const formatEmpOption = (e) =>
     e.employeeId ? ` (${e.employeeId})` : ''
   }`;
 
-const reportingLineFilter = createFilterOptions({
-  stringify: (option) =>
-    [
-      option?.firstName,
-      option?.lastName,
-      option?.employeeId,
-      formatEmpOption(option)
-    ]
-      .filter(Boolean)
-      .join(' ')
-});
-
 const KPISubmissionsOverview = () => {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -116,7 +103,10 @@ const KPISubmissionsOverview = () => {
   const [summary, setSummary] = useState(null);
   const [groups, setGroups] = useState([]);
   const [reportingOptions, setReportingOptions] = useState([]);
+  const [reportingSearchLoading, setReportingSearchLoading] = useState(false);
   const [savingById, setSavingById] = useState({});
+  const reportingSearchTimerRef = useRef(null);
+  const reportingSearchSeqRef = useRef(0);
 
   useEffect(() => {
     const loadFilters = async () => {
@@ -138,17 +128,49 @@ const KPISubmissionsOverview = () => {
     loadFilters();
   }, []);
 
-  useEffect(() => {
-    const loadReportingOptions = async () => {
+  useEffect(
+    () => () => {
+      if (reportingSearchTimerRef.current) clearTimeout(reportingSearchTimerRef.current);
+    },
+    []
+  );
+
+  /** Search-as-you-type: no full employee dump; results only after typing name/ID. */
+  const searchReportingEmployees = useCallback((query) => {
+    const q = String(query || '').trim();
+    if (reportingSearchTimerRef.current) clearTimeout(reportingSearchTimerRef.current);
+
+    if (!q) {
+      reportingSearchSeqRef.current += 1;
+      setReportingOptions([]);
+      setReportingSearchLoading(false);
+      return;
+    }
+
+    setReportingSearchLoading(true);
+    const seq = ++reportingSearchSeqRef.current;
+    reportingSearchTimerRef.current = setTimeout(async () => {
       try {
-        const res = await api.get('/hr/employees?limit=500&active=true');
+        const res = await api.get('/hr/employees', {
+          params: {
+            search: q,
+            active: true,
+            limit: 50,
+            page: 1
+          }
+        });
+        if (seq !== reportingSearchSeqRef.current) return;
         const list = res.data?.data || res.data?.employees || res.data || [];
         setReportingOptions(Array.isArray(list) ? list : []);
       } catch {
+        if (seq !== reportingSearchSeqRef.current) return;
         setReportingOptions([]);
+      } finally {
+        if (seq === reportingSearchSeqRef.current) {
+          setReportingSearchLoading(false);
+        }
       }
-    };
-    loadReportingOptions();
+    }, 300);
   }, []);
 
   const loadSubmissions = useCallback(async () => {
@@ -564,6 +586,7 @@ const KPISubmissionsOverview = () => {
                                     <Autocomplete
                                       size="small"
                                       fullWidth
+                                      filterOptions={(x) => x}
                                       options={reportingOptions.filter(
                                         (e) => String(e._id) !== String(empId)
                                       )}
@@ -586,18 +609,50 @@ const KPISubmissionsOverview = () => {
                                       isOptionEqualToValue={(option, value) =>
                                         String(option?._id || '') === String(value?._id || '')
                                       }
-                                      filterOptions={reportingLineFilter}
+                                      loading={reportingSearchLoading}
                                       disabled={saving}
-                                      onChange={(_, selected) =>
+                                      noOptionsText={
+                                        reportingSearchLoading
+                                          ? 'Searching…'
+                                          : 'Type name or employee ID'
+                                      }
+                                      onInputChange={(_event, newInputValue, reason) => {
+                                        if (reason === 'input') {
+                                          searchReportingEmployees(newInputValue);
+                                        }
+                                        if (reason === 'clear') {
+                                          searchReportingEmployees('');
+                                        }
+                                      }}
+                                      onChange={(_, selected) => {
+                                        if (selected?._id) {
+                                          setReportingOptions((prev) => {
+                                            if (prev.some((e) => String(e._id) === String(selected._id))) {
+                                              return prev;
+                                            }
+                                            return [selected, ...prev];
+                                          });
+                                        }
                                         handleSaveRowSettings(row, {
                                           employeeCategory: categoryValue,
                                           reportingLineId: selected?._id || ''
-                                        })
-                                      }
+                                        });
+                                      }}
                                       renderInput={(params) => (
                                         <TextField
                                           {...params}
                                           placeholder="Search name or ID"
+                                          InputProps={{
+                                            ...params.InputProps,
+                                            endAdornment: (
+                                              <>
+                                                {reportingSearchLoading ? (
+                                                  <CircularProgress color="inherit" size={16} />
+                                                ) : null}
+                                                {params.InputProps.endAdornment}
+                                              </>
+                                            )
+                                          }}
                                         />
                                       )}
                                     />

@@ -582,6 +582,12 @@ async function fetchOnboardingForUser(user) {
     .populate('assignedChairman', 'firstName lastName')
     .populate('assignedHod', 'firstName lastName')
     .populate('assignedSrDirector', 'firstName lastName')
+    .populate('hodApprovedBy', 'firstName lastName email')
+    .populate('avpApprovedBy', 'firstName lastName email')
+    .populate('chairmanApprovedBy', 'firstName lastName email')
+    .populate('srDirectorApprovedBy', 'firstName lastName email')
+    .populate('ceoApprovedBy', 'firstName lastName email')
+    .populate('returnObservations.addedBy', 'firstName lastName email')
     .sort({ updatedAt: -1 })
     .limit(100)
     .lean();

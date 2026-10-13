@@ -207,28 +207,40 @@ router.get('/employees',
       query.employeeCategory = employeeCategory;
     }
     if (search) {
-      query.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { employeeId: { $regex: search, $options: 'i' } },
-        { idCard: { $regex: search, $options: 'i' } },
-        { religion: { $regex: search, $options: 'i' } },
-        { maritalStatus: { $regex: search, $options: 'i' } },
-        { qualification: { $regex: search, $options: 'i' } },
-        { spouseName: { $regex: search, $options: 'i' } },
-        { 'placementCompany.name': { $regex: search, $options: 'i' } },
-        { 'placementSector.name': { $regex: search, $options: 'i' } },
-        { 'placementProject.name': { $regex: search, $options: 'i' } },
-        { 'placementDepartment.name': { $regex: search, $options: 'i' } },
-        { 'placementSection.name': { $regex: search, $options: 'i' } },
-        { 'placementDesignation.title': { $regex: search, $options: 'i' } },
-        { 'oldDesignation.title': { $regex: search, $options: 'i' } },
-        { 'placementLocation.name': { $regex: search, $options: 'i' } },
-        { 'address.city.name': { $regex: search, $options: 'i' } },
-        { 'address.state.name': { $regex: search, $options: 'i' } },
-        { 'address.country.name': { $regex: search, $options: 'i' } }
+      const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const terms = String(search)
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(escapeRegex);
+      const fieldMatchersForTerm = (term) => [
+        { firstName: { $regex: term, $options: 'i' } },
+        { lastName: { $regex: term, $options: 'i' } },
+        { email: { $regex: term, $options: 'i' } },
+        { employeeId: { $regex: term, $options: 'i' } },
+        { idCard: { $regex: term, $options: 'i' } },
+        { religion: { $regex: term, $options: 'i' } },
+        { maritalStatus: { $regex: term, $options: 'i' } },
+        { qualification: { $regex: term, $options: 'i' } },
+        { spouseName: { $regex: term, $options: 'i' } },
+        { 'placementCompany.name': { $regex: term, $options: 'i' } },
+        { 'placementSector.name': { $regex: term, $options: 'i' } },
+        { 'placementProject.name': { $regex: term, $options: 'i' } },
+        { 'placementDepartment.name': { $regex: term, $options: 'i' } },
+        { 'placementSection.name': { $regex: term, $options: 'i' } },
+        { 'placementDesignation.title': { $regex: term, $options: 'i' } },
+        { 'oldDesignation.title': { $regex: term, $options: 'i' } },
+        { 'placementLocation.name': { $regex: term, $options: 'i' } },
+        { 'address.city.name': { $regex: term, $options: 'i' } },
+        { 'address.state.name': { $regex: term, $options: 'i' } },
+        { 'address.country.name': { $regex: term, $options: 'i' } }
       ];
+      // Multi-word (e.g. "Mansoor Zareen"): each term must match some name/id field
+      if (terms.length > 1) {
+        query.$and = terms.map((term) => ({ $or: fieldMatchersForTerm(term) }));
+      } else if (terms.length === 1) {
+        query.$or = fieldMatchersForTerm(terms[0]);
+      }
     }
 
     let employees;

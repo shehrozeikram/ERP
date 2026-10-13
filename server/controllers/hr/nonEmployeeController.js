@@ -21,6 +21,175 @@ const canActAsAssignedOrDevSrDirector = (assignedField, user) => {
   return isDevNewEmployeeSrDirectorApprover(user);
 };
 
+const RESUBMITTABLE_STATUSES = new Set(['Returned', 'Rejected by CEO', 'Draft']);
+
+const RESUBMIT_TARGET_STATUSES = new Set([
+  'Pending HOD HR',
+  'Pending AVP',
+  'Pending Chairman',
+  'Pending Sr Director',
+  'Forwarded to CEO'
+]);
+
+const STAGE_ORDER = [
+  'Pending HOD HR',
+  'Pending AVP',
+  'Pending Chairman',
+  'Pending Sr Director',
+  'Forwarded to CEO'
+];
+
+const EMPTY_STAGE_APPROVAL = {
+  by: undefined,
+  at: undefined,
+  comments: undefined,
+  sig: undefined
+};
+
+const readStageApprovals = (record) => ({
+  hod: {
+    by: record.hodApprovedBy,
+    at: record.hodApprovedAt,
+    comments: record.hodComments,
+    sig: record.hodSignature
+  },
+  avp: {
+    by: record.avpApprovedBy,
+    at: record.avpApprovedAt,
+    comments: record.avpComments,
+    sig: record.avpSignature
+  },
+  chairman: {
+    by: record.chairmanApprovedBy,
+    at: record.chairmanApprovedAt,
+    comments: record.chairmanComments,
+    sig: record.chairmanSignature
+  },
+  sr: {
+    by: record.srDirectorApprovedBy,
+    at: record.srDirectorApprovedAt,
+    comments: record.srDirectorComments,
+    sig: record.srDirectorSignature
+  },
+  ceo: {
+    by: record.ceoApprovedBy,
+    at: record.ceoApprovedAt,
+    comments: record.ceoComments,
+    sig: record.ceoSignature
+  }
+});
+
+const writeStageApprovals = (record, snap) => {
+  record.hodApprovedBy = snap.hod.by;
+  record.hodApprovedAt = snap.hod.at;
+  record.hodComments = snap.hod.comments;
+  record.hodSignature = snap.hod.sig;
+  record.avpApprovedBy = snap.avp.by;
+  record.avpApprovedAt = snap.avp.at;
+  record.avpComments = snap.avp.comments;
+  record.avpSignature = snap.avp.sig;
+  record.chairmanApprovedBy = snap.chairman.by;
+  record.chairmanApprovedAt = snap.chairman.at;
+  record.chairmanComments = snap.chairman.comments;
+  record.chairmanSignature = snap.chairman.sig;
+  record.srDirectorApprovedBy = snap.sr.by;
+  record.srDirectorApprovedAt = snap.sr.at;
+  record.srDirectorComments = snap.sr.comments;
+  record.srDirectorSignature = snap.sr.sig;
+  record.ceoApprovedBy = snap.ceo.by;
+  record.ceoApprovedAt = snap.ceo.at;
+  record.ceoComments = snap.ceo.comments;
+  record.ceoSignature = snap.ceo.sig;
+};
+
+/**
+ * On resubmit: keep every earlier authority's approval + signature.
+ * Only clear the rejector's stage and any later stages.
+ * Example: CEO return → keep HOD / AVP / Chairman / Sr Director; clear CEO only.
+ */
+const clearApprovalsFromStage = (record, fromStatus) => {
+  const idx = STAGE_ORDER.indexOf(fromStatus);
+  const start = idx < 0 ? 0 : idx;
+  const snap = readStageApprovals(record);
+
+  writeStageApprovals(record, {
+    hod: start > 0 ? snap.hod : EMPTY_STAGE_APPROVAL,
+    avp: start > 1 ? snap.avp : EMPTY_STAGE_APPROVAL,
+    chairman: start > 2 ? snap.chairman : EMPTY_STAGE_APPROVAL,
+    sr: start > 3 ? snap.sr : EMPTY_STAGE_APPROVAL,
+    ceo: start > 4 ? snap.ceo : EMPTY_STAGE_APPROVAL
+  });
+};
+
+const normalizeReturnObservations = (observations, userId) => {
+  const list = Array.isArray(observations) ? observations : [];
+  return list
+    .map((obs) => {
+      const text = String(obs?.observation || obs?.text || (typeof obs === 'string' ? obs : '') || '').trim();
+      if (!text) return null;
+      const severity = String(obs?.severity || 'medium').toLowerCase();
+      return {
+        observation: text,
+        severity: ['low', 'medium', 'high', 'critical'].includes(severity) ? severity : 'medium',
+        addedBy: userId || undefined,
+        addedAt: new Date(),
+        resolved: false
+      };
+    })
+    .filter(Boolean);
+};
+
+const markReturnedToInitiator = (record, comments, fromStatus, { observations, userId } = {}) => {
+  const target = RESUBMIT_TARGET_STATUSES.has(fromStatus) ? fromStatus : 'Pending HOD HR';
+  record.workflowStatus = 'Returned';
+  record.returnedFromStatus = target;
+  record.returnComments = comments || '';
+  record.rejectionComments = comments || record.rejectionComments || '';
+  const normalizedObs = normalizeReturnObservations(observations, userId);
+  if (normalizedObs.length) {
+    record.returnObservations = normalizedObs;
+  }
+  return record;
+};
+
+/**
+ * Resolve where resubmit should go.
+ * Prefer saved returnedFromStatus; otherwise infer from current status / approvals
+ * (covers older returns that never persisted returnedFromStatus).
+ */
+const resolveResubmitTarget = (record, currentStatus, bodyHint) => {
+  if (RESUBMIT_TARGET_STATUSES.has(record.returnedFromStatus)) {
+    return record.returnedFromStatus;
+  }
+  if (RESUBMIT_TARGET_STATUSES.has(bodyHint)) {
+    return bodyHint;
+  }
+  if (currentStatus === 'Rejected by CEO') {
+    return 'Forwarded to CEO';
+  }
+  // Infer from furthest intact approval (CEO/Sr return leaves prior stage approvals)
+  if (record.srDirectorApprovedBy) return 'Forwarded to CEO';
+  if (record.chairmanApprovedBy) return 'Pending Sr Director';
+  if (record.avpApprovedBy) return 'Pending Chairman';
+  if (record.hodApprovedBy) return 'Pending AVP';
+  return 'Pending HOD HR';
+};
+
+/** Full populate used whenever initiator/CEO need to see approval authorities. */
+const populateApprovalAuthorities = (query) =>
+  query
+    .populate('initiator', 'firstName lastName email')
+    .populate('assignedHod', 'firstName lastName email')
+    .populate('assignedSrDirector', 'firstName lastName email')
+    .populate('assignedAvp', 'firstName lastName email')
+    .populate('assignedChairman', 'firstName lastName email')
+    .populate('hodApprovedBy', 'firstName lastName email')
+    .populate('srDirectorApprovedBy', 'firstName lastName email')
+    .populate('avpApprovedBy', 'firstName lastName email')
+    .populate('chairmanApprovedBy', 'firstName lastName email')
+    .populate('ceoApprovedBy', 'firstName lastName email')
+    .populate('returnObservations.addedBy', 'firstName lastName email');
+
 exports.createRecord = async (req, res) => {
   try {
     const { employees, assignedHod, assignedSrDirector, assignedAvp, assignedChairman } = req.body;
@@ -82,10 +251,35 @@ exports.updateRecord = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Record not found' });
     }
     
-    // Allow updating only if not fully approved or if returned, unless it's the developer
     const isDeveloper = req.user.email === 'developer@tovus.net';
-    if (!isDeveloper && (record.workflowStatus === 'Approved by CEO' || record.workflowStatus === 'Rejected by CEO')) {
-      return res.status(400).json({ success: false, error: 'Cannot update a completed record' });
+    const actorId = actorUserId(req.user);
+    const initiatorId = String(record.initiator?._id || record.initiator || '');
+    const isInitiator = Boolean(actorId && initiatorId && actorId === initiatorId);
+    const status = record.workflowStatus;
+
+    if (!isDeveloper && status === 'Approved by CEO') {
+      return res.status(400).json({ success: false, error: 'Cannot update an approved record' });
+    }
+
+    // After return/reject, only initiator (or developer) may edit and resubmit
+    if (!isDeveloper && RESUBMITTABLE_STATUSES.has(status) && !isInitiator) {
+      return res.status(403).json({ success: false, error: 'Only the initiator can edit and resubmit this record' });
+    }
+
+    // Mid-workflow: only initiator/developer can edit while still at first pending stage
+    if (
+      !isDeveloper
+      && !RESUBMITTABLE_STATUSES.has(status)
+      && status !== 'Pending HOD HR'
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Record is in approval. Wait for return/reject before editing.'
+      });
+    }
+
+    if (!isDeveloper && status === 'Pending HOD HR' && !isInitiator) {
+      return res.status(403).json({ success: false, error: 'Only the initiator can edit this record' });
     }
 
     const { employees, assignedHod, assignedSrDirector, assignedAvp, assignedChairman } = req.body;
@@ -115,13 +309,25 @@ exports.updateRecord = async (req, res) => {
     if (assignedAvp !== undefined) record.assignedAvp = optionalUserId(assignedAvp) || null;
     if (assignedChairman !== undefined) record.assignedChairman = optionalUserId(assignedChairman) || null;
 
-    // Reset status to pending HOD if it was returned and updated by initiator
-    if (record.workflowStatus === 'Returned') {
-       record.workflowStatus = 'Pending HOD HR';
+    // Resubmit: send back to the authority who rejected/returned (not a fresh HOD cycle)
+    if (status === 'Returned' || status === 'Rejected by CEO' || status === 'Draft') {
+      const bodyHint = req.body.resubmitToStatus || req.body.returnedFromStatus;
+      const targetStatus = resolveResubmitTarget(record, status, bodyHint);
+      clearApprovalsFromStage(record, targetStatus);
+      record.workflowStatus = targetStatus;
+      record.set('returnedFromStatus', undefined);
+      // Clear return feedback after successful resubmit
+      record.returnComments = '';
+      record.rejectionComments = '';
+      record.returnObservations = [];
+      if (req.body.requesterSignature) {
+        record.requesterSignature = req.body.requesterSignature;
+      }
     }
 
     await record.save();
-    res.status(200).json({ success: true, data: record });
+    const populated = await populateApprovalAuthorities(NonEmployeeRecord.findById(record._id));
+    res.status(200).json({ success: true, data: populated });
   } catch (error) {
     console.error('Error updating NonEmployeeRecord:', error);
     res.status(500).json({ success: false, error: 'Server Error' });
@@ -135,8 +341,13 @@ exports.deleteRecord = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Record not found' });
     }
     
-    if (record.workflowStatus !== 'Pending HOD HR' && record.workflowStatus !== 'Draft' && record.workflowStatus !== 'Returned') {
-       return res.status(400).json({ success: false, error: 'Only pending or returned records can be deleted' });
+    if (
+      record.workflowStatus !== 'Pending HOD HR'
+      && record.workflowStatus !== 'Draft'
+      && record.workflowStatus !== 'Returned'
+      && record.workflowStatus !== 'Rejected by CEO'
+    ) {
+       return res.status(400).json({ success: false, error: 'Only pending, returned, or rejected records can be deleted' });
     }
 
     await record.deleteOne();
@@ -149,18 +360,7 @@ exports.deleteRecord = async (req, res) => {
 
 exports.getRecords = async (req, res) => {
   try {
-    const records = await NonEmployeeRecord.find()
-      .populate('initiator', 'firstName lastName email')
-      .populate('assignedHod', 'firstName lastName email')
-      .populate('assignedSrDirector', 'firstName lastName email')
-      .populate('assignedAvp', 'firstName lastName email')
-      .populate('assignedChairman', 'firstName lastName email')
-      .populate('hodApprovedBy', 'firstName lastName email')
-      .populate('srDirectorApprovedBy', 'firstName lastName email')
-      .populate('avpApprovedBy', 'firstName lastName email')
-      .populate('chairmanApprovedBy', 'firstName lastName email')
-      .populate('ceoApprovedBy', 'firstName lastName email')
-      .sort('-createdAt');
+    const records = await populateApprovalAuthorities(NonEmployeeRecord.find()).sort('-createdAt');
     res.status(200).json({ success: true, count: records.length, data: records });
   } catch (error) {
     console.error('Error fetching NonEmployeeRecords:', error);
@@ -170,17 +370,7 @@ exports.getRecords = async (req, res) => {
 
 exports.getRecordById = async (req, res) => {
   try {
-    const record = await NonEmployeeRecord.findById(req.params.id)
-      .populate('initiator', 'firstName lastName email')
-      .populate('assignedHod', 'firstName lastName email')
-      .populate('assignedSrDirector', 'firstName lastName email')
-      .populate('assignedAvp', 'firstName lastName email')
-      .populate('assignedChairman', 'firstName lastName email')
-      .populate('hodApprovedBy', 'firstName lastName email')
-      .populate('srDirectorApprovedBy', 'firstName lastName email')
-      .populate('avpApprovedBy', 'firstName lastName email')
-      .populate('chairmanApprovedBy', 'firstName lastName email')
-      .populate('ceoApprovedBy', 'firstName lastName email');
+    const record = await populateApprovalAuthorities(NonEmployeeRecord.findById(req.params.id));
       
     if (!record) {
       return res.status(404).json({ success: false, error: 'Record not found' });
@@ -242,11 +432,11 @@ exports.rejectByHOD = async (req, res) => {
       }
     }
 
-    record.workflowStatus = 'Returned';
-    record.hodApprovedBy = req.user.id;
-    record.hodApprovedAt = Date.now();
+    markReturnedToInitiator(record, req.body.comments || '', 'Pending HOD HR', {
+      observations: req.body.observations,
+      userId: req.user.id
+    });
     record.hodComments = req.body.comments || '';
-    record.hodSignature = req.body.signature || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
 
     await record.save();
     res.status(200).json({ success: true, data: record });
@@ -301,12 +491,11 @@ exports.rejectBySrDirector = async (req, res) => {
       return res.status(403).json({ success: false, error: 'You are not the assigned Sr Director for this record' });
     }
 
-    record.workflowStatus = 'Returned';
-    record.srDirectorApprovedBy = req.user.id;
-    record.srDirectorApprovedAt = Date.now();
+    markReturnedToInitiator(record, req.body.comments || '', 'Pending Sr Director', {
+      observations: req.body.observations,
+      userId: req.user.id
+    });
     record.srDirectorComments = req.body.comments || '';
-    record.srDirectorSignature = req.body.signature
-      || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
 
     await record.save();
     res.status(200).json({ success: true, data: record });
@@ -366,11 +555,11 @@ exports.rejectByAVP = async (req, res) => {
       }
     }
 
-    record.workflowStatus = 'Returned';
-    record.avpApprovedBy = req.user.id;
-    record.avpApprovedAt = Date.now();
+    markReturnedToInitiator(record, req.body.comments || '', 'Pending AVP', {
+      observations: req.body.observations,
+      userId: req.user.id
+    });
     record.avpComments = req.body.comments || '';
-    record.avpSignature = req.body.signature || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
 
     await record.save();
     res.status(200).json({ success: true, data: record });
@@ -430,11 +619,11 @@ exports.rejectByChairman = async (req, res) => {
       }
     }
 
-    record.workflowStatus = 'Returned';
-    record.chairmanApprovedBy = req.user.id;
-    record.chairmanApprovedAt = Date.now();
+    markReturnedToInitiator(record, req.body.comments || '', 'Pending Chairman', {
+      observations: req.body.observations,
+      userId: req.user.id
+    });
     record.chairmanComments = req.body.comments || '';
-    record.chairmanSignature = req.body.signature || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
 
     await record.save();
     res.status(200).json({ success: true, data: record });
@@ -447,10 +636,9 @@ exports.rejectByChairman = async (req, res) => {
 // CEO Endpoints
 exports.getForCEO = async (req, res) => {
   try {
-    const records = await NonEmployeeRecord.find({ workflowStatus: 'Forwarded to CEO' })
-      .populate('initiator', 'firstName lastName email')
-      .populate('hodApprovedBy', 'firstName lastName email')
-      .sort('-createdAt');
+    const records = await populateApprovalAuthorities(
+      NonEmployeeRecord.find({ workflowStatus: 'Forwarded to CEO' })
+    ).sort('-createdAt');
     res.status(200).json({ success: true, count: records.length, data: records });
   } catch (error) {
     console.error('Error fetching CEO NonEmployeeRecords:', error);
@@ -486,11 +674,16 @@ exports.rejectByCEO = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Record not found' });
     }
 
+    // Reject sends back to initiator; resubmit returns to CEO queue
     record.workflowStatus = 'Rejected by CEO';
-    record.ceoApprovedBy = req.user.id;
-    record.ceoApprovedAt = Date.now();
+    record.returnedFromStatus = 'Forwarded to CEO';
     record.rejectionComments = req.body.comments || '';
-    record.ceoSignature = req.body.signature || (req.user.firstName ? `${req.user.firstName} ${req.user.lastName || ''}`.trim() : req.user.email);
+    record.returnComments = req.body.comments || '';
+    record.ceoComments = req.body.comments || '';
+    const ceoRejectObs = normalizeReturnObservations(req.body.observations, req.user.id);
+    if (ceoRejectObs.length) {
+      record.returnObservations = ceoRejectObs;
+    }
 
     await record.save();
     res.status(200).json({ success: true, data: record });
@@ -507,11 +700,15 @@ exports.returnByCEO = async (req, res) => {
       return res.status(404).json({ success: false, error: 'Record not found' });
     }
 
-    record.workflowStatus = 'Returned';
-    record.returnComments = req.body.comments || '';
+    // Do not clear HOD/AVP/Chairman/Sr Director — only mark return for initiator resubmit to CEO
+    markReturnedToInitiator(record, req.body.comments || req.body.returnComments || '', 'Forwarded to CEO', {
+      observations: req.body.observations,
+      userId: req.user.id
+    });
 
     await record.save();
-    res.status(200).json({ success: true, data: record });
+    const populated = await populateApprovalAuthorities(NonEmployeeRecord.findById(record._id));
+    res.status(200).json({ success: true, data: populated });
   } catch (error) {
     console.error('Error in CEO return:', error);
     res.status(500).json({ success: false, error: 'Server Error' });

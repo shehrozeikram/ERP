@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
+  Alert,
   Box, 
   Button, 
   Paper, 
@@ -19,7 +20,8 @@ import {
   TextField,
   FormControlLabel,
   Checkbox,
-  Grid
+  Grid,
+  Tooltip
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as ViewIcon, Print as PrintIcon } from '@mui/icons-material';
 import { DigitalSignatureImage } from '../../../components/common/DigitalSignatureImage';
@@ -222,7 +224,7 @@ const NonEmployeeOnboarding = () => {
                 'Pending Sr Director': 'Sr Director (Hamza Tanveer)',
                 'Forwarded to CEO': 'CEO Secretariat',
                 'Approved by CEO': 'Approved',
-                'Rejected by CEO': 'Rejected',
+                'Rejected by CEO': 'Returned to Initiator (CEO Rejected)',
                 'Returned': 'Returned to Initiator'
               };
               const authority = authorityMap[record.workflowStatus] || record.workflowStatus;
@@ -255,9 +257,21 @@ const NonEmployeeOnboarding = () => {
               const currentPendingLabel = currentPendingType === 'SrDirector' ? 'Sr Director' : currentPendingType;
               
               const isDeveloper = user?.email === 'developer@tovus.net';
-              const isInitiatorEditable = ['Pending HOD HR', 'Draft', 'Returned'].includes(record.workflowStatus) && (userId === record.initiator?._id || userId === record.initiator);
+              const initiatorId = String(record.initiator?._id || record.initiator || '');
+              const isInitiator = Boolean(userId && initiatorId && userId === initiatorId);
+              const isInitiatorEditable = ['Pending HOD HR', 'Draft', 'Returned', 'Rejected by CEO'].includes(record.workflowStatus)
+                && isInitiator;
+              const needsResubmit = ['Returned', 'Rejected by CEO'].includes(record.workflowStatus) && isInitiator;
               const canEdit = isDeveloper || isInitiatorEditable;
-              const canDelete = isInitiatorEditable; // Maintain existing delete logic
+              const canDelete = isInitiatorEditable;
+              const feedbackComments = record.returnComments || record.rejectionComments || '';
+              const feedbackObservations = Array.isArray(record.returnObservations)
+                ? record.returnObservations.filter((o) => String(o?.observation || '').trim())
+                : [];
+              const feedbackSummary = [
+                feedbackComments,
+                ...feedbackObservations.map((o) => `[${o.severity || 'medium'}] ${o.observation}`)
+              ].filter(Boolean).join('\n');
 
               const numEmployees = record.employees?.length || 0;
               const empName = (e) =>
@@ -359,16 +373,34 @@ const NonEmployeeOnboarding = () => {
                     {(canEdit || canDelete) && (
                       <React.Fragment>
                         {canEdit && (
-                          <IconButton 
-                            color="primary" 
-                            size="small" 
-                            onClick={() => {
-                              setEditData(record);
-                              setOpenForm(true);
-                            }}
+                          <Tooltip
+                            title={
+                              needsResubmit
+                                ? `Edit & resubmit to ${
+                                    {
+                                      'Pending HOD HR': 'HOD HR',
+                                      'Pending AVP': 'AVP',
+                                      'Pending Chairman': 'Chairman',
+                                      'Pending Sr Director': 'Sr Director',
+                                      'Forwarded to CEO': 'CEO'
+                                    }[record.returnedFromStatus] || 'the rejector'
+                                  }`
+                                : 'Edit'
+                            }
                           >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
+                            <Button
+                              variant={needsResubmit ? 'contained' : 'text'}
+                              color="primary"
+                              size="small"
+                              startIcon={<EditIcon fontSize="small" />}
+                              onClick={() => {
+                                setEditData(record);
+                                setOpenForm(true);
+                              }}
+                            >
+                              {needsResubmit ? 'Edit & Resubmit' : 'Edit'}
+                            </Button>
+                          </Tooltip>
                         )}
                         {canDelete && (
                           <IconButton 
@@ -380,6 +412,26 @@ const NonEmployeeOnboarding = () => {
                           </IconButton>
                         )}
                       </React.Fragment>
+                    )}
+                    {needsResubmit && feedbackSummary && (
+                      <Tooltip
+                        title={
+                          <Box sx={{ whiteSpace: 'pre-wrap', maxWidth: 360 }}>
+                            {feedbackSummary}
+                          </Box>
+                        }
+                      >
+                        <Chip
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          label={
+                            feedbackObservations.length
+                              ? `${feedbackObservations.length} observation(s)`
+                              : 'See return remarks'
+                          }
+                        />
+                      </Tooltip>
                     )}
                   </Box>
                 </TableCell>
@@ -509,6 +561,47 @@ const NonEmployeeOnboarding = () => {
           New-Hiring Approval Details - {viewDialog.record?.recordNumber}
         </DialogTitle>
         <DialogContent sx={{ p: { xs: 2, md: 3 } }}>
+          {(viewDialog.record?.workflowStatus === 'Returned'
+            || viewDialog.record?.workflowStatus === 'Rejected by CEO') && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>
+                Returned to initiator for revision
+                {viewDialog.record?.returnedFromStatus
+                  ? ` → will go back to ${viewDialog.record.returnedFromStatus}`
+                  : ''}
+              </Typography>
+              {(viewDialog.record?.returnComments || viewDialog.record?.rejectionComments) && (
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mb: 1 }}>
+                  <strong>Comments:</strong> {viewDialog.record.returnComments || viewDialog.record.rejectionComments}
+                </Typography>
+              )}
+              {Array.isArray(viewDialog.record?.returnObservations)
+                && viewDialog.record.returnObservations.filter((o) => o?.observation).length > 0 && (
+                <Box>
+                  <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>
+                    Observations
+                  </Typography>
+                  <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                    {viewDialog.record.returnObservations
+                      .filter((o) => o?.observation)
+                      .map((obs, idx) => (
+                        <Box component="li" key={obs._id || idx} sx={{ mb: 0.5 }}>
+                          <Typography variant="body2">
+                            <strong style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                              [{obs.severity || 'medium'}]
+                            </strong>{' '}
+                            {obs.observation}
+                          </Typography>
+                        </Box>
+                      ))}
+                  </Box>
+                </Box>
+              )}
+              <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                Use Edit & Resubmit to update and send again to the authority who returned/rejected it.
+              </Typography>
+            </Alert>
+          )}
           <Box mb={4}>
             <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1.5 }}>
               Candidates recommended for hiring ({viewDialog.record?.employees?.length || 0})

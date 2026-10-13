@@ -80,6 +80,7 @@ import UtilityBillDetails from '../../pages/Admin/UtilityBillManagement/UtilityB
 import CentralizedStoreBillInvoiceBody from '../UtilityBill/CentralizedStoreBillInvoiceBody';
 import { getCentralizedStoreDocumentTypeLabel } from '../../utils/centralizedStoreBillKind';
 import PODocumentView from '../../pages/Procurement/Store/PODocumentView';
+import { printNewHiringApproval } from '../../utils/newHiringApprovalPrint';
 
 const ExecutiveCeoPaymentsSection = () => {
   const theme = useTheme();
@@ -530,18 +531,44 @@ const ExecutiveCeoPaymentsSection = () => {
         });
       }
     } else if (settlement.isOnboarding) {
-      setViewDialog({ 
-        open: true, 
-        settlement, 
-        isPurchaseOrder: false, 
-        isCashApproval: false, 
+      const baseFlags = {
+        isPurchaseOrder: false,
+        isCashApproval: false,
         isOnboarding: true,
         isManualSalary: false,
         isIndent: false,
         isUtilityBill: false,
         isVendorBill: false,
-        poAuditTab: 0 
-      });
+        isPaymentSettlement: false
+      };
+      try {
+        const r = await nonEmployeeService.getRecordById(settlement._id);
+        const detail = r?.data?.data || r?.data || settlement;
+        setViewDialog({
+          open: true,
+          settlement: withCeoDocTypeFlags({ ...settlement, ...detail }, baseFlags),
+          ...baseFlags,
+          quotations: [],
+          caLinkedDocs: [],
+          poQuotations: [],
+          poGrns: [],
+          poLinkedDocs: [],
+          poAuditTab: 0
+        });
+      } catch (e) {
+        console.error('Error fetching new-hiring approval details:', e);
+        setViewDialog({
+          open: true,
+          settlement: withCeoDocTypeFlags(settlement, baseFlags),
+          ...baseFlags,
+          quotations: [],
+          caLinkedDocs: [],
+          poQuotations: [],
+          poGrns: [],
+          poLinkedDocs: [],
+          poAuditTab: 0
+        });
+      }
     } else if (settlement.isIndent || settlement.isUtilityBill || settlement.isVendorBill) {
       const baseFlags = {
         isPurchaseOrder: false,
@@ -679,6 +706,7 @@ const ExecutiveCeoPaymentsSection = () => {
       Boolean(flags.isOnboarding) ||
       Boolean(doc.isOnboarding) ||
       Boolean(doc.cnic) ||
+      (Array.isArray(doc.employees) && doc.employees.length > 0 && Boolean(doc.recordNumber)) ||
       doc.itemType === 'Onboarding' ||
       doc.itemType === 'New-Employee Onboarding' ||
       doc.itemType === 'New-Hiring Approval' ||
@@ -2180,6 +2208,20 @@ const ExecutiveCeoPaymentsSection = () => {
                   Print
                 </Button>
               )}
+              {viewDialog.isOnboarding && (
+                <Button
+                  variant="outlined"
+                  startIcon={<PrintIcon />}
+                  onClick={() => {
+                    const result = printNewHiringApproval(viewDialog.settlement);
+                    if (!result?.ok) toast.error(result?.message || 'Unable to print');
+                  }}
+                  size="small"
+                  sx={{ '@media print': { display: 'none' }, textTransform: 'none', fontWeight: 600 }}
+                >
+                  Print
+                </Button>
+              )}
               <IconButton
                 size="small"
                 onClick={() =>
@@ -2737,136 +2779,122 @@ const ExecutiveCeoPaymentsSection = () => {
                 </Box>
               ) : viewDialog.isOnboarding ? (
                 <Box sx={{ mb: 2 }}>
-                  <Paper 
-                    elevation={0} 
-                    sx={{ 
-                      p: { xs: 3, md: 4 }, 
-                      borderRadius: 3, 
-                      background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
-                      border: '1px solid',
-                      borderColor: 'divider'
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 4, borderBottom: '1px solid', borderColor: 'divider', pb: 3, flexWrap: 'wrap', gap: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        <Avatar 
-                          sx={{ 
-                            width: 64, 
-                            height: 64, 
-                            bgcolor: alpha(theme.palette.primary.main, 0.1),
-                            color: theme.palette.primary.main,
-                            fontSize: '1.75rem',
-                            fontWeight: 700
-                          }}
-                        >
-                          {viewDialog.settlement.firstName ? viewDialog.settlement.firstName[0].toUpperCase() : 'N'}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="h5" sx={{ fontWeight: 800, color: 'text.primary', mb: 0.5 }}>
-                            {`${viewDialog.settlement.firstName || ''} ${viewDialog.settlement.lastName || ''}`.trim() || 'N/A'}
-                          </Typography>
-                          <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                            {viewDialog.settlement.role || 'N/A'}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
-                        <Chip 
-                          label={`Ref: ${viewDialog.settlement.recordNumber || 'N/A'}`} 
-                          size="small" 
-                          sx={{ mb: 1, fontWeight: 600, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}
-                        />
-                        <Typography variant="caption" display="block" color="text.secondary" sx={{ fontWeight: 500 }}>
-                          Initiated: {formatDateForDocument(viewDialog.settlement.initiatedAt || viewDialog.settlement.createdAt)}
-                        </Typography>
-                      </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        {viewDialog.settlement.recordNumber || viewDialog.settlement.displayRef || 'New-Hiring Approval'}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Status: {viewDialog.settlement.workflowStatus || viewDialog.settlement.status || '—'}
+                        {' · '}
+                        Initiated: {formatDateForDocument(viewDialog.settlement.initiatedAt || viewDialog.settlement.createdAt)}
+                      </Typography>
                     </Box>
+                    <Chip
+                      size="small"
+                      label={viewDialog.settlement.workflowStatus || viewDialog.settlement.status || '—'}
+                      color="primary"
+                      variant="outlined"
+                    />
+                  </Box>
 
-                    <Grid container spacing={4}>
-                      <Grid item xs={12} sm={6}>
-                        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', height: '100%' }}>
-                          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
-                            Candidate Details
-                          </Typography>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-                            <Box>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>CNIC Number</Typography>
-                              <Typography variant="body1" sx={{ fontWeight: 600 }}>{viewDialog.settlement.cnic || 'N/A'}</Typography>
-                            </Box>
-                            <Box>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>Duration</Typography>
-                              <Typography variant="body1" sx={{ fontWeight: 600 }}>{viewDialog.settlement.duration || 'N/A'}</Typography>
-                            </Box>
-                          </Box>
-                        </Box>
-                      </Grid>
+                  <Box mb={3}>
+                    <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1.5 }}>
+                      Candidates recommended for hiring ({viewDialog.settlement?.employees?.length || 0})
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+                      <Table size="small" sx={{ minWidth: 1000 }}>
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: 'grey.100' }}>
+                            <TableCell><b>Name</b></TableCell>
+                            <TableCell><b>CNIC/Passport No.</b></TableCell>
+                            <TableCell><b>Designation</b></TableCell>
+                            <TableCell><b>Department/Subject</b></TableCell>
+                            <TableCell><b>Project</b></TableCell>
+                            <TableCell><b>Location</b></TableCell>
+                            <TableCell align="right"><b>Current Package Monthly</b></TableCell>
+                            <TableCell><b>Tentative DOJ</b></TableCell>
+                            <TableCell><b>Remark</b></TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {(viewDialog.settlement?.employees || []).map((emp, index) => {
+                            const name = emp.name || [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || '—';
+                            const designation = emp.designation || emp.role || '—';
+                            const pkg = emp.currentPackageMonthly ?? emp.expectedWages;
+                            const doj = emp.tentativeDoj
+                              ? new Date(emp.tentativeDoj).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '—';
+                            let pkgLabel = '—';
+                            if (pkg != null && String(pkg).trim() !== '' && String(pkg) !== '0') {
+                              const n = Number(pkg);
+                              pkgLabel = Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(String(pkg).trim())
+                                ? `${n.toLocaleString('en-PK')} PKR`
+                                : String(pkg);
+                            }
+                            return (
+                              <TableRow key={emp._id || index}>
+                                <TableCell>{name}</TableCell>
+                                <TableCell>{emp.cnic || '—'}</TableCell>
+                                <TableCell>{designation}</TableCell>
+                                <TableCell>{emp.departmentSubject || '—'}</TableCell>
+                                <TableCell>{emp.project || '—'}</TableCell>
+                                <TableCell>{emp.location || '—'}</TableCell>
+                                <TableCell align="right">{pkgLabel}</TableCell>
+                                <TableCell>{doj}</TableCell>
+                                <TableCell>{emp.remark || emp.justification || '—'}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                          {(!viewDialog.settlement?.employees || viewDialog.settlement.employees.length === 0) && (
+                            <TableRow>
+                              <TableCell colSpan={9} align="center">No candidates</TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Box>
 
-                      <Grid item xs={12} sm={6}>
-                        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: alpha(theme.palette.success.main, 0.04), border: '1px solid', borderColor: alpha(theme.palette.success.main, 0.2), height: '100%' }}>
-                          <Typography variant="overline" color="success.dark" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
-                            Financial Details
-                          </Typography>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-                            <Box>
-                              <Typography variant="caption" color="success.main" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>Expected Wages</Typography>
-                              <Typography variant="h5" sx={{ fontWeight: 800, color: 'success.dark' }}>{formatPKR(viewDialog.settlement.expectedWages || 0)}</Typography>
-                            </Box>
-                          </Box>
-                        </Box>
-                      </Grid>
-
-                      <Grid item xs={12}>
-                        <Box sx={{ p: 3, borderRadius: 2, bgcolor: alpha(theme.palette.info.main, 0.04), border: '1px dashed', borderColor: alpha(theme.palette.info.main, 0.3) }}>
-                          <Typography variant="overline" color="info.dark" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1 }}>
-                            Justification / Remarks
-                          </Typography>
-                          <Typography variant="body1" sx={{ color: 'text.primary', lineHeight: 1.7 }}>
-                            {viewDialog.settlement.justification || 'No justification provided.'}
-                          </Typography>
-                        </Box>
-                      </Grid>
-
-                      <Grid item xs={12}>
-                        <Box sx={{ p: 2.5, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 2 }}>
-                            Approval Signatures
-                          </Typography>
-                          <Grid container spacing={3}>
-                            <Grid item xs={12} sm={6}>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>HOD HR Approval</Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                {viewDialog.settlement.hodApprovedBy ? `${viewDialog.settlement.hodApprovedBy.firstName || ''} ${viewDialog.settlement.hodApprovedBy.lastName || ''}`.trim() || viewDialog.settlement.hodApprovedBy.email || 'Approved' : 'Pending'}
+                  <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+                    <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 3 }}>
+                      Approval Authorities
+                    </Typography>
+                    <Grid container spacing={3}>
+                      {[
+                        { label: 'HOD HR', user: viewDialog.settlement.hodApprovedBy, at: viewDialog.settlement.hodApprovedAt, sig: viewDialog.settlement.hodSignature },
+                        { label: 'AVP (Taj Fahad Farid)', user: viewDialog.settlement.avpApprovedBy, at: viewDialog.settlement.avpApprovedAt, sig: viewDialog.settlement.avpSignature },
+                        { label: 'Chairman Steering Committee', user: viewDialog.settlement.chairmanApprovedBy, at: viewDialog.settlement.chairmanApprovedAt, sig: viewDialog.settlement.chairmanSignature },
+                        { label: 'Sr Director (Hamza Tanveer)', user: viewDialog.settlement.srDirectorApprovedBy, at: viewDialog.settlement.srDirectorApprovedAt, sig: viewDialog.settlement.srDirectorSignature },
+                        { label: 'CEO Secretariat', user: viewDialog.settlement.ceoApprovedBy, at: viewDialog.settlement.ceoApprovedAt, sig: viewDialog.settlement.ceoSignature }
+                      ].map((auth) => (
+                        <Grid item xs={12} sm={6} md={4} key={auth.label}>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
+                              {auth.label}
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                              {auth.user
+                                ? `${auth.user.firstName || ''} ${auth.user.lastName || ''}`.trim() || auth.user.email || 'Approved'
+                                : 'Pending'}
+                            </Typography>
+                            {auth.at && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                                {formatDateTime(auth.at)}
                               </Typography>
-                              {viewDialog.settlement.hodApprovedAt && (
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                  {formatDateTime(viewDialog.settlement.hodApprovedAt)}
-                                </Typography>
-                              )}
-                              {viewDialog.settlement.hodSignature && (
-                                <Box sx={{ mt: 1 }}>
-                                  <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.settlement.hodSignature }} alt="HOD Signature" />
-                                </Box>
-                              )}
-                            </Grid>
-                            <Grid item xs={12} sm={6}>
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>AVP Approval</Typography>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                {viewDialog.settlement.avpApprovedBy ? `${viewDialog.settlement.avpApprovedBy.firstName || ''} ${viewDialog.settlement.avpApprovedBy.lastName || ''}`.trim() || viewDialog.settlement.avpApprovedBy.email || 'Approved' : 'Pending'}
-                              </Typography>
-                              {viewDialog.settlement.avpApprovedAt && (
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                  {formatDateTime(viewDialog.settlement.avpApprovedAt)}
-                                </Typography>
-                              )}
-                              {viewDialog.settlement.avpSignature && (
-                                <Box sx={{ mt: 1 }}>
-                                  <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.settlement.avpSignature }} alt="AVP Signature" />
-                                </Box>
-                              )}
-                            </Grid>
-                          </Grid>
-                        </Box>
-                      </Grid>
+                            )}
+                            {auth.sig ? (
+                              <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
+                                <DigitalSignatureImage userOrPath={{ digitalSignature: auth.sig }} alt={`${auth.label} Signature`} />
+                              </Box>
+                            ) : (
+                              <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
+                                <Typography variant="caption" color="text.disabled">No Signature</Typography>
+                              </Box>
+                            )}
+                          </Box>
+                        </Grid>
+                      ))}
                     </Grid>
                   </Paper>
                 </Box>

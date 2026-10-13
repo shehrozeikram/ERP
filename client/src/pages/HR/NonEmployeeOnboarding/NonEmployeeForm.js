@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -66,6 +67,30 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
     assignedAvp: '',
     assignedChairman: ''
   });
+  const isResubmit = Boolean(
+    editData && ['Returned', 'Rejected by CEO', 'Draft'].includes(editData.workflowStatus)
+  );
+  const returnRemarks = String(
+    editData?.returnComments || editData?.rejectionComments || ''
+  ).trim();
+  const returnObservations = Array.isArray(editData?.returnObservations)
+    ? editData.returnObservations.filter((o) => String(o?.observation || '').trim())
+    : [];
+  const inferredResubmitStatus =
+    editData?.returnedFromStatus
+    || (editData?.workflowStatus === 'Rejected by CEO' ? 'Forwarded to CEO' : '')
+    || (editData?.srDirectorApprovedBy ? 'Forwarded to CEO' : '')
+    || (editData?.chairmanApprovedBy ? 'Pending Sr Director' : '')
+    || (editData?.avpApprovedBy ? 'Pending Chairman' : '')
+    || (editData?.hodApprovedBy ? 'Pending AVP' : '')
+    || '';
+  const resubmitTargetLabel = {
+    'Pending HOD HR': 'HOD HR',
+    'Pending AVP': 'AVP',
+    'Pending Chairman': 'Chairman Steering Committee',
+    'Pending Sr Director': 'Sr Director',
+    'Forwarded to CEO': 'CEO Secretariat'
+  }[inferredResubmitStatus] || 'the authority who returned/rejected it';
 
   React.useEffect(() => {
     if (editData) {
@@ -156,10 +181,25 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
         remark: String(r.remark || '').trim()
       }));
 
-      const payload = { employees, ...approvers, requesterSignature };
+      const payload = {
+        employees,
+        ...approvers,
+        requesterSignature,
+        // Hint for server when returnedFromStatus was not persisted on older returns
+        ...(isResubmit && inferredResubmitStatus
+          ? {
+              resubmitToStatus: inferredResubmitStatus,
+              returnedFromStatus: inferredResubmitStatus
+            }
+          : {})
+      };
       if (editData) {
         await nonEmployeeService.updateRecord(editData._id, payload);
-        toast.success('Record updated successfully');
+        toast.success(
+          isResubmit
+            ? `Resubmitted to ${resubmitTargetLabel} (${employees.length} candidate(s))`
+            : 'Record updated successfully'
+        );
       } else {
         await nonEmployeeService.createRecord(payload);
         toast.success(`Batch submitted with ${employees.length} candidate(s) to HOD HR`);
@@ -175,9 +215,44 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
-      <DialogTitle>{editData ? 'Edit New-Hiring Approval' : 'New-Hiring Approval'}</DialogTitle>
+      <DialogTitle>
+        {isResubmit ? 'Edit & Resubmit New-Hiring Approval' : editData ? 'Edit New-Hiring Approval' : 'New-Hiring Approval'}
+      </DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent dividers>
+          {isResubmit && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              This record was returned/rejected
+              {editData?.workflowStatus ? ` (${editData.workflowStatus})` : ''}.
+              Update the details below and resubmit — it will go directly back to{' '}
+              <strong>{resubmitTargetLabel}</strong> (earlier approvals stay intact).
+              {returnRemarks ? (
+                <Box component="div" mt={1.5}>
+                  <Typography variant="subtitle2" fontWeight={700}>Comments</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{returnRemarks}</Typography>
+                </Box>
+              ) : null}
+              {returnObservations.length > 0 ? (
+                <Box component="div" mt={1.5}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+                    Observations ({returnObservations.length})
+                  </Typography>
+                  <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                    {returnObservations.map((obs, idx) => (
+                      <Box component="li" key={obs._id || idx} sx={{ mb: 0.75 }}>
+                        <Typography variant="body2" component="span">
+                          <strong style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                            [{obs.severity || 'medium'}]
+                          </strong>{' '}
+                          {obs.observation}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              ) : null}
+            </Alert>
+          )}
           <Box mb={1} display="flex" justifyContent="space-between" alignItems="center">
             <Typography variant="subtitle1" fontWeight={700}>
               Candidates recommended for hiring
@@ -382,7 +457,7 @@ const NonEmployeeForm = ({ open, onClose, onSuccess, editData = null }) => {
         <DialogActions>
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="contained" color="primary">
-            {editData ? 'Save Changes' : 'Submit'}
+            {isResubmit ? 'Save & Resubmit' : editData ? 'Save Changes' : 'Submit'}
           </Button>
         </DialogActions>
       </form>
