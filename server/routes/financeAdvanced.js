@@ -2135,6 +2135,7 @@ router.get('/accounts-receivable',
 
     const [invoices, totalCount, summaryResult] = await Promise.all([
       AccountsReceivable.find(filters)
+        .populate('costCenter', 'name code')
         .sort({ invoiceDate: -1 })
         .skip(skip)
         .limit(limitNum),
@@ -2340,7 +2341,8 @@ router.post('/accounts-receivable',
     body('customer.name').trim().notEmpty().withMessage('Customer name is required'),
     body('invoiceNumber').trim().notEmpty().withMessage('Invoice number is required'),
     body('totalAmount').isFloat({ min: 0 }).withMessage('Total amount must be non-negative'),
-    body('lineItems').isArray({ min: 1 }).withMessage('At least one line item is required')
+    body('lineItems').isArray({ min: 1 }).withMessage('At least one line item is required'),
+    body('costCenter').notEmpty().withMessage('Cost center is required').isMongoId().withMessage('Valid cost center is required')
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -2348,14 +2350,38 @@ router.post('/accounts-receivable',
       console.error("Journal Entry Validation Error (PUT):", JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array(),
+        message: errors.array()[0]?.msg || 'Validation failed',
         errors: errors.array()
       });
     }
 
     // Use FinanceHelper to create AR and post to GL
     const company = await resolveCompanyForFinanceRoute(req);
+    const FinanceCostCenter = require('../models/finance/CostCenter');
+    const costCenterDoc = await FinanceCostCenter.findById(req.body.costCenter);
+    if (!costCenterDoc) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cost center not found'
+      });
+    }
+    if (
+      company?._id &&
+      costCenterDoc.companyId &&
+      String(costCenterDoc.companyId) !== String(company._id)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cost center does not belong to the selected company'
+      });
+    }
+    if (costCenterDoc.isActive === false) {
+      return res.status(400).json({
+        success: false,
+        message: 'Selected cost center is inactive'
+      });
+    }
+
     const lineItems = (req.body.lineItems || []).map(item => ({
       description: item.description || 'Line Item',
       quantity: Number(item.quantity) || 1,
@@ -2374,7 +2400,7 @@ router.post('/accounts-receivable',
       dueDate: req.body.dueDate,
       amount: req.body.totalAmount,
       department: req.body.department || 'general',
-      costCenter: req.body.costCenter || null,
+      costCenter: costCenterDoc._id,
       module: req.body.module || 'general',
       referenceId: req.body.referenceId || null,
       lineItems,
@@ -2387,6 +2413,8 @@ router.post('/accounts-receivable',
       })),
       createdBy: req.user._id
     });
+
+    await arEntry.populate('costCenter', 'name code');
 
     res.status(201).json({
       success: true,
@@ -2402,18 +2430,85 @@ router.post('/accounts-receivable',
 router.put('/accounts-receivable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
-    const invoice = await AccountsReceivable.findByIdAndUpdate(
-      req.params.id,
-      { $set: req.body },
-      { new: true, runValidators: true }
-    );
+    const { doc: invoice } = await loadScopedDoc(AccountsReceivable, req, { _id: req.params.id }, 'Invoice');
 
-    if (!invoice) {
-      return res.status(404).json({
+    const paid = Math.max(Number(invoice.amountPaid || 0), Number(invoice.paidAmount || 0));
+    if (paid > 0.009 || (Array.isArray(invoice.payments) && invoice.payments.length > 0)) {
+      return res.status(400).json({
         success: false,
-        message: 'Invoice not found'
+        message: 'Cannot edit invoice after payments have been recorded'
       });
     }
+    if (invoice.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cancelled invoices cannot be edited'
+      });
+    }
+
+    const body = req.body || {};
+    if (body.invoiceNumber != null) invoice.invoiceNumber = String(body.invoiceNumber).trim();
+    if (body.invoiceDate) invoice.invoiceDate = body.invoiceDate;
+    if (body.dueDate) invoice.dueDate = body.dueDate;
+    if (body.paymentTerms) invoice.paymentTerms = body.paymentTerms;
+    if (body.department != null) invoice.department = body.department;
+    if (body.notes != null) invoice.notes = body.notes;
+    if (body.costCenter) invoice.costCenter = body.costCenter;
+    else if (body.costCenter === null || body.costCenter === '') {
+      return res.status(400).json({ success: false, message: 'Cost center is required' });
+    }
+
+    if (body.customer && typeof body.customer === 'object') {
+      const c = body.customer;
+      if (!invoice.customer) invoice.customer = {};
+      if (c.name != null) invoice.customer.name = String(c.name).trim();
+      if (c.email !== undefined) invoice.customer.email = c.email ? String(c.email).trim() : '';
+      if (c.phone !== undefined) invoice.customer.phone = c.phone ? String(c.phone).trim() : '';
+      if (c.customerId !== undefined && c.customerId !== null && c.customerId !== '') {
+        invoice.customer.customerId = c.customerId;
+      }
+      if (c.address !== undefined && c.address !== null) {
+        if (typeof c.address === 'string') {
+          invoice.customer.address = { street: String(c.address).trim() };
+        } else if (typeof c.address === 'object') {
+          invoice.customer.address = {
+            street: c.address.street != null ? String(c.address.street).trim() : '',
+            city: c.address.city != null ? String(c.address.city).trim() : '',
+            state: c.address.state != null ? String(c.address.state).trim() : '',
+            zipCode: c.address.zipCode != null ? String(c.address.zipCode).trim() : '',
+            country: c.address.country != null ? String(c.address.country).trim() : ''
+          };
+        }
+      }
+      // Do not set address to undefined — that triggers CastError on Mixed/subdoc path
+      invoice.markModified('customer');
+    }
+
+    if (Array.isArray(body.lineItems) && body.lineItems.length > 0) {
+      invoice.lineItems = body.lineItems.map((item) => ({
+        description: item.description || 'Line Item',
+        quantity: Number(item.quantity) || 1,
+        unitPrice: Number(item.unitPrice) || Number(item.amount) || 0,
+        amount: Number(item.amount) || (Number(item.quantity || 1) * Number(item.unitPrice || 0)),
+        account: item.account || null
+      }));
+    }
+
+    if (body.totalAmount != null) {
+      const total = Number(body.totalAmount);
+      if (!(total >= 0)) {
+        return res.status(400).json({ success: false, message: 'Total amount must be non-negative' });
+      }
+      invoice.totalAmount = total;
+      invoice.subtotal = total;
+    }
+
+    invoice.updatedBy = req.user._id;
+    await invoice.save();
+    await invoice.populate([
+      { path: 'costCenter', select: 'name code' },
+      { path: 'companyId', select: 'name companyCode website contactInfo' }
+    ]);
 
     res.json({
       success: true,
@@ -2430,6 +2525,11 @@ router.get('/accounts-receivable/:id',
   authorize('super_admin', 'admin', 'finance_manager'),
   asyncHandler(async (req, res) => {
     const { doc } = await loadScopedDoc(AccountsReceivable, req, { _id: req.params.id }, 'Invoice');
+    await doc.populate([
+      { path: 'costCenter', select: 'name code' },
+      { path: 'companyId', select: 'name companyCode website contactInfo' },
+      { path: 'lineItems.account', select: 'name accountNumber type category' }
+    ]);
     const invoice = doc.toObject ? doc.toObject() : doc;
 
     res.json({

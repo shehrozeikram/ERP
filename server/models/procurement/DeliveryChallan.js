@@ -56,16 +56,58 @@ const deliveryChallanSchema = new mongoose.Schema({
   updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
-deliveryChallanSchema.pre('save', async function(next) {
-  const Model = mongoose.model('DeliveryChallan');
-  if (!this.dcNumber) {
-    const count = await Model.countDocuments();
-    this.dcNumber = `DC${String(count + 1).padStart(8, '0')}`;
+/** Next DC####### from highest existing number (not count — count breaks after deletes). */
+async function allocateNextDcNumber(Model) {
+  const last = await Model.findOne({ dcNumber: { $regex: /^DC\d+$/i } })
+    .sort({ dcNumber: -1 })
+    .select('dcNumber')
+    .lean();
+  let next = 1;
+  if (last?.dcNumber) {
+    const n = parseInt(String(last.dcNumber).replace(/^DC/i, ''), 10);
+    if (Number.isFinite(n) && n >= 0) next = n + 1;
   }
-  if (!this.gatePassNo) {
-    this.gatePassNo = `GP-${this.dcNumber}`;
+  return `DC${String(next).padStart(8, '0')}`;
+}
+
+deliveryChallanSchema.pre('save', async function (next) {
+  try {
+    const Model = mongoose.model('DeliveryChallan');
+    if (!this.dcNumber) {
+      this.dcNumber = await allocateNextDcNumber(Model);
+    }
+    if (!this.gatePassNo) {
+      this.gatePassNo = `GP-${this.dcNumber}`;
+    }
+    next();
+  } catch (err) {
+    next(err);
   }
-  next();
 });
+
+deliveryChallanSchema.statics.createWithUniqueDcNumber = async function (payload, { maxAttempts = 8 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const doc = new this({
+        ...payload,
+        dcNumber: undefined,
+        gatePassNo: undefined
+      });
+      await doc.save();
+      return doc;
+    } catch (err) {
+      lastErr = err;
+      const isDup =
+        err?.code === 11000 &&
+        (String(err?.message || '').includes('dcNumber') ||
+          String(err?.message || '').includes('gatePassNo') ||
+          err?.keyPattern?.dcNumber ||
+          err?.keyPattern?.gatePassNo);
+      if (!isDup) throw err;
+    }
+  }
+  throw lastErr || new Error('Could not allocate a unique delivery challan number');
+};
 
 module.exports = mongoose.model('DeliveryChallan', deliveryChallanSchema);

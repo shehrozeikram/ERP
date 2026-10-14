@@ -180,6 +180,11 @@ const accountsReceivableSchema = new mongoose.Schema({
       get: function() {
         return Math.round((this.amount * this.taxRate / 100) * 100) / 100;
       }
+    },
+    account: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Account',
+      default: null
     }
   }],
   // Payment history

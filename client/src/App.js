@@ -1173,6 +1173,10 @@ function App() {
                       element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><StandardCustomerInvoiceForm /></ProtectedRoute>}
                     />
                     <Route
+                      path="/finance/accounts-receivable/:id/edit"
+                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><StandardCustomerInvoiceForm /></ProtectedRoute>}
+                    />
+                    <Route
                       path="/finance/accounts-payable"
                       element={<ProtectedRoute requiredRole={["super_admin", "admin", "finance_manager"]}><AccountsPayable /></ProtectedRoute>}
                     />

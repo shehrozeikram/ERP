@@ -4283,7 +4283,7 @@ router.post('/delivery-challans',
       });
     }
 
-    const dc = new DeliveryChallan({
+    const dc = await DeliveryChallan.createWithUniqueDcNumber({
       purchaseOrder: po._id,
       vendorDcReference: vendorDcReference ? String(vendorDcReference).trim() : undefined,
       status: 'qa_pending',
@@ -4293,7 +4293,6 @@ router.post('/delivery-challans',
       createdBy: req.user.id,
       updatedBy: req.user.id
     });
-    await dc.save();
     await dc.populate([
       { path: 'purchaseOrder', select: 'orderNumber poNumber status totalAmount paymentTerms' },
       { path: 'createdBy', select: 'firstName lastName email' }

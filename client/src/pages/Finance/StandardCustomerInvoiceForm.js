@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   createFilterOptions,
   Box,
@@ -42,11 +42,18 @@ import {
   Save as SaveIcon,
   ArrowBack as ArrowBackIcon
 } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import { formatPKR } from '../../utils/currency';
 import { useFinanceCompany } from '../../context/FinanceCompanyContext';
+
+const toDateInput = (value) => {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().split('T')[0];
+};
 
 const DEFAULT_TERMS = [
   { value: 'due_on_receipt', label: 'Due on receipt', days: 0 },
@@ -70,6 +77,8 @@ const filter = createFilterOptions();
 
 const StandardCustomerInvoiceForm = () => {
   const navigate = useNavigate();
+  const { id: editInvoiceId } = useParams();
+  const isEditMode = Boolean(editInvoiceId);
   const { selectedCompanyId } = useFinanceCompany();
 
   // Customer & Invoice Metadata
@@ -97,6 +106,9 @@ const StandardCustomerInvoiceForm = () => {
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [loadingMaster, setLoadingMaster] = useState(false);
+  const [loadingInvoice, setLoadingInvoice] = useState(isEditMode);
+  const [invoiceLoaded, setInvoiceLoaded] = useState(false);
+  const skipNextDueDateSync = useRef(false);
 
   // Quick Add Revenue Account Dialog
   const [newAccountDialog, setNewAccountDialog] = useState(false);
@@ -124,7 +136,7 @@ const StandardCustomerInvoiceForm = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  // Auto calculate due date
+  // Auto calculate due date (create mode / when terms change — don't overwrite loaded edit due date on first paint)
   const updateDueDateFromTerms = useCallback((termsValue, bDate) => {
     if (!bDate) return;
     const term = DEFAULT_TERMS.find((t) => t.value === termsValue);
@@ -137,8 +149,14 @@ const StandardCustomerInvoiceForm = () => {
   }, []);
 
   useEffect(() => {
+    if (isEditMode && !invoiceLoaded) return;
+    if (skipNextDueDateSync.current) {
+      skipNextDueDateSync.current = false;
+      return;
+    }
+    if (paymentTerms === 'custom') return;
     updateDueDateFromTerms(paymentTerms, invoiceDate);
-  }, [paymentTerms, invoiceDate, updateDueDateFromTerms]);
+  }, [paymentTerms, invoiceDate, updateDueDateFromTerms, isEditMode, invoiceLoaded]);
 
   // Load Master Data
   useEffect(() => {
@@ -172,10 +190,12 @@ const StandardCustomerInvoiceForm = () => {
         const custList = custRes.data?.data?.customers || custRes.data?.customers || custRes.data?.data || [];
         setCustomers(Array.isArray(custList) ? custList : []);
 
-        // Auto-generate invoice number suggestion
-        const now = new Date();
-        const rand = Math.floor(1000 + Math.random() * 9000);
-        setInvoiceNumber(`INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-${rand}`);
+        // Auto-generate invoice number suggestion (create only)
+        if (!isEditMode) {
+          const now = new Date();
+          const rand = Math.floor(1000 + Math.random() * 9000);
+          setInvoiceNumber(`INV-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}-${rand}`);
+        }
       } catch (err) {
         console.error('Failed to load master data:', err);
       } finally {
@@ -183,7 +203,101 @@ const StandardCustomerInvoiceForm = () => {
       }
     };
     fetchData();
-  }, [selectedCompanyId]);
+  }, [selectedCompanyId, isEditMode]);
+
+  // Load existing invoice for edit
+  useEffect(() => {
+    if (!isEditMode || loadingMaster || invoiceLoaded) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingInvoice(true);
+      setError('');
+      try {
+        const res = await api.get(`/finance/accounts-receivable/${editInvoiceId}`);
+        const inv = res.data?.data;
+        if (!inv) throw new Error('Invoice not found');
+        if (cancelled) return;
+
+        const paid = Math.max(Number(inv.amountPaid || 0), Number(inv.paidAmount || 0));
+        if (paid > 0.009 || (Array.isArray(inv.payments) && inv.payments.length > 0)) {
+          toast.error('This invoice has payments and cannot be edited');
+          navigate('/finance/accounts-receivable');
+          return;
+        }
+
+        setInvoiceNumber(inv.invoiceNumber || '');
+        setInvoiceDate(toDateInput(inv.invoiceDate) || new Date().toISOString().split('T')[0]);
+        setDueDate(toDateInput(inv.dueDate));
+        setPaymentTerms(inv.paymentTerms || 'net_30');
+        setDepartment(inv.department || 'general');
+        setCostCenter(inv.costCenter?._id || inv.costCenter || '');
+        setNotes(inv.notes || '');
+        setCustomerName(inv.customer?.name || inv.customerName || '');
+        setCustomerEmail(inv.customer?.email || inv.customerEmail || '');
+        setCustomerPhone(inv.customer?.phone || '');
+        setCustomerAddress(
+          typeof inv.customer?.address === 'string'
+            ? inv.customer.address
+            : inv.customer?.address?.street || ''
+        );
+
+        const custId = inv.customer?.customerId?._id || inv.customer?.customerId || null;
+        const matchedCustomer =
+          (custId && customers.find((c) => String(c._id) === String(custId))) ||
+          customers.find(
+            (c) =>
+              String(c.name || '').trim().toLowerCase() ===
+              String(inv.customer?.name || inv.customerName || '').trim().toLowerCase()
+          ) ||
+          null;
+        setSelectedCustomer(matchedCustomer);
+
+        if (inv.companyId) {
+          const companyIdStr = inv.companyId?._id || inv.companyId;
+          const matchCo = companiesList.find((c) => String(c._id) === String(companyIdStr));
+          if (matchCo) setSelectedCompany(matchCo);
+        }
+
+        const mappedLines = (inv.lineItems || []).map((li) => {
+          const accId = li.account?._id || li.account || null;
+          const account =
+            (accId && accounts.find((a) => String(a._id) === String(accId))) ||
+            (li.account && typeof li.account === 'object' ? li.account : null);
+          return {
+            id: Date.now() + Math.random(),
+            account,
+            description: li.description || '',
+            quantity: Number(li.quantity) || 1,
+            unitPrice: Number(li.unitPrice) || Number(li.amount) || '',
+            amount: Number(li.amount) || ''
+          };
+        });
+        setLines(mappedLines.length ? mappedLines : [emptyLine()]);
+        skipNextDueDateSync.current = true;
+        setInvoiceLoaded(true);
+      } catch (err) {
+        console.error('Failed to load invoice for edit:', err);
+        if (!cancelled) {
+          setError(err.response?.data?.message || 'Failed to load invoice for editing');
+          toast.error(err.response?.data?.message || 'Failed to load invoice');
+        }
+      } finally {
+        if (!cancelled) setLoadingInvoice(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isEditMode,
+    editInvoiceId,
+    loadingMaster,
+    invoiceLoaded,
+    customers,
+    accounts,
+    companiesList,
+    navigate
+  ]);
 
   // Filter Revenue Accounts
   const revenueAccounts = useMemo(() => {
@@ -336,6 +450,10 @@ const StandardCustomerInvoiceForm = () => {
       setError('Invoice number is required');
       return;
     }
+    if (!costCenter) {
+      setError('Cost center is required');
+      return;
+    }
     if (grandTotal <= 0) {
       setError('Total invoice amount must be greater than zero');
       return;
@@ -351,19 +469,19 @@ const StandardCustomerInvoiceForm = () => {
       setSubmitting(true);
       const payload = {
         customer: {
-          customerId: selectedCustomer?._id || undefined,
+          customerId: selectedCustomer?._id || null,
           name: customerName.trim(),
-          email: customerEmail.trim() || undefined,
-          phone: customerPhone.trim() || undefined,
-          address: customerAddress.trim() ? { street: customerAddress.trim() } : undefined
+          email: customerEmail.trim() || '',
+          phone: customerPhone.trim() || '',
+          address: { street: customerAddress.trim() || '' }
         },
         invoiceNumber: invoiceNumber.trim(),
         invoiceDate,
         dueDate,
         paymentTerms,
         department: department || 'general',
-        costCenter: costCenter || undefined,
-        notes,
+        costCenter,
+        notes: notes || '',
         totalAmount: grandTotal,
         companyId: selectedCompany?._id || selectedCompanyId || undefined,
         lineItems: validLines.map((l) => ({
@@ -375,18 +493,32 @@ const StandardCustomerInvoiceForm = () => {
         }))
       };
 
-      const res = await api.post('/finance/accounts-receivable', payload);
+      const res = isEditMode
+        ? await api.put(`/finance/accounts-receivable/${editInvoiceId}`, payload)
+        : await api.post('/finance/accounts-receivable', payload);
       if (res.data?.success || res.status === 201 || res.status === 200) {
-        toast.success(`✓ Invoice ${invoiceNumber} created and booked to revenue!`);
+        toast.success(
+          isEditMode
+            ? `✓ Invoice ${invoiceNumber} updated`
+            : `✓ Invoice ${invoiceNumber} created and booked to revenue!`
+        );
         navigate('/finance/accounts-receivable');
       }
     } catch (err) {
-      console.error('Error creating invoice:', err);
-      setError(err.response?.data?.message || 'Failed to create invoice');
+      console.error(isEditMode ? 'Error updating invoice:' : 'Error creating invoice:', err);
+      setError(err.response?.data?.message || (isEditMode ? 'Failed to update invoice' : 'Failed to create invoice'));
     } finally {
       setSubmitting(false);
     }
   };
+
+  if (isEditMode && loadingInvoice) {
+    return (
+      <Box sx={{ p: 6, display: 'flex', justifyContent: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: 3, maxWidth: 1400, margin: '0 auto' }}>
@@ -404,7 +536,7 @@ const StandardCustomerInvoiceForm = () => {
                 Back to Accounts Receivable
               </Button>
               <Typography variant="h4" fontWeight={700} sx={{ color: 'text.primary', letterSpacing: -0.5 }}>
-                New Customer Invoice
+                {isEditMode ? 'Edit Customer Invoice' : 'New Customer Invoice'}
               </Typography>
             </Stack>
           </Grid>
@@ -580,14 +712,25 @@ const StandardCustomerInvoiceForm = () => {
                   <TextField
                     fullWidth
                     select
+                    required
                     label="Cost Center"
                     size="small"
                     value={costCenter}
                     onChange={(e) => setCostCenter(e.target.value)}
+                    error={!costCenter && Boolean(error)}
+                    helperText={
+                      costCenters.filter((cc) => cc.isActive !== false).length === 0
+                        ? 'No cost centers found — add one under Finance → Setup → Cost Centers'
+                        : 'Required'
+                    }
                   >
-                    <MenuItem value="">None</MenuItem>
-                    {costCenters.filter(cc => cc.isActive).map((cc) => (
-                      <MenuItem key={cc._id} value={cc._id}>{cc.name}</MenuItem>
+                    <MenuItem value="" disabled>
+                      Select cost center…
+                    </MenuItem>
+                    {costCenters.filter((cc) => cc.isActive !== false).map((cc) => (
+                      <MenuItem key={cc._id} value={cc._id}>
+                        {cc.code ? `${cc.code} — ${cc.name}` : cc.name}
+                      </MenuItem>
                     ))}
                   </TextField>
                 </Grid>
@@ -806,7 +949,9 @@ const StandardCustomerInvoiceForm = () => {
             onClick={handleSubmitInvoice}
             sx={{ px: 4, fontWeight: 700 }}
           >
-            {submitting ? 'Booking Invoice...' : 'Save & Book Invoice'}
+            {submitting
+              ? (isEditMode ? 'Updating Invoice…' : 'Booking Invoice…')
+              : (isEditMode ? 'Update Invoice' : 'Save & Book Invoice')}
           </Button>
         </Stack>
       </Paper>

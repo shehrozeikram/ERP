@@ -91,16 +91,9 @@ const AccountsReceivable = () => {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [creditNoteDialog, setCreditNoteDialog] = useState({ open: false, invoice: null, amount: '', reason: '' });
   const [emailDialog, setEmailDialog] = useState({ open: false, invoice: null });
   const [emailSending, setEmailSending] = useState(false);
-  const [editData, setEditData] = useState({
-    invoiceNumber: '',
-    totalAmount: 0,
-    invoiceDate: '',
-    dueDate: ''
-  });
   const [paymentData, setPaymentData] = useState({
     amount: 0,
     paymentMethod: 'bank_transfer',
@@ -374,14 +367,11 @@ const AccountsReceivable = () => {
 
   
   const handleOpenEdit = (invoice) => {
-    setSelectedInvoice(invoice);
-    setEditData({
-      invoiceNumber: invoice.invoiceNumber,
-      totalAmount: invoice.totalAmount,
-      invoiceDate: new Date(invoice.invoiceDate).toISOString().split('T')[0],
-      dueDate: new Date(invoice.dueDate).toISOString().split('T')[0]
-    });
-    setEditDialogOpen(true);
+    if (!invoice?._id) {
+      toast.error('Invoice not found');
+      return;
+    }
+    navigate(`/finance/accounts-receivable/${invoice._id}/edit`);
   };
 
   const canDeleteInvoice = (invoice) => {
@@ -474,20 +464,6 @@ const AccountsReceivable = () => {
 
   const removeInstallmentRow = (idx) => {
     setInstallmentDraft((prev) => prev.filter((r, i) => i !== idx || r.locked));
-  };
-
-  const handleUpdateInvoice = async () => {
-    try {
-      const response = await api.put(`/finance/accounts-receivable/${selectedInvoice._id}`, editData);
-      if (response.data.success) {
-        toast.success('Invoice updated successfully');
-        setEditDialogOpen(false);
-        fetchAccountsReceivable();
-      }
-    } catch (error) {
-      console.error('Error updating invoice:', error);
-      toast.error(error.response?.data?.message || 'Failed to update invoice');
-    }
   };
 
   const getStatusColor = (status) => {
@@ -1066,15 +1042,25 @@ const AccountsReceivable = () => {
                   size="small"
                 />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Typography variant="subtitle2" color="textSecondary">Invoice Date</Typography>
                 <Typography variant="body2">{formatDate(selectedInvoice.invoiceDate)}</Typography>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Typography variant="subtitle2" color="textSecondary">Due Date</Typography>
                 <Typography variant="body2">{formatDate(selectedInvoice.dueDate)}</Typography>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
+                <Typography variant="subtitle2" color="textSecondary">Cost Center</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {selectedInvoice.costCenter
+                    ? (typeof selectedInvoice.costCenter === 'object'
+                      ? [selectedInvoice.costCenter.code, selectedInvoice.costCenter.name].filter(Boolean).join(' — ') || '—'
+                      : String(selectedInvoice.costCenter))
+                    : '—'}
+                </Typography>
+              </Grid>
+              <Grid item xs={12} md={3}>
                 <Typography variant="subtitle2" color="textSecondary">Amount</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{formatPKR(selectedInvoice.totalAmount)}</Typography>
               </Grid>
@@ -1279,6 +1265,17 @@ const AccountsReceivable = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+          {selectedInvoice && (
+            <Button
+              startIcon={<EditIcon />}
+              onClick={() => {
+                setViewDialogOpen(false);
+                handleOpenEdit(selectedInvoice);
+              }}
+            >
+              Edit
+            </Button>
+          )}
           {selectedInvoice && canDeleteInvoice(selectedInvoice) && (
             <Button
               color="error"
@@ -1323,70 +1320,6 @@ const AccountsReceivable = () => {
       />
 
 
-      {/* Edit Invoice Dialog */}
-      <Dialog 
-        open={editDialogOpen} 
-        onClose={() => setEditDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Edit Invoice: {selectedInvoice?.invoiceNumber}</DialogTitle>
-        <DialogContent dividers>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Invoice Number"
-                value={editData.invoiceNumber}
-                onChange={(e) => setEditData({ ...editData, invoiceNumber: e.target.value })}
-                size="small"
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Total Amount"
-                type="number"
-                value={editData.totalAmount}
-                onChange={(e) => setEditData({ ...editData, totalAmount: parseFloat(e.target.value) })}
-                size="small"
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Invoice Date"
-                type="date"
-                value={editData.invoiceDate}
-                onChange={(e) => setEditData({ ...editData, invoiceDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                size="small"
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                fullWidth
-                label="Due Date"
-                type="date"
-                value={editData.dueDate}
-                onChange={(e) => setEditData({ ...editData, dueDate: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-                size="small"
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
-          <Button 
-            variant="contained" 
-            color="primary" 
-            onClick={handleUpdateInvoice}
-          >
-            Update Invoice
-          </Button>
-        </DialogActions>
-      </Dialog>
       {/* Credit Note Dialog */}
       <Dialog open={creditNoteDialog.open} onClose={() => setCreditNoteDialog({ open: false, invoice: null, amount: '', reason: '' })} maxWidth="sm" fullWidth>
         <DialogTitle>

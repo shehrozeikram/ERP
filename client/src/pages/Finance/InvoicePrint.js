@@ -1,26 +1,75 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box, Typography, Button, CircularProgress, Alert, Divider,
-  Table, TableBody, TableCell, TableHead, TableRow, Stack, Chip
+  Table, TableBody, TableCell, TableHead, TableRow, Chip
 } from '@mui/material';
 import { Print as PrintIcon, ArrowBack as BackIcon, Download as DownloadIcon } from '@mui/icons-material';
 import api from '../../services/api';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 
 const fmt = (n) => `PKR ${Number(n || 0).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-PK', { year: 'numeric', month: 'long', day: 'numeric' }) : '—';
 
 const STATUS_COLOR = { draft: 'default', pending: 'warning', approved: 'info', paid: 'success', partial: 'warning', overdue: 'error' };
 
+const DEFAULT_COMPANY = {
+  name: 'SGC International',
+  phone: '',
+  address: '',
+  city: '',
+  website: 'www.sgc.com',
+  ntn: '',
+  strn: '',
+  logoUrl: '',
+  invoiceFooter: ''
+};
+
+const pickStr = (...vals) => {
+  for (const v of vals) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (s) return s;
+  }
+  return '';
+};
+
+/**
+ * Letterhead priority:
+ * 1) Invoice companyId (finance company the AR belongs to)
+ * 2) Currently selected finance company
+ * 3) Global company profile (NTN/STRN/logo/footer)
+ * 4) SGC defaults
+ */
+const resolveCompanyLetterhead = (invoiceCompany, selectedCompany, profile = {}) => {
+  const invCo = invoiceCompany && typeof invoiceCompany === 'object' ? invoiceCompany : null;
+  const selCo = selectedCompany && typeof selectedCompany === 'object' ? selectedCompany : null;
+  const invContact = invCo?.contactInfo || {};
+  const selContact = selCo?.contactInfo || {};
+
+  return {
+    name: pickStr(invCo?.name, selCo?.name, profile.name, DEFAULT_COMPANY.name),
+    phone: pickStr(invContact.phone, selContact.phone, profile.phone),
+    address: pickStr(invContact.address, selContact.address, profile.address),
+    city: pickStr(profile.city),
+    website: 'www.sgc.com',
+    ntn: pickStr(profile.ntn),
+    strn: pickStr(profile.strn),
+    logoUrl: pickStr(profile.logoUrl),
+    invoiceFooter: pickStr(profile.invoiceFooter)
+  };
+};
+
 export default function InvoicePrint() {
   const { id } = useParams();
   const navigate = useNavigate();
   const printRef = useRef();
+  const { selectedCompany, companies } = useFinanceCompany();
 
   const [invoice, setInvoice] = useState(null);
-  const [company, setCompany] = useState({});
+  const [profile, setProfile] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
 
@@ -32,7 +81,7 @@ export default function InvoicePrint() {
           api.get('/finance/company-profile').catch(() => ({ data: { data: {} } }))
         ]);
         setInvoice(invRes.data.data || invRes.data);
-        setCompany(cpRes.data.data || {});
+        setProfile(cpRes.data?.data || {});
       } catch (e) {
         setError(e.response?.data?.message || 'Invoice not found');
       } finally {
@@ -41,6 +90,19 @@ export default function InvoicePrint() {
     })();
   }, [id]);
 
+  const invoiceCompany = useMemo(() => {
+    const raw = invoice?.companyId;
+    if (raw && typeof raw === 'object' && raw.name) return raw;
+    const idStr = raw?._id || raw;
+    if (!idStr) return null;
+    return companies.find((c) => String(c._id) === String(idStr)) || null;
+  }, [invoice, companies]);
+
+  const company = useMemo(
+    () => resolveCompanyLetterhead(invoiceCompany, selectedCompany, profile),
+    [invoiceCompany, selectedCompany, profile]
+  );
+
   const handleDownloadPDF = () => {
     if (!invoice) return;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -48,14 +110,16 @@ export default function InvoicePrint() {
     const co = company;
     // Header
     doc.setFillColor(25, 118, 210);
-    doc.rect(0, 0, 210, 28, 'F');
+    doc.rect(0, 0, 210, 34, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(18); doc.setFont('helvetica', 'bold');
-    doc.text(co.name || 'SGC International', 14, 12);
+    doc.text(co.name, 14, 12);
     doc.setFontSize(11); doc.setFont('helvetica', 'normal');
-    doc.text('Tax Invoice', 14, 20);
-    if (co.ntn)  { doc.setFontSize(8); doc.text(`NTN: ${co.ntn}`, 14, 26); }
-    if (co.strn) { doc.setFontSize(8); doc.text(`STRN: ${co.strn}`, 60, 26); }
+    doc.text('Invoice', 14, 20);
+    doc.setFontSize(8);
+    doc.text('www.sgc.com', 14, 26);
+    if (co.ntn) doc.text(`NTN: ${co.ntn}`, 14, 31);
+    if (co.strn) doc.text(`STRN: ${co.strn}`, 60, 31);
     doc.setFontSize(10);
     doc.text(invoice.invoiceNumber, 196, 12, { align: 'right' });
     doc.text(`Status: ${invoice.status?.toUpperCase()}`, 196, 20, { align: 'right' });
@@ -63,7 +127,7 @@ export default function InvoicePrint() {
     // Bill To / Invoice Info
     doc.setTextColor(40, 40, 40);
     doc.setFontSize(9);
-    let y = 36;
+    let y = 42;
     doc.setFont('helvetica', 'bold'); doc.text('BILL TO:', 14, y);
     doc.setFont('helvetica', 'normal');
     doc.text(invoice.customer?.name || '—', 14, y + 5);
@@ -77,6 +141,12 @@ export default function InvoicePrint() {
     doc.text(`Date: ${fmtDate(invoice.invoiceDate)}`, 130, y + 10);
     doc.text(`Due Date: ${fmtDate(invoice.dueDate)}`, 130, y + 15);
     if (invoice.department) doc.text(`Dept: ${invoice.department}`, 130, y + 20);
+    const ccLabel = invoice.costCenter
+      ? (typeof invoice.costCenter === 'object'
+        ? [invoice.costCenter.code, invoice.costCenter.name].filter(Boolean).join(' — ')
+        : String(invoice.costCenter))
+      : '';
+    if (ccLabel) doc.text(`Cost Center: ${ccLabel}`, 130, y + 25);
 
     y += 30;
     doc.setDrawColor(200, 200, 200); doc.line(14, y, 196, y);
@@ -135,10 +205,12 @@ export default function InvoicePrint() {
       doc.setFont('helvetica', 'normal'); doc.text(invoice.notes, 14, y + 5);
     }
 
-    y = 278;
+    y = 275;
     doc.setFontSize(8); doc.setTextColor(140);
-    const footerText = co.invoiceFooter || `Thank you for your business — ${co.name || 'SGC International'}`;
+    const footerText = co.invoiceFooter || `Thank you for your business — ${co.name}`;
     doc.text(footerText, 105, y, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.text('www.sgc.com', 105, y + 5, { align: 'center' });
 
     doc.save(`Invoice-${invoice.invoiceNumber}.pdf`);
   };
@@ -165,19 +237,29 @@ export default function InvoicePrint() {
         maxWidth: 820, mx: 'auto', p: 5, bgcolor: 'white',
         '@media print': { maxWidth: '100%', p: 3, margin: 0 }
       }}>
-        {/* Header */}
+        {/* Header — company from invoice finance company (dynamic) */}
         <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={3}>
           <Box>
             {company.logoUrl && <Box component="img" src={company.logoUrl} alt="Logo" sx={{ height: 48, mb: 0.5, display: 'block' }} />}
-            <Typography variant="h4" fontWeight={900} color="primary.main">{company.name || 'SGC International'}</Typography>
-            {company.address && <Typography variant="body2" color="text.secondary">{company.address}{company.city ? `, ${company.city}` : ''}</Typography>}
-            {company.phone   && <Typography variant="body2" color="text.secondary">{company.phone}</Typography>}
-            {company.email   && <Typography variant="body2" color="text.secondary">{company.email}</Typography>}
-            {company.ntn     && <Typography variant="body2" color="text.secondary" fontWeight={600}>NTN: {company.ntn}</Typography>}
-            {company.strn    && <Typography variant="body2" color="text.secondary" fontWeight={600}>STRN: {company.strn}</Typography>}
+            <Typography variant="h4" fontWeight={900} color="primary.main">
+              {company.name}
+            </Typography>
+            {company.address && (
+              <Typography variant="body2" color="text.secondary">
+                {company.address}{company.city ? `, ${company.city}` : ''}
+              </Typography>
+            )}
+            {company.phone && <Typography variant="body2" color="text.secondary">{company.phone}</Typography>}
+            <Typography variant="body2" color="text.secondary">www.sgc.com</Typography>
+            {company.ntn && (
+              <Typography variant="body2" color="text.secondary" fontWeight={600}>NTN: {company.ntn}</Typography>
+            )}
+            {company.strn && (
+              <Typography variant="body2" color="text.secondary" fontWeight={600}>STRN: {company.strn}</Typography>
+            )}
           </Box>
           <Box textAlign="right">
-            <Typography variant="h5" fontWeight={800} color="text.primary">TAX INVOICE</Typography>
+            <Typography variant="h5" fontWeight={800} color="text.primary">INVOICE</Typography>
             <Typography variant="h6" color="primary.main">{invoice.invoiceNumber}</Typography>
             <Chip label={invoice.status?.toUpperCase()} size="small" color={STATUS_COLOR[invoice.status] || 'default'} sx={{ mt: 0.5 }} />
           </Box>
@@ -202,6 +284,14 @@ export default function InvoicePrint() {
                   ['Invoice Date', fmtDate(invoice.invoiceDate)],
                   ['Due Date', fmtDate(invoice.dueDate)],
                   ['Department', invoice.department || '—'],
+                  [
+                    'Cost Center',
+                    invoice.costCenter
+                      ? (typeof invoice.costCenter === 'object'
+                        ? [invoice.costCenter.code, invoice.costCenter.name].filter(Boolean).join(' — ') || '—'
+                        : String(invoice.costCenter))
+                      : '—'
+                  ],
                   ['Reference', invoice.referenceNumber || '—'],
                 ].map(([k, v]) => (
                   <TableRow key={k} sx={{ '& td': { border: 'none', py: 0.25, px: 0.5 } }}>
@@ -289,11 +379,14 @@ export default function InvoicePrint() {
         )}
 
         <Divider sx={{ mb: 2 }} />
-        <Typography variant="caption" color="text.disabled" display="block" textAlign="center">
-          {company.invoiceFooter || `Thank you for your business — ${company.name || 'SGC International'}`}
-          {company.email && ` — ${company.email}`}
-          {company.website && ` — ${company.website}`}
-        </Typography>
+        <Box textAlign="center">
+          <Typography variant="caption" color="text.secondary" display="block">
+            {company.invoiceFooter || `Thank you for your business — ${company.name}`}
+          </Typography>
+          <Typography variant="body2" fontWeight={700} color="primary.main" sx={{ mt: 0.5 }}>
+            www.sgc.com
+          </Typography>
+        </Box>
       </Box>
     </Box>
   );
