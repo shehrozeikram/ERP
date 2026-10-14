@@ -190,6 +190,18 @@ const populateApprovalAuthorities = (query) =>
     .populate('ceoApprovedBy', 'firstName lastName email')
     .populate('returnObservations.addedBy', 'firstName lastName email');
 
+/** Older approved docs stored flat candidate fields; expose them as employees[] for all clients. */
+const withEmployeesShape = (record) => {
+  if (!record) return record;
+  const obj = typeof record.toObject === 'function' ? record.toObject() : { ...record };
+  if (Array.isArray(obj.employees) && obj.employees.length > 0) return obj;
+  const hasLegacy = obj.firstName || obj.lastName || obj.name || obj.cnic || obj.role || obj.designation
+    || obj.expectedWages != null || obj.currentPackageMonthly != null;
+  if (!hasLegacy) return obj;
+  obj.employees = [NonEmployeeRecord.normalizeEmployeeLine(obj)];
+  return obj;
+};
+
 exports.createRecord = async (req, res) => {
   try {
     const { employees, assignedHod, assignedSrDirector, assignedAvp, assignedChairman } = req.body;
@@ -361,7 +373,11 @@ exports.deleteRecord = async (req, res) => {
 exports.getRecords = async (req, res) => {
   try {
     const records = await populateApprovalAuthorities(NonEmployeeRecord.find()).sort('-createdAt');
-    res.status(200).json({ success: true, count: records.length, data: records });
+    res.status(200).json({
+      success: true,
+      count: records.length,
+      data: records.map(withEmployeesShape)
+    });
   } catch (error) {
     console.error('Error fetching NonEmployeeRecords:', error);
     res.status(500).json({ success: false, error: 'Server Error' });
@@ -375,7 +391,7 @@ exports.getRecordById = async (req, res) => {
     if (!record) {
       return res.status(404).json({ success: false, error: 'Record not found' });
     }
-    res.status(200).json({ success: true, data: record });
+    res.status(200).json({ success: true, data: withEmployeesShape(record) });
   } catch (error) {
     console.error('Error fetching NonEmployeeRecord:', error);
     res.status(500).json({ success: false, error: 'Server Error' });
@@ -639,7 +655,11 @@ exports.getForCEO = async (req, res) => {
     const records = await populateApprovalAuthorities(
       NonEmployeeRecord.find({ workflowStatus: 'Forwarded to CEO' })
     ).sort('-createdAt');
-    res.status(200).json({ success: true, count: records.length, data: records });
+    res.status(200).json({
+      success: true,
+      count: records.length,
+      data: records.map(withEmployeesShape)
+    });
   } catch (error) {
     console.error('Error fetching CEO NonEmployeeRecords:', error);
     res.status(500).json({ success: false, error: 'Server Error' });

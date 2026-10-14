@@ -1,5 +1,6 @@
 import { getImageUrl } from './imageService';
 import { openPrintHtml } from './employeeFormPrint';
+import { getNewHiringAuthorityCards, getNewHiringEmployees } from './newHiringEmployees';
 
 const escapeHtml = (value) => {
   if (value == null || value === '') return '';
@@ -65,7 +66,7 @@ const signatureBlock = (path, alt) => {
 export const buildNewHiringApprovalPrintHtml = (record) => {
   if (!record) return '';
 
-  const employees = Array.isArray(record.employees) ? record.employees : [];
+  const employees = getNewHiringEmployees(record);
   const rows = employees
     .map((emp) => {
       const name = emp.name || [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || '—';
@@ -85,29 +86,11 @@ export const buildNewHiringApprovalPrintHtml = (record) => {
     })
     .join('');
 
-  const authorities = [
-    { label: 'HOD HR', user: record.hodApprovedBy, at: record.hodApprovedAt, sig: record.hodSignature },
-    { label: 'AVP (Taj Fahad Farid)', user: record.avpApprovedBy, at: record.avpApprovedAt, sig: record.avpSignature },
-    {
-      label: 'Chairman Steering Committee',
-      user: record.chairmanApprovedBy,
-      at: record.chairmanApprovedAt,
-      sig: record.chairmanSignature
-    },
-    {
-      label: 'Sr Director (Hamza Tanveer)',
-      user: record.srDirectorApprovedBy,
-      at: record.srDirectorApprovedAt,
-      sig: record.srDirectorSignature
-    },
-    { label: 'CEO Secretariat', user: record.ceoApprovedBy, at: record.ceoApprovedAt, sig: record.ceoSignature }
-  ];
-
-  const authorityCards = authorities
+  const authorityCards = getNewHiringAuthorityCards(record)
     .map(
       (a) => `<div class="auth-card">
         <div class="auth-label">${escapeHtml(a.label)}</div>
-        <div class="auth-name">${formatPerson(a.user)}</div>
+        <div class="auth-name">${escapeHtml(a.statusLabel || formatPerson(a.user))}</div>
         ${a.at ? `<div class="muted">${formatDateTime(a.at)}</div>` : ''}
         ${signatureBlock(a.sig, `${a.label} Signature`)}
       </div>`

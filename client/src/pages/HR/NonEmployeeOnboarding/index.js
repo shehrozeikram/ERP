@@ -32,6 +32,11 @@ import NonEmployeeForm from './NonEmployeeForm';
 import { useAuth } from '../../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import { printNewHiringApproval } from '../../../utils/newHiringApprovalPrint';
+import {
+  formatNewHiringPackage,
+  getNewHiringAuthorityCards,
+  getNewHiringEmployees
+} from '../../../utils/newHiringEmployees';
 
 const NonEmployeeOnboarding = () => {
   const [records, setRecords] = useState([]);
@@ -273,7 +278,8 @@ const NonEmployeeOnboarding = () => {
                 ...feedbackObservations.map((o) => `[${o.severity || 'medium'}] ${o.observation}`)
               ].filter(Boolean).join('\n');
 
-              const numEmployees = record.employees?.length || 0;
+              const employees = getNewHiringEmployees(record);
+              const numEmployees = employees.length;
               const empName = (e) =>
                 e?.name
                 || [e?.firstName, e?.lastName].filter(Boolean).join(' ').trim()
@@ -281,33 +287,25 @@ const NonEmployeeOnboarding = () => {
               const empDesignation = (e) => e?.designation || e?.role || '—';
               const empPackage = (e) => e?.currentPackageMonthly ?? e?.expectedWages;
               const displayName = numEmployees > 0
-                ? record.employees.map(empName).join(', ')
+                ? employees.map(empName).join(', ')
                 : 'N/A';
               const displayDesignation = numEmployees > 0
-                ? record.employees.map(empDesignation).join(', ')
+                ? employees.map(empDesignation).join(', ')
                 : 'N/A';
               const displayCnic = numEmployees > 0
-                ? record.employees.map((e) => e.cnic).join(', ')
+                ? employees.map((e) => e.cnic || '—').join(', ')
                 : 'N/A';
               const displayDept = numEmployees > 0
-                ? record.employees.map((e) => e.departmentSubject || '—').join(', ')
+                ? employees.map((e) => e.departmentSubject || '—').join(', ')
                 : 'N/A';
               const displayProject = numEmployees > 0
-                ? record.employees.map((e) => e.project || '—').join(', ')
+                ? employees.map((e) => e.project || '—').join(', ')
                 : 'N/A';
               const displayLocation = numEmployees > 0
-                ? record.employees.map((e) => e.location || '—').join(', ')
+                ? employees.map((e) => e.location || '—').join(', ')
                 : 'N/A';
               const displayPackage = numEmployees > 0
-                ? record.employees.map((e) => {
-                    const v = empPackage(e);
-                    if (v == null || String(v).trim() === '' || String(v) === '0') return '—';
-                    const n = Number(v);
-                    if (Number.isFinite(n) && String(v).trim() !== '' && /^-?\d+(\.\d+)?$/.test(String(v).trim())) {
-                      return n.toLocaleString('en-PK');
-                    }
-                    return String(v);
-                  }).join(', ')
+                ? employees.map((e) => formatNewHiringPackage(empPackage(e))).join(', ')
                 : 'N/A';
 
               return (
@@ -467,7 +465,7 @@ const NonEmployeeOnboarding = () => {
               Batch Record: {approvalDialog.record?.recordNumber}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Contains {approvalDialog.record?.employees?.length || 0} employees
+              Contains {getNewHiringEmployees(approvalDialog.record).length} employees
             </Typography>
           </Box>
           <TextField
@@ -604,7 +602,7 @@ const NonEmployeeOnboarding = () => {
           )}
           <Box mb={4}>
             <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1.5 }}>
-              Candidates recommended for hiring ({viewDialog.record?.employees?.length || 0})
+              Candidates recommended for hiring ({getNewHiringEmployees(viewDialog.record).length})
             </Typography>
             <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
               <Table size="small" sx={{ minWidth: 1000 }}>
@@ -622,13 +620,14 @@ const NonEmployeeOnboarding = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {(viewDialog.record?.employees || []).map((emp, index) => {
+                  {getNewHiringEmployees(viewDialog.record).map((emp, index) => {
                     const name = emp.name || [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || '—';
                     const designation = emp.designation || emp.role || '—';
                     const pkg = emp.currentPackageMonthly ?? emp.expectedWages;
                     const doj = emp.tentativeDoj
                       ? new Date(emp.tentativeDoj).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
                       : '—';
+                    const pkgLabel = formatNewHiringPackage(pkg);
                     return (
                       <TableRow key={index}>
                         <TableCell>{name}</TableCell>
@@ -638,21 +637,14 @@ const NonEmployeeOnboarding = () => {
                         <TableCell>{emp.project || '—'}</TableCell>
                         <TableCell>{emp.location || '—'}</TableCell>
                         <TableCell align="right">
-                          {(() => {
-                            if (pkg == null || String(pkg).trim() === '' || String(pkg) === '0') return '—';
-                            const n = Number(pkg);
-                            if (Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(String(pkg).trim())) {
-                              return `${n.toLocaleString('en-PK')} PKR`;
-                            }
-                            return String(pkg);
-                          })()}
+                          {pkgLabel === '—' ? '—' : `${pkgLabel}${/^-?\d+(\.\d+)?$/.test(String(pkg || '').trim()) ? ' PKR' : ''}`}
                         </TableCell>
                         <TableCell>{doj}</TableCell>
                         <TableCell>{emp.remark || emp.justification || '—'}</TableCell>
                       </TableRow>
                     );
                   })}
-                  {(!viewDialog.record?.employees || viewDialog.record.employees.length === 0) && (
+                  {getNewHiringEmployees(viewDialog.record).length === 0 && (
                     <TableRow>
                       <TableCell colSpan={9} align="center">No candidates</TableCell>
                     </TableRow>
@@ -669,125 +661,32 @@ const NonEmployeeOnboarding = () => {
                 Approval Authorities
               </Typography>
               <Grid container spacing={4}>
-                {/* HOD HR Approval */}
-                <Grid item xs={12} sm={6} md={4}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>HOD HR</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      {viewDialog.record?.hodApprovedBy ? `${viewDialog.record.hodApprovedBy.firstName || ''} ${viewDialog.record.hodApprovedBy.lastName || ''}`.trim() || viewDialog.record.hodApprovedBy.email || 'Approved' : 'Pending'}
-                    </Typography>
-                    {viewDialog.record?.hodApprovedAt && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        {formatDateTime(viewDialog.record.hodApprovedAt)}
+                {getNewHiringAuthorityCards(viewDialog.record).map((auth) => (
+                  <Grid item xs={12} sm={6} md={4} key={auth.key}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
+                        {auth.label}
                       </Typography>
-                    )}
-                    {viewDialog.record?.hodSignature ? (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
-                        <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.record.hodSignature }} alt="HOD Signature" />
-                      </Box>
-                    ) : (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
-                        <Typography variant="caption" color="text.disabled">No Signature</Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Grid>
-
-                {/* AVP Approval */}
-                <Grid item xs={12} sm={6} md={4}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>AVP (Taj Fahad Farid)</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      {viewDialog.record?.avpApprovedBy ? `${viewDialog.record.avpApprovedBy.firstName || ''} ${viewDialog.record.avpApprovedBy.lastName || ''}`.trim() || viewDialog.record.avpApprovedBy.email || 'Approved' : 'Pending'}
-                    </Typography>
-                    {viewDialog.record?.avpApprovedAt && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        {formatDateTime(viewDialog.record.avpApprovedAt)}
+                      <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        {auth.statusLabel}
                       </Typography>
-                    )}
-                    {viewDialog.record?.avpSignature ? (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
-                        <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.record.avpSignature }} alt="AVP Signature" />
-                      </Box>
-                    ) : (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
-                        <Typography variant="caption" color="text.disabled">No Signature</Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Grid>
-
-                {/* Chairman Approval */}
-                <Grid item xs={12} sm={6} md={4}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>Chairman Steering Committee</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      {viewDialog.record?.chairmanApprovedBy ? `${viewDialog.record.chairmanApprovedBy.firstName || ''} ${viewDialog.record.chairmanApprovedBy.lastName || ''}`.trim() || viewDialog.record.chairmanApprovedBy.email || 'Approved' : 'Pending'}
-                    </Typography>
-                    {viewDialog.record?.chairmanApprovedAt && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        {formatDateTime(viewDialog.record.chairmanApprovedAt)}
-                      </Typography>
-                    )}
-                    {viewDialog.record?.chairmanSignature ? (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
-                        <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.record.chairmanSignature }} alt="Chairman Signature" />
-                      </Box>
-                    ) : (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
-                        <Typography variant="caption" color="text.disabled">No Signature</Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Grid>
-
-                {/* Sr Director Approval */}
-                <Grid item xs={12} sm={6} md={4}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>Sr Director (Hamza Tanveer)</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      {viewDialog.record?.srDirectorApprovedBy ? `${viewDialog.record.srDirectorApprovedBy.firstName || ''} ${viewDialog.record.srDirectorApprovedBy.lastName || ''}`.trim() || viewDialog.record.srDirectorApprovedBy.email || 'Approved' : 'Pending'}
-                    </Typography>
-                    {viewDialog.record?.srDirectorApprovedAt && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        {formatDateTime(viewDialog.record.srDirectorApprovedAt)}
-                      </Typography>
-                    )}
-                    {viewDialog.record?.srDirectorSignature ? (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
-                        <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.record.srDirectorSignature }} alt="Sr Director Signature" />
-                      </Box>
-                    ) : (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
-                        <Typography variant="caption" color="text.disabled">No Signature</Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Grid>
-
-                {/* CEO Approval */}
-                <Grid item xs={12} sm={6} md={4}>
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>CEO Secretariat</Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                      {viewDialog.record?.ceoApprovedBy ? `${viewDialog.record.ceoApprovedBy.firstName || ''} ${viewDialog.record.ceoApprovedBy.lastName || ''}`.trim() || viewDialog.record.ceoApprovedBy.email || 'Approved' : 'Pending'}
-                    </Typography>
-                    {viewDialog.record?.ceoApprovedAt && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                        {formatDateTime(viewDialog.record.ceoApprovedAt)}
-                      </Typography>
-                    )}
-                    {viewDialog.record?.ceoSignature ? (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
-                        <DigitalSignatureImage userOrPath={{ digitalSignature: viewDialog.record.ceoSignature }} alt="CEO Signature" />
-                      </Box>
-                    ) : (
-                      <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
-                        <Typography variant="caption" color="text.disabled">No Signature</Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Grid>
+                      {auth.at && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                          {formatDateTime(auth.at)}
+                        </Typography>
+                      )}
+                      {auth.sig ? (
+                        <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, display: 'inline-block' }}>
+                          <DigitalSignatureImage userOrPath={{ digitalSignature: auth.sig }} alt={`${auth.label} Signature`} />
+                        </Box>
+                      ) : (
+                        <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: '100px' }}>
+                          <Typography variant="caption" color="text.disabled">No Signature</Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  </Grid>
+                ))}
               </Grid>
             </Paper>
           </Box>

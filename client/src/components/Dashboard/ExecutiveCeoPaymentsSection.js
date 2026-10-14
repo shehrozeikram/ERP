@@ -81,6 +81,11 @@ import CentralizedStoreBillInvoiceBody from '../UtilityBill/CentralizedStoreBill
 import { getCentralizedStoreDocumentTypeLabel } from '../../utils/centralizedStoreBillKind';
 import PODocumentView from '../../pages/Procurement/Store/PODocumentView';
 import { printNewHiringApproval } from '../../utils/newHiringApprovalPrint';
+import {
+  formatNewHiringPackage,
+  getNewHiringAuthorityCards,
+  getNewHiringEmployees
+} from '../../utils/newHiringEmployees';
 
 const ExecutiveCeoPaymentsSection = () => {
   const theme = useTheme();
@@ -2800,7 +2805,7 @@ const ExecutiveCeoPaymentsSection = () => {
 
                   <Box mb={3}>
                     <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 1.5 }}>
-                      Candidates recommended for hiring ({viewDialog.settlement?.employees?.length || 0})
+                      Candidates recommended for hiring ({getNewHiringEmployees(viewDialog.settlement).length})
                     </Typography>
                     <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
                       <Table size="small" sx={{ minWidth: 1000 }}>
@@ -2818,20 +2823,17 @@ const ExecutiveCeoPaymentsSection = () => {
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {(viewDialog.settlement?.employees || []).map((emp, index) => {
+                          {getNewHiringEmployees(viewDialog.settlement).map((emp, index) => {
                             const name = emp.name || [emp.firstName, emp.lastName].filter(Boolean).join(' ').trim() || '—';
                             const designation = emp.designation || emp.role || '—';
                             const pkg = emp.currentPackageMonthly ?? emp.expectedWages;
                             const doj = emp.tentativeDoj
                               ? new Date(emp.tentativeDoj).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
                               : '—';
-                            let pkgLabel = '—';
-                            if (pkg != null && String(pkg).trim() !== '' && String(pkg) !== '0') {
-                              const n = Number(pkg);
-                              pkgLabel = Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(String(pkg).trim())
-                                ? `${n.toLocaleString('en-PK')} PKR`
-                                : String(pkg);
-                            }
+                            const formatted = formatNewHiringPackage(pkg);
+                            const pkgLabel = formatted === '—'
+                              ? '—'
+                              : (/^-?\d+(\.\d+)?$/.test(String(pkg || '').trim()) ? `${formatted} PKR` : formatted);
                             return (
                               <TableRow key={emp._id || index}>
                                 <TableCell>{name}</TableCell>
@@ -2846,7 +2848,7 @@ const ExecutiveCeoPaymentsSection = () => {
                               </TableRow>
                             );
                           })}
-                          {(!viewDialog.settlement?.employees || viewDialog.settlement.employees.length === 0) && (
+                          {getNewHiringEmployees(viewDialog.settlement).length === 0 && (
                             <TableRow>
                               <TableCell colSpan={9} align="center">No candidates</TableCell>
                             </TableRow>
@@ -2861,22 +2863,14 @@ const ExecutiveCeoPaymentsSection = () => {
                       Approval Authorities
                     </Typography>
                     <Grid container spacing={3}>
-                      {[
-                        { label: 'HOD HR', user: viewDialog.settlement.hodApprovedBy, at: viewDialog.settlement.hodApprovedAt, sig: viewDialog.settlement.hodSignature },
-                        { label: 'AVP (Taj Fahad Farid)', user: viewDialog.settlement.avpApprovedBy, at: viewDialog.settlement.avpApprovedAt, sig: viewDialog.settlement.avpSignature },
-                        { label: 'Chairman Steering Committee', user: viewDialog.settlement.chairmanApprovedBy, at: viewDialog.settlement.chairmanApprovedAt, sig: viewDialog.settlement.chairmanSignature },
-                        { label: 'Sr Director (Hamza Tanveer)', user: viewDialog.settlement.srDirectorApprovedBy, at: viewDialog.settlement.srDirectorApprovedAt, sig: viewDialog.settlement.srDirectorSignature },
-                        { label: 'CEO Secretariat', user: viewDialog.settlement.ceoApprovedBy, at: viewDialog.settlement.ceoApprovedAt, sig: viewDialog.settlement.ceoSignature }
-                      ].map((auth) => (
-                        <Grid item xs={12} sm={6} md={4} key={auth.label}>
+                      {getNewHiringAuthorityCards(viewDialog.settlement).map((auth) => (
+                        <Grid item xs={12} sm={6} md={4} key={auth.key}>
                           <Box>
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
                               {auth.label}
                             </Typography>
                             <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                              {auth.user
-                                ? `${auth.user.firstName || ''} ${auth.user.lastName || ''}`.trim() || auth.user.email || 'Approved'
-                                : 'Pending'}
+                              {auth.statusLabel}
                             </Typography>
                             {auth.at && (
                               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
