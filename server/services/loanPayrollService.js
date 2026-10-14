@@ -26,14 +26,29 @@ class LoanPayrollService {
       
       console.log(`💰 Processing Rs ${payroll.loanDeductions} in loan deductions for employee ${payroll.employee}`);
       
-      // Get all active loans for the employee
-      const activeLoans = await Loan.find({
+      const {
+        isLoanFullyPaid,
+        getLoanRemainingBalance,
+        markLoanCompletedIfPaid,
+        effectiveLoanDeductionForPayroll
+      } = require('../utils/loanPayrollDeduction');
+
+      // Get all active loans for the employee (exclude fully paid)
+      const allActive = await Loan.find({
         employee: payroll.employee,
         status: { $in: ['Active', 'Disbursed', 'Approved'] }
       });
-      
+
+      for (const loan of allActive) {
+        if (isLoanFullyPaid(loan)) {
+          await markLoanCompletedIfPaid(loan).catch(() => {});
+        }
+      }
+
+      const activeLoans = allActive.filter((loan) => !isLoanFullyPaid(loan));
+
       if (activeLoans.length === 0) {
-        console.log(`❌ No active loans found for employee ${payroll.employee}`);
+        console.log(`❌ No active (unpaid) loans found for employee ${payroll.employee}`);
         return { success: true, message: 'No active loans found', processedLoans: 0 };
       }
       
@@ -41,18 +56,25 @@ class LoanPayrollService {
       
       let processedLoans = 0;
       const loanUpdates = [];
-      
-      // Process each loan by distributing loan deductions proportionally
-      const totalInstallments = activeLoans.reduce((sum, loan) => sum + (loan.monthlyInstallment || 0), 0);
+
+      const month = payroll.month;
+      const year = payroll.year;
+      // Process each loan by distributing loan deductions by remaining EMI share
+      const shareWeights = activeLoans.map((loan) =>
+        effectiveLoanDeductionForPayroll(loan, month, year) || getLoanRemainingBalance(loan) || 0
+      );
+      const totalInstallments = shareWeights.reduce((sum, w) => sum + w, 0);
       
       if (totalInstallments === 0) {
         console.log(`⚠️ Total monthly installments is 0, cannot process proportional payment`);
         return { success: true, message: 'No monthly installments found', processedLoans: 0 };
       }
       
-      // Distribute loan deductions proportionally among active loans
-      for (const loan of activeLoans) {
-        const loanShare = (loan.monthlyInstallment / totalInstallments) * payroll.loanDeductions;
+      // Distribute loan deductions proportionally among active unpaid loans
+      for (let i = 0; i < activeLoans.length; i++) {
+        const loan = activeLoans[i];
+        const weight = shareWeights[i];
+        const loanShare = (weight / totalInstallments) * payroll.loanDeductions;
         
         if (loanShare > 0) {
           console.log(`💰 Processing Rs ${loanShare.toFixed(2)} payment for ${loan.loanType} loan ${loan._id}`);
@@ -210,16 +232,27 @@ class LoanPayrollService {
     try {
       const loans = await Loan.find({ employee: employeeId });
       
-      const activeLoans = loans.filter(loan => 
-        ['Active', 'Disbursed', 'Approved'].includes(loan.status)
+      const {
+        effectiveLoanDeductionForPayroll,
+        getLoanRemainingBalance,
+        isLoanFullyPaid
+      } = require('../utils/loanPayrollDeduction');
+
+      const activeLoans = loans.filter(
+        (loan) =>
+          ['Active', 'Disbursed', 'Approved'].includes(loan.status) && !isLoanFullyPaid(loan)
       );
-      
-      const totalOutstanding = activeLoans.reduce((sum, loan) => 
-        sum + (loan.outstandingBalance || 0), 0
+
+      const totalOutstanding = activeLoans.reduce(
+        (sum, loan) => sum + getLoanRemainingBalance(loan),
+        0
       );
-      
-      const totalMonthlyDeduction = activeLoans.reduce((sum, loan) => 
-        sum + (loan.monthlyInstallment || 0), 0
+
+      const now = new Date();
+      const totalMonthlyDeduction = activeLoans.reduce(
+        (sum, loan) =>
+          sum + effectiveLoanDeductionForPayroll(loan, now.getMonth() + 1, now.getFullYear()),
+        0
       );
       
       const totalPaid = loans.reduce((sum, loan) => 
@@ -232,12 +265,12 @@ class LoanPayrollService {
         totalOutstanding,
         totalMonthlyDeduction,
         totalPaid,
-        loans: activeLoans.map(loan => ({
+        loans: activeLoans.map((loan) => ({
           id: loan._id,
           loanType: loan.loanType,
           loanAmount: loan.loanAmount,
           monthlyInstallment: loan.monthlyInstallment,
-          outstandingBalance: loan.outstandingBalance,
+          outstandingBalance: getLoanRemainingBalance(loan),
           totalPaid: loan.totalPaid,
           status: loan.status,
           progressPercentage: loan.progressPercentage

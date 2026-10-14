@@ -14,38 +14,33 @@ const {
   buildPayrollProrationRemarksSuffix,
   adjustAttendanceForJoiningProration
 } = require('../../utils/payrollPartialSalaryPay');
-
-// Helper function to calculate loan deductions from active loans
-/**
- * Effective deduction for a single loan in a given month/year.
- * Returns 0 if the loan is paused; returns override amount if set; otherwise normal EMI.
- */
-const effectiveLoanDeduction = (loan, month, year) => {
-  const m = Number(month);
-  const y = Number(year);
-
-  // Paused → skip
-  if (loan.pausedMonths && loan.pausedMonths.some((p) => p.month === m && p.year === y)) {
-    return 0;
-  }
-
-  return loan.monthlyInstallment || 0;
-};
+const {
+  effectiveLoanDeductionForPayroll,
+  activeLoanStatusFilter,
+  markLoanCompletedIfPaid
+} = require('../../utils/loanPayrollDeduction');
 
 const calculateLoanDeductions = async (employeeId, month, year) => {
   try {
     const Loan = mongoose.model('Loan');
     const activeLoans = await Loan.find({
       employee: employeeId,
-      status: { $in: ['Active', 'Disbursed', 'Approved'] }
+      ...activeLoanStatusFilter()
     });
 
     const nowMonth = month || new Date().getMonth() + 1;
     const nowYear = year || new Date().getFullYear();
 
-    const totalDeductions = activeLoans.reduce((total, loan) => {
-      return total + effectiveLoanDeduction(loan, nowMonth, nowYear);
-    }, 0);
+    let totalDeductions = 0;
+    for (const loan of activeLoans) {
+      const amount = effectiveLoanDeductionForPayroll(loan, nowMonth, nowYear);
+      if (amount <= 0) {
+        // Fully paid but status not updated — stop future deductions
+        await markLoanCompletedIfPaid(loan).catch(() => {});
+        continue;
+      }
+      totalDeductions += amount;
+    }
 
     return totalDeductions;
   } catch (error) {

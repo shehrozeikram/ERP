@@ -1284,20 +1284,22 @@ router.get('/current-overview',
 
       // Fetch active loans for all active employees for current month preview
       const LoanModel = require('../models/hr/Loan');
+      const {
+        effectiveLoanDeductionForPayroll,
+        activeLoanStatusFilter
+      } = require('../utils/loanPayrollDeduction');
       const activeLoans = await LoanModel.find({
         employee: { $in: employeeIds },
-        status: { $in: ['Active', 'Disbursed', 'Approved'] }
+        ...activeLoanStatusFilter()
       });
 
       const loanDeductionsMap = new Map();
-      activeLoans.forEach(loan => {
+      activeLoans.forEach((loan) => {
         const empIdStr = loan.employee.toString();
-        // Paused → skip
-        if (loan.pausedMonths && loan.pausedMonths.some((p) => p.month === overviewMonth && p.year === overviewYear)) {
-          return;
-        }
+        const amount = effectiveLoanDeductionForPayroll(loan, overviewMonth, overviewYear);
+        if (amount <= 0) return;
         const currentLoanDeduction = loanDeductionsMap.get(empIdStr) || 0;
-        loanDeductionsMap.set(empIdStr, currentLoanDeduction + (loan.monthlyInstallment || 0));
+        loanDeductionsMap.set(empIdStr, currentLoanDeduction + amount);
       });
 
       for (const employee of activeEmployees) {
@@ -1417,16 +1419,18 @@ const fetchEmployeePayrollDetailPayload = async (employeeId, req) => {
   );
 
   const LoanModel = require('../models/hr/Loan');
+  const {
+    effectiveLoanDeductionForPayroll: effectiveLoanDeductionPreview,
+    activeLoanStatusFilter: activeLoanFilterPreview
+  } = require('../utils/loanPayrollDeduction');
   const activeLoans = await LoanModel.find({
     employee: employeeId,
-    status: { $in: ['Active', 'Disbursed', 'Approved'] }
+    ...activeLoanFilterPreview()
   });
-  const loanDeductions = activeLoans.reduce((total, loan) => {
-    if (loan.pausedMonths && loan.pausedMonths.some((p) => p.month === previewMonth && p.year === previewYear)) {
-      return total;
-    }
-    return total + (loan.monthlyInstallment || 0);
-  }, 0);
+  const loanDeductions = activeLoans.reduce(
+    (total, loan) => total + effectiveLoanDeductionPreview(loan, previewMonth, previewYear),
+    0
+  );
 
   const existingPayrolls = await Payroll.find({ employee: employeeId })
     .sort({ year: -1, month: -1 })
@@ -1853,17 +1857,27 @@ router.post('/', [
             employeeSecurity = Math.round(employeeSecurity * proration.factor);
           }
 
-          // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS (respects pauses & overrides)
+          // 🔧 CALCULATE LOAN DEDUCTIONS FROM ACTIVE LOANS (pauses + stop when fully paid)
           const loanModel = require('../models/hr/Loan');
+          const {
+            effectiveLoanDeductionForPayroll,
+            activeLoanStatusFilter,
+            markLoanCompletedIfPaid
+          } = require('../utils/loanPayrollDeduction');
           const activeLoans = await loanModel.find({
             employee: employee._id,
-            status: { $in: ['Active', 'Disbursed', 'Approved'] }
+            ...activeLoanStatusFilter()
           });
 
-          const loanDeductions = activeLoans.reduce((total, loan) => {
-            if (loan.pausedMonths?.some((p) => p.month === month && p.year === year)) return total;
-            return total + (loan.monthlyInstallment || 0);
-          }, 0);
+          let loanDeductions = 0;
+          for (const loan of activeLoans) {
+            const amount = effectiveLoanDeductionForPayroll(loan, month, year);
+            if (amount <= 0) {
+              await markLoanCompletedIfPaid(loan).catch(() => {});
+              continue;
+            }
+            loanDeductions += amount;
+          }
 
           // 🔧 CALCULATE SALARY ADVANCE FOR THIS MONTH
           const salaryAdvanceModel = require('../models/hr/SalaryAdvance');
