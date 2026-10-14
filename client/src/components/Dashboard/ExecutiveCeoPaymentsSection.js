@@ -510,8 +510,8 @@ const ExecutiveCeoPaymentsSection = () => {
       try {
         const r = await manualSalaryService.getById(settlement._id);
         const detail = r?.data?.data || r?.data || settlement;
-        setViewDialog({
-          open: true,
+      setViewDialog({ 
+        open: true, 
           settlement: withCeoDocTypeFlags({ ...settlement, ...detail }, baseFlags),
           ...baseFlags,
           quotations: [],
@@ -537,8 +537,8 @@ const ExecutiveCeoPaymentsSection = () => {
       }
     } else if (settlement.isOnboarding) {
       const baseFlags = {
-        isPurchaseOrder: false,
-        isCashApproval: false,
+        isPurchaseOrder: false, 
+        isCashApproval: false, 
         isOnboarding: true,
         isManualSalary: false,
         isIndent: false,
@@ -558,8 +558,8 @@ const ExecutiveCeoPaymentsSection = () => {
           poQuotations: [],
           poGrns: [],
           poLinkedDocs: [],
-          poAuditTab: 0
-        });
+        poAuditTab: 0 
+      });
       } catch (e) {
         console.error('Error fetching new-hiring approval details:', e);
         setViewDialog({
@@ -2561,29 +2561,29 @@ const ExecutiveCeoPaymentsSection = () => {
                 />
               ) : viewDialog.isManualSalary ? (
                 <Box sx={{ mb: 2 }}>
-                  <Paper
-                    elevation={0}
-                    sx={{
-                      p: { xs: 3, md: 4 },
-                      borderRadius: 3,
+                  <Paper 
+                    elevation={0} 
+                    sx={{ 
+                      p: { xs: 3, md: 4 }, 
+                      borderRadius: 3, 
                       background: 'linear-gradient(145deg, #ffffff 0%, #f8f9fa 100%)',
                       border: '1px solid',
                       borderColor: 'divider'
                     }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3, borderBottom: '1px solid', borderColor: 'divider', pb: 2, flexWrap: 'wrap', gap: 2 }}>
-                      <Box>
+                        <Box>
                         <Typography variant="h5" sx={{ fontWeight: 800 }}>
                           {viewDialog.settlement.name || '—'}
-                        </Typography>
+                          </Typography>
                         <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
                           {[viewDialog.settlement.designation, viewDialog.settlement.project].filter(Boolean).join(' · ') || 'Manual Salary'}
-                        </Typography>
+                          </Typography>
                       </Box>
                       <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
-                        <Chip
+                        <Chip 
                           label={viewDialog.settlement.workflowStatus || viewDialog.settlement.status || '—'}
-                          size="small"
+                          size="small" 
                           color={getWorkflowStatusColor(viewDialog.settlement.workflowStatus || viewDialog.settlement.status)}
                           sx={{ mb: 1, fontWeight: 600 }}
                         />
@@ -2617,13 +2617,13 @@ const ExecutiveCeoPaymentsSection = () => {
                         <Typography variant="caption" color="text.secondary">Net Payable</Typography>
                         <Typography variant="h6" fontWeight={800} color="success.dark">
                           {formatPKR(viewDialog.settlement.netPayable || 0)}
-                        </Typography>
+                          </Typography>
                       </Grid>
 
                       <Grid item xs={12}>
                         <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1 }}>
                           Allowances &amp; Deductions
-                        </Typography>
+                          </Typography>
                         <Table size="small" sx={{ mt: 1 }}>
                           <TableBody>
                             {[
@@ -2649,12 +2649,12 @@ const ExecutiveCeoPaymentsSection = () => {
                       </Grid>
 
                       {viewDialog.settlement.remarks ? (
-                        <Grid item xs={12}>
+                      <Grid item xs={12}>
                           <Box sx={{ p: 2, borderRadius: 2, bgcolor: alpha(theme.palette.info.main, 0.04), border: '1px dashed', borderColor: alpha(theme.palette.info.main, 0.3) }}>
                             <Typography variant="overline" color="info.dark" sx={{ fontWeight: 600 }}>Remarks</Typography>
                             <Typography variant="body2">{viewDialog.settlement.remarks}</Typography>
-                          </Box>
-                        </Grid>
+                        </Box>
+                      </Grid>
                       ) : null}
 
                       <Grid item xs={12}>
@@ -2748,17 +2748,17 @@ const ExecutiveCeoPaymentsSection = () => {
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>
                                       {row.label}
                                     </Typography>
-                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>
                                       {row.alwaysShowName
                                         ? (name || '—')
                                         : row.pending
                                           ? (name ? `${name} (Pending)` : 'Pending')
                                           : (name || 'Approved')}
-                                    </Typography>
+                              </Typography>
                                     {row.at ? (
                                       <Typography variant="caption" color="text.secondary" display="block">
                                         {formatDateTime(row.at)}
-                                      </Typography>
+                                </Typography>
                                     ) : null}
                                     {row.comments ? (
                                       <Typography variant="caption" color="text.secondary" display="block">
@@ -2770,9 +2770,9 @@ const ExecutiveCeoPaymentsSection = () => {
                                       : (
                                         <Box sx={{ mt: 1, borderTop: '1px solid', borderColor: 'divider', pt: 1, width: 100 }}>
                                           <Typography variant="caption" color="text.disabled">Awaiting signature</Typography>
-                                        </Box>
-                                      )}
-                                  </Grid>
+                                </Box>
+                              )}
+                            </Grid>
                                 );
                               });
                             })()}
@@ -2788,12 +2788,12 @@ const ExecutiveCeoPaymentsSection = () => {
                     <Box>
                       <Typography variant="h6" sx={{ fontWeight: 700 }}>
                         {viewDialog.settlement.recordNumber || viewDialog.settlement.displayRef || 'New-Hiring Approval'}
-                      </Typography>
+                              </Typography>
                       <Typography variant="caption" color="text.secondary">
                         Status: {viewDialog.settlement.workflowStatus || viewDialog.settlement.status || '—'}
                         {' · '}
                         Initiated: {formatDateForDocument(viewDialog.settlement.initiatedAt || viewDialog.settlement.createdAt)}
-                      </Typography>
+                                </Typography>
                     </Box>
                     <Chip
                       size="small"
@@ -2856,7 +2856,7 @@ const ExecutiveCeoPaymentsSection = () => {
                         </TableBody>
                       </Table>
                     </TableContainer>
-                  </Box>
+                                </Box>
 
                   <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
                     <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 600, letterSpacing: 1, display: 'block', mb: 3 }}>
@@ -2886,8 +2886,8 @@ const ExecutiveCeoPaymentsSection = () => {
                                 <Typography variant="caption" color="text.disabled">No Signature</Typography>
                               </Box>
                             )}
-                          </Box>
-                        </Grid>
+                        </Box>
+                      </Grid>
                       ))}
                     </Grid>
                   </Paper>
@@ -3243,8 +3243,8 @@ const ExecutiveCeoPaymentsSection = () => {
               && !viewDialog.isIndent
               && !viewDialog.isUtilityBill
               && !viewDialog.isVendorBill && (
-              <Button
-                variant="outlined"
+            <Button
+              variant="outlined"
                 size="small"
                 startIcon={<PrintIcon />}
                 onClick={handlePrint}

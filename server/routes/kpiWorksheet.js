@@ -60,6 +60,7 @@ function rowStillPresent(prevRow, newRows) {
   return newRows.some((r) => rowIdentityKey(r) === key);
 }
 
+/** True if manager is on subject's reportingLine chain (Employee.reportingLine only — same as Profile). */
 async function isAncestorInReportingLine(managerEmployeeId, subjectEmployeeId) {
   if (!managerEmployeeId || !subjectEmployeeId) return false;
   const managerIdStr = String(managerEmployeeId);
@@ -68,18 +69,12 @@ async function isAncestorInReportingLine(managerEmployeeId, subjectEmployeeId) {
 
   while (currentId && !visited.has(currentId)) {
     visited.add(currentId);
-    const emp = await Employee.findById(currentId).select('reportingLine manager hod').lean();
-    if (!emp) break;
+    const emp = await Employee.findById(currentId).select('reportingLine').lean();
+    if (!emp?.reportingLine) break;
 
-    const rId = emp.reportingLine ? String(emp.reportingLine) : null;
-    const mId = emp.manager ? String(emp.manager) : null;
-    const hId = emp.hod ? String(emp.hod) : null;
-
-    if (rId === managerIdStr || mId === managerIdStr || hId === managerIdStr) {
-      return true;
-    }
-
-    currentId = rId || mId || hId;
+    const rId = String(emp.reportingLine);
+    if (rId === managerIdStr) return true;
+    currentId = rId;
   }
 
   return false;
@@ -102,23 +97,26 @@ async function worksheetEditFlags(req, subjectEmployeeId) {
   const subject = await loadSubjectEmployee(subjectEmployeeId);
   const blueCollar = isBlueCollarEmployee(subject);
 
+  // Reporting line may fully edit any subordinate sheet (structure + scores).
+  const asReportingLine = Boolean(managerOf && !owner);
+
   // Blue collar: supervisor marks only — employee never self-scores.
   if (blueCollar) {
     return {
-      canEditStructure: kpiElevated,
+      canEditStructure: asReportingLine || kpiElevated,
       canEditEmployeeCols: false,
-      canEditManagerCols: managerOf || kpiElevated,
-      canDeleteRowsAsReportingLine: managerOf || kpiElevated,
+      canEditManagerCols: asReportingLine || kpiElevated,
+      canDeleteRowsAsReportingLine: asReportingLine || kpiElevated,
       employeeCategory: 'blue_collar',
       scoredBy: 'manager_only'
     };
   }
 
   return {
-    canEditStructure: owner || kpiElevated,
-    canEditEmployeeCols: owner || kpiElevated,
-    canEditManagerCols: (managerOf && !owner) || kpiElevated,
-    canDeleteRowsAsReportingLine: (managerOf && !owner) || kpiElevated,
+    canEditStructure: owner || asReportingLine || kpiElevated,
+    canEditEmployeeCols: owner || asReportingLine || kpiElevated,
+    canEditManagerCols: asReportingLine || kpiElevated,
+    canDeleteRowsAsReportingLine: asReportingLine || kpiElevated,
     employeeCategory: subject?.employeeCategory === 'white_collar' ? 'white_collar' : (subject?.employeeCategory || 'white_collar'),
     scoredBy: 'employee_and_manager'
   };
@@ -184,17 +182,8 @@ async function canAccessWorksheet(req, worksheetEmployeeId) {
 
   if (String(me._id) === String(worksheetEmployeeId)) return true;
 
-  const sub = await Employee.findById(worksheetEmployeeId).select('reportingLine manager hod').lean();
-  if (
-    sub &&
-    (
-      (sub.reportingLine && String(sub.reportingLine) === String(me._id)) ||
-      (sub.manager && String(sub.manager) === String(me._id)) ||
-      (sub.hod && String(sub.hod) === String(me._id))
-    )
-  ) return true;
-
-  return false;
+  // Same field as Profile / KPI Management: Employee.reportingLine only
+  return isAncestorInReportingLine(me._id, worksheetEmployeeId);
 }
 
 function rowToPlain(r) {
@@ -339,13 +328,17 @@ router.get(
   })
 );
 
+/**
+ * Team for KPI review: employees whose Employee.reportingLine points at this manager
+ * (same field as Profile). Walks the reportingLine chain only — not manager/hod.
+ */
 async function getSubordinateTreeByReportingLine(managerEmployeeId) {
   const visited = new Set();
   const results = [];
 
   async function traverse(currentId, depth) {
     const subs = await Employee.find({
-      $or: [{ reportingLine: currentId }, { manager: currentId }, { hod: currentId }],
+      reportingLine: currentId,
       isActive: true,
       isDeleted: { $ne: true }
     })
@@ -360,14 +353,10 @@ async function getSubordinateTreeByReportingLine(managerEmployeeId) {
 
     for (const s of subs) {
       const sIdStr = String(s._id);
-      if (!visited.has(sIdStr)) {
-        visited.add(sIdStr);
-        results.push({
-          employee: s,
-          level: depth
-        });
-        await traverse(s._id, depth + 1);
-      }
+      if (visited.has(sIdStr)) continue;
+      visited.add(sIdStr);
+      results.push({ employee: s, level: depth });
+      await traverse(s._id, depth + 1);
     }
   }
 

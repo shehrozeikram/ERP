@@ -297,9 +297,12 @@ const KPIMonthlySheet = () => {
 
   const canSaveSheet = useMemo(() => {
     if (saving) return false;
+    if (!(editFlags.canEditStructure || editFlags.canEditEmployeeCols || editFlags.canEditManagerCols)) {
+      return false;
+    }
     if (sheet?._id) return true;
-    return isOwnSheet && editFlags.canEditStructure;
-  }, [saving, sheet?._id, isOwnSheet, editFlags.canEditStructure]);
+    return isOwnSheet || editFlags.canEditStructure;
+  }, [saving, sheet?._id, isOwnSheet, editFlags]);
 
   const loadHistory = useCallback(async () => {
     if (isHrPage && !hrEmployeeId) {
@@ -744,7 +747,7 @@ const KPIMonthlySheet = () => {
                             {deptGroup.members.map((t) => {
                               const empNameStr = `${t.employee.firstName || ''} ${t.employee.lastName || ''}`.trim() || t.employee.employeeId;
                               const isSelected = teamMemberId === t.employee._id;
-                              const levelText = t.level === 1 ? 'Direct Report' : `Level ${t.level} (via ${t.employee.reportingLine || 'Manager'})`;
+                              const levelText = t.level === 1 ? 'Direct Report' : `Level ${t.level} (via ${t.employee.reportingLine || 'Reporting Line'})`;
                               const levelColor = t.level === 1 ? 'primary' : 'secondary';
 
                               return (
@@ -968,11 +971,15 @@ const KPIMonthlySheet = () => {
         </Alert>
       )}
 
-      {!loading && targetEmployeeId && !isHrPage && !canEditStructure && (
+      {!loading && targetEmployeeId && !isHrPage && !isOwnSheet && canEditStructure && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Editing <strong>{empName || 'team member'}</strong>&apos;s KPI as their reporting line. You can update areas,
+          weights, and scores, then save.
+        </Alert>
+      )}
+      {!loading && targetEmployeeId && !isHrPage && !isOwnSheet && !canEditStructure && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          You are viewing a team member&apos;s sheet. Use <strong>Back to my sheet</strong> to add KPI areas and weights on
-          your own monthly sheet. As reporting line, you can remove a KPI row only after the employee has entered achieved
-          and total assigned on that row.
+          You are viewing a team member&apos;s sheet (read-only).
         </Alert>
       )}
 

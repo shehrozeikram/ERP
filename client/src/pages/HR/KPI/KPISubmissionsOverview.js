@@ -87,10 +87,15 @@ const formatEmpOption = (e) =>
     e.employeeId ? ` (${e.employeeId})` : ''
   }`;
 
+/** Default KPI period = previous calendar month (Oct → Sep, Jan → Dec prior year). */
+const getDefaultKpiPeriod = (d = new Date()) => {
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return { year: prev.getFullYear(), month: prev.getMonth() + 1 };
+};
+
 const KPISubmissionsOverview = () => {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(() => getDefaultKpiPeriod().year);
+  const [month, setMonth] = useState(() => getDefaultKpiPeriod().month);
   const [projectId, setProjectId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [search, setSearch] = useState('');
@@ -111,10 +116,10 @@ const KPISubmissionsOverview = () => {
   useEffect(() => {
     const loadFilters = async () => {
       try {
-        const now = new Date();
+        const { year: y, month: m } = getDefaultKpiPeriod();
         const res = await fetchKpiSubmissions({
-          year: now.getFullYear(),
-          month: now.getMonth() + 1,
+          year: y,
+          month: m,
           submittedOnly: false
         });
         const filterOptions = res.data?.data?.filterOptions || {};
@@ -424,7 +429,7 @@ const KPISubmissionsOverview = () => {
               sx={{ minWidth: 110 }}
             >
               {[0, 1, 2].map((offset) => {
-                const y = now.getFullYear() - offset;
+                const y = new Date().getFullYear() - offset;
                 return (
                   <MenuItem key={y} value={y}>
                     {y}
