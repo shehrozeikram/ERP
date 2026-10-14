@@ -80,6 +80,14 @@ async function isAncestorInReportingLine(managerEmployeeId, subjectEmployeeId) {
   return false;
 }
 
+/** True if manager is the subject's direct Employee.reportingLine (only they review that sheet). */
+async function isDirectReportingLine(managerEmployeeId, subjectEmployeeId) {
+  if (!managerEmployeeId || !subjectEmployeeId) return false;
+  const emp = await Employee.findById(subjectEmployeeId).select('reportingLine').lean();
+  if (!emp?.reportingLine) return false;
+  return String(emp.reportingLine) === String(managerEmployeeId);
+}
+
 async function loadSubjectEmployee(subjectEmployeeId) {
   return Employee.findById(subjectEmployeeId)
     .select('employeeCategory placementDesignation position firstName lastName employeeId reportingLine manager hod')
@@ -93,11 +101,12 @@ async function worksheetEditFlags(req, subjectEmployeeId) {
   const kpiElevated = hr || await canAccessKpiManagement(req.user, 'update');
   const subId = String(subjectEmployeeId);
   const owner = me && String(me._id) === subId;
-  const managerOf = me ? await isAncestorInReportingLine(me._id, subId) : false;
+  // Only the direct reporting line reviews/edits — not higher ancestors in the chain.
+  const managerOf = me ? await isDirectReportingLine(me._id, subId) : false;
   const subject = await loadSubjectEmployee(subjectEmployeeId);
   const blueCollar = isBlueCollarEmployee(subject);
 
-  // Reporting line may fully edit any subordinate sheet (structure + scores).
+  // Direct reporting line may fully edit subordinate sheet (structure + scores).
   const asReportingLine = Boolean(managerOf && !owner);
 
   // Blue collar: supervisor marks only — employee never self-scores.
@@ -381,20 +390,22 @@ router.get(
     for (const item of tree) {
       const s = item.employee;
       const ws = await KPIWorksheet.findOne({ employee: s._id, year, month })
-        .select('totalKPIScore totalWeight updatedAt rows')
+        .select('totalKPIScore totalWeight lastSavedAt updatedAt rows')
         .lean();
-      const managerScored = !!(ws?.rows || []).some((r) => {
-        const mt = Number(r?.managerTotalAssigned) || 0;
-        const ma = Number(r?.managerAchieved) || 0;
-        return mt > 0 || ma > 0;
-      });
+      const rows = ws?.rows || [];
+      const managerScored = worksheetManagerReviewed(rows);
+      const employeeCategory = resolveEmployeeCategoryLabel(s);
+      const status = ws
+        ? worksheetSubmissionStatusForCategory(rows, employeeCategory)
+        : 'not_started';
+      const lastSavedAt = ws?.lastSavedAt || ws?.updatedAt || null;
 
       const project = s.placementProject || { _id: null, name: 'Unassigned project' };
       const department = s.placementDepartment || s.department || { _id: null, name: 'Unassigned department' };
       const reportingLineName = s.reportingLine
         ? `${s.reportingLine.firstName || ''} ${s.reportingLine.lastName || ''}`.trim()
         : '—';
-      const employeeCategory = resolveEmployeeCategoryLabel(s);
+      const reportingLineId = s.reportingLine?._id ? String(s.reportingLine._id) : null;
 
       out.push({
         employee: {
@@ -404,8 +415,11 @@ router.get(
           employeeId: s.employeeId,
           designation: s.placementDesignation?.title || '—',
           reportingLine: reportingLineName,
+          reportingLineId,
           employeeCategory
         },
+        employeeCategory,
+        reportingLineId,
         project: {
           _id: project._id || null,
           name: project.name || 'Unassigned project'
@@ -415,7 +429,22 @@ router.get(
           name: department.name || 'Unassigned department'
         },
         level: item.level,
-        worksheet: ws ? { ...ws, managerScored } : null
+        canReview: item.level === 1,
+        worksheetId: ws?._id || null,
+        totalKPIScore: ws?.totalKPIScore ?? null,
+        totalWeight: ws?.totalWeight ?? null,
+        lastSavedAt,
+        status,
+        worksheet: ws
+          ? {
+              _id: ws._id,
+              totalKPIScore: ws.totalKPIScore ?? null,
+              totalWeight: ws.totalWeight ?? null,
+              lastSavedAt,
+              updatedAt: ws.updatedAt || null,
+              managerScored
+            }
+          : null
       });
     }
 

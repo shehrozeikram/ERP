@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   CardContent,
+  Grid,
   Table,
   TableBody,
   TableCell,
@@ -33,7 +34,23 @@ import {
   AccordionDetails,
   Stack
 } from '@mui/material';
-import { Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon, Save as SaveIcon, ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
+import {
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  Save as SaveIcon,
+  ExpandMore as ExpandMoreIcon,
+  ChevronRight as ChevronRightIcon,
+  UnfoldMore as UnfoldMoreIcon,
+  UnfoldLess as UnfoldLessIcon,
+  OpenInNew as OpenInNewIcon,
+  ArrowBack as ArrowBackIcon,
+  CheckCircle as CheckCircleIcon,
+  HourglassEmpty as HourglassEmptyIcon,
+  TrendingUp as TrendingUpIcon,
+  People as PeopleIcon,
+  Assessment as AssessmentIcon
+} from '@mui/icons-material';
 import DownloadIcon from '@mui/icons-material/Download';
 import toast from 'react-hot-toast';
 import html2canvas from 'html2canvas';
@@ -67,6 +84,117 @@ const MONTHS = [
 ];
 
 const HR_ADMIN_ROLES = ['super_admin', 'admin', 'developer', 'hr_manager', 'higher_management'];
+
+const TEAM_STATUS_META = {
+  submitted: { label: 'Submitted by Employee', color: 'success' },
+  manager_reviewed: { label: 'Submitted by Reporting Line', color: 'primary' },
+  draft: { label: 'Draft (Pending)', color: 'warning' },
+  not_started: { label: 'Not Started (Pending)', color: 'default' }
+};
+
+/** Default team-review period = previous calendar month (same as KPI Reports). */
+const getDefaultKpiPeriod = (d = new Date()) => {
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return { year: prev.getFullYear(), month: prev.getMonth() + 1 };
+};
+
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  try {
+    return new Date(value).toLocaleString('en-PK', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return '—';
+  }
+};
+
+const teamEmployeeName = (employee) =>
+  [employee?.firstName, employee?.lastName].filter(Boolean).join(' ').trim() ||
+  employee?.employeeId ||
+  '—';
+
+const isBlueCollarTeamRow = (r) =>
+  r?.employeeCategory === 'blue_collar' || r?.employee?.employeeCategory === 'blue_collar';
+
+const isPendingByEmployeeTeam = (r) =>
+  !isBlueCollarTeamRow(r) && (r.status === 'draft' || r.status === 'not_started');
+
+const isPendingByReportingLineTeam = (r) => {
+  if (isBlueCollarTeamRow(r)) return r.status === 'draft' || r.status === 'not_started';
+  return r.status === 'submitted';
+};
+
+/** Days waiting: since last save, or since start of KPI month if never saved. */
+const daysKeptForRow = (row, year, month) => {
+  const ref = row?.lastSavedAt || new Date(year, month - 1, 1);
+  const ms = Date.now() - new Date(ref).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return 0;
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+};
+
+const isDirectReportRow = (r) => Number(r?.level) === 1 || r?.canReview === true;
+
+/**
+ * Keep filter matches + their ancestors so the hierarchy still reads correctly.
+ * Then flatten in depth-first order under each direct report.
+ */
+const buildHierarchicalTeamRows = (allRows, matchedIds) => {
+  if (!allRows.length) return [];
+  const byId = new Map(allRows.map((r) => [String(r.employee?._id), r]));
+  const childrenOf = new Map();
+  allRows.forEach((r) => {
+    const id = String(r.employee?._id);
+    const parentId = r.reportingLineId || r.employee?.reportingLineId || null;
+    if (!parentId || !byId.has(String(parentId))) return;
+    const key = String(parentId);
+    if (!childrenOf.has(key)) childrenOf.set(key, []);
+    childrenOf.get(key).push(r);
+  });
+
+  const keep = new Set(matchedIds);
+  // Walk up so ancestors of matches stay visible
+  matchedIds.forEach((id) => {
+    let cur = byId.get(String(id));
+    let guard = 0;
+    while (cur && guard < 40) {
+      keep.add(String(cur.employee?._id));
+      const parentId = cur.reportingLineId || cur.employee?.reportingLineId;
+      if (!parentId) break;
+      cur = byId.get(String(parentId));
+      guard += 1;
+    }
+  });
+
+  const sortMembers = (list) =>
+    [...list].sort((a, b) =>
+      teamEmployeeName(a.employee).localeCompare(teamEmployeeName(b.employee), undefined, {
+        sensitivity: 'base'
+      })
+    );
+
+  const out = [];
+  const walk = (node) => {
+    const id = String(node.employee?._id);
+    if (!keep.has(id)) return;
+    out.push(node);
+    const kids = sortMembers(childrenOf.get(id) || []);
+    kids.forEach(walk);
+  };
+
+  const roots = sortMembers(allRows.filter((r) => Number(r.level) === 1));
+  roots.forEach(walk);
+  // Orphans (should be rare) that matched but weren't under a root walk
+  allRows.forEach((r) => {
+    const id = String(r.employee?._id);
+    if (keep.has(id) && !out.some((x) => String(x.employee?._id) === id)) out.push(r);
+  });
+  return out;
+};
 
 function emptyRow() {
   return {
@@ -255,20 +383,30 @@ const KPIMonthlySheet = () => {
   const isHrAdmin = HR_ADMIN_ROLES.includes(user?.role);
 
   const now = new Date();
+  const defaultPeriod = getDefaultKpiPeriod(now);
   const [year, setYear] = useState(() => {
     const y = parseInt(searchParams.get('year'), 10);
-    return Number.isFinite(y) ? y : now.getFullYear();
+    if (Number.isFinite(y)) return y;
+    return isTeamReviewPage ? defaultPeriod.year : now.getFullYear();
   });
   const [month, setMonth] = useState(() => {
     const m = parseInt(searchParams.get('month'), 10);
-    return Number.isFinite(m) ? m : now.getMonth() + 1;
+    if (Number.isFinite(m)) return m;
+    return isTeamReviewPage ? defaultPeriod.month : now.getMonth() + 1;
   });
   const [sheet, setSheet] = useState(null);
   const [rows, setRows] = useState([]);
   const [editFlags, setEditFlags] = useState(defaultFlags);
   const [history, setHistory] = useState([]);
   const [team, setTeam] = useState([]);
-  const [teamMemberId, setTeamMemberId] = useState('');
+  const [teamMemberId, setTeamMemberId] = useState(() =>
+    isTeamReviewPage ? searchParams.get('employeeId') || '' : ''
+  );
+  const [teamStatusFilter, setTeamStatusFilter] = useState('all');
+  const [teamSearch, setTeamSearch] = useState('');
+  /** Employee ids whose direct under-reports are shown in the hierarchy table */
+  const [expandedTeamIds, setExpandedTeamIds] = useState(() => new Set());
+  const [teamLoading, setTeamLoading] = useState(() => isTeamReviewPage);
   const [hrEmployeeId, setHrEmployeeId] = useState(() => searchParams.get('employeeId') || '');
   const [hrEmployees, setHrEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -319,11 +457,14 @@ const KPIMonthlySheet = () => {
 
   const loadTeam = useCallback(async () => {
     if (isHrPage) return;
+    setTeamLoading(true);
     try {
       const res = await fetchTeamKpiWorksheets({ year, month });
       setTeam(res.data?.data || []);
     } catch {
       setTeam([]);
+    } finally {
+      setTeamLoading(false);
     }
   }, [isHrPage, year, month]);
 
@@ -440,12 +581,6 @@ const KPIMonthlySheet = () => {
   }, [loadTeam]);
 
   useEffect(() => {
-    if (isTeamReviewPage && team.length > 0 && !teamMemberId) {
-      setTeamMemberId(team[0].employee._id);
-    }
-  }, [isTeamReviewPage, team, teamMemberId]);
-
-  useEffect(() => {
     loadHrEmployees();
   }, [loadHrEmployees]);
 
@@ -456,21 +591,196 @@ const KPIMonthlySheet = () => {
   useEffect(() => {
     const id = searchParams.get('employeeId');
     if (id && isHrPage) setHrEmployeeId(id);
+    if (isTeamReviewPage) setTeamMemberId(id || '');
     const y = parseInt(searchParams.get('year'), 10);
     const m = parseInt(searchParams.get('month'), 10);
     if (Number.isFinite(y)) setYear(y);
     if (Number.isFinite(m)) setMonth(m);
-  }, [searchParams, isHrPage]);
+  }, [searchParams, isHrPage, isTeamReviewPage]);
+
+  // Nested (non-direct) employees are view-only in hierarchy — don't open their sheet for review
+  useEffect(() => {
+    if (!isTeamReviewPage || !teamMemberId || teamLoading || team.length === 0) return;
+    const row = team.find((t) => String(t.employee?._id) === String(teamMemberId));
+    if (row && !isDirectReportRow(row)) {
+      toast.error('You only review your direct reporting line.');
+      const next = new URLSearchParams(searchParams);
+      next.delete('employeeId');
+      setSearchParams(next, { replace: true });
+      setTeamMemberId('');
+    }
+  }, [isTeamReviewPage, teamMemberId, team, teamLoading, searchParams, setSearchParams]);
+
+  const openTeamMemberSheet = useCallback(
+    (employeeId) => {
+      const row = team.find((t) => String(t.employee?._id) === String(employeeId));
+      if (row && !isDirectReportRow(row)) {
+        toast.error('You only review your direct reporting line. Nested employees are reviewed by their own reporting line.');
+        return;
+      }
+      setTeamMemberId(employeeId);
+      const next = new URLSearchParams(searchParams);
+      next.set('employeeId', employeeId);
+      next.set('year', String(year));
+      next.set('month', String(month));
+      setSearchParams(next);
+    },
+    [searchParams, setSearchParams, year, month, team]
+  );
+
+  const backToTeamSummary = useCallback(() => {
+    setTeamMemberId('');
+    const next = new URLSearchParams(searchParams);
+    next.delete('employeeId');
+    next.set('year', String(year));
+    next.set('month', String(month));
+    setSearchParams(next);
+    loadTeam();
+  }, [searchParams, setSearchParams, year, month, loadTeam]);
+
+  const setTeamPeriod = useCallback(
+    (nextYear, nextMonth) => {
+      setYear(nextYear);
+      setMonth(nextMonth);
+      if (!isTeamReviewPage) return;
+      const next = new URLSearchParams(searchParams);
+      next.set('year', String(nextYear));
+      next.set('month', String(nextMonth));
+      setSearchParams(next, { replace: true });
+    },
+    [isTeamReviewPage, searchParams, setSearchParams]
+  );
 
   const totalWeight = useMemo(() => rows.reduce((s, r) => s + (Number(r.weight) || 0), 0), [rows]);
   const totalKpi = useMemo(
     () => Math.round(rows.reduce((s, r) => s + (Number(r.finalWeightage) || 0), 0) * 1000) / 1000,
     [rows]
   );
-  const pendingReviews = useMemo(
-    () => team.filter((t) => !t.worksheet || !t.worksheet.managerScored).length,
-    [team]
-  );
+
+  const directReports = useMemo(() => team.filter(isDirectReportRow), [team]);
+
+  const teamMetrics = useMemo(() => {
+    // Actionable metrics = your direct reports only (you review these)
+    const actionable = directReports;
+    const total = team.length;
+    const directCount = actionable.length;
+    const byEmployee = actionable.filter((r) => r.status === 'submitted').length;
+    const byReportingLine = actionable.filter((r) => r.status === 'manager_reviewed').length;
+    const pendingByEmployee = actionable.filter(isPendingByEmployeeTeam).length;
+    const pendingByReportingLine = actionable.filter(isPendingByReportingLineTeam).length;
+    const scored = actionable.filter((r) => r.totalKPIScore != null);
+    const avgScore =
+      scored.length > 0
+        ? (scored.reduce((s, r) => s + Number(r.totalKPIScore), 0) / scored.length).toFixed(2)
+        : '—';
+    return {
+      total,
+      directCount,
+      byEmployee,
+      byReportingLine,
+      pendingByEmployee,
+      pendingByReportingLine,
+      avgScore
+    };
+  }, [team, directReports]);
+
+  const filteredTeam = useMemo(() => {
+    let matched = team;
+    if (teamStatusFilter === 'pending_employee') matched = matched.filter(isPendingByEmployeeTeam);
+    else if (teamStatusFilter === 'pending_reporting_line') {
+      // Your pending work = direct reports waiting on you
+      matched = matched.filter((r) => isDirectReportRow(r) && isPendingByReportingLineTeam(r));
+    } else if (teamStatusFilter === 'direct') matched = matched.filter(isDirectReportRow);
+    else if (teamStatusFilter !== 'all') matched = matched.filter((r) => r.status === teamStatusFilter);
+
+    const q = teamSearch.trim().toLowerCase();
+    if (q) {
+      matched = matched.filter((r) => {
+        const name = teamEmployeeName(r.employee).toLowerCase();
+        const id = String(r.employee?.employeeId || '').toLowerCase();
+        const dept = String(r.department?.name || '').toLowerCase();
+        const proj = String(r.project?.name || '').toLowerCase();
+        return name.includes(q) || id.includes(q) || dept.includes(q) || proj.includes(q);
+      });
+    }
+
+    const matchedIds = matched.map((r) => String(r.employee?._id));
+    // When filtering, still show hierarchy under matches; for "all" show full tree
+    const seedIds =
+      teamStatusFilter === 'all' && !q
+        ? team.map((r) => String(r.employee?._id))
+        : matchedIds;
+    return buildHierarchicalTeamRows(team, seedIds);
+  }, [team, teamStatusFilter, teamSearch]);
+
+  const teamChildCountById = useMemo(() => {
+    const counts = new Map();
+    filteredTeam.forEach((r) => {
+      const parentId = r.reportingLineId || r.employee?.reportingLineId;
+      if (!parentId) return;
+      const key = String(parentId);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [filteredTeam]);
+
+  const expandableTeamIds = useMemo(() => {
+    const ids = [];
+    filteredTeam.forEach((r) => {
+      const id = String(r.employee?._id);
+      if ((teamChildCountById.get(id) || 0) > 0) ids.push(id);
+    });
+    return ids;
+  }, [filteredTeam, teamChildCountById]);
+
+  const visibleTeamRows = useMemo(() => {
+    const byId = new Map(filteredTeam.map((r) => [String(r.employee?._id), r]));
+    return filteredTeam.filter((row) => {
+      if (Math.max(1, Number(row.level) || 1) <= 1) return true;
+      let parentId = row.reportingLineId || row.employee?.reportingLineId;
+      let guard = 0;
+      while (parentId && guard < 40) {
+        const parentKey = String(parentId);
+        const parent = byId.get(parentKey);
+        // Parent outside this list = you (the viewer); all in-tree ancestors already passed.
+        if (!parent) return true;
+        if (!expandedTeamIds.has(parentKey)) return false;
+        parentId = parent.reportingLineId || parent.employee?.reportingLineId;
+        guard += 1;
+      }
+      return true;
+    });
+  }, [filteredTeam, expandedTeamIds]);
+
+  // When searching/filtering, auto-expand parents so matching nested rows are visible
+  useEffect(() => {
+    const filtering = teamStatusFilter !== 'all' || Boolean(teamSearch.trim());
+    if (!filtering) return;
+    const parents = new Set();
+    filteredTeam.forEach((r) => {
+      const parentId = r.reportingLineId || r.employee?.reportingLineId;
+      if (parentId) parents.add(String(parentId));
+    });
+    setExpandedTeamIds(parents);
+  }, [teamStatusFilter, teamSearch, filteredTeam]);
+
+  const toggleTeamExpand = useCallback((employeeId) => {
+    const id = String(employeeId);
+    setExpandedTeamIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const expandAllTeam = useCallback(() => {
+    setExpandedTeamIds(new Set(expandableTeamIds));
+  }, [expandableTeamIds]);
+
+  const collapseAllTeam = useCallback(() => {
+    setExpandedTeamIds(new Set());
+  }, []);
 
   const groupedTeam = useMemo(() => {
     const projMap = new Map();
@@ -681,35 +991,371 @@ const KPIMonthlySheet = () => {
     }
   };
 
+  const showTeamSummary = isTeamReviewPage && !teamMemberId;
+
   return (
     <Box sx={{ p: 3 }}>
       {isHrPage && <KPITabNavigation />}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h4" fontWeight={600}>
-          {title}
-        </Typography>
-        <Button
-          variant="contained"
-          startIcon={<DownloadIcon />}
-          onClick={handleExportPDF}
-          disabled={!rows || rows.length === 0}
-        >
-          Export to PDF
-        </Button>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          {isTeamReviewPage && teamMemberId && (
+            <Button size="small" startIcon={<ArrowBackIcon />} onClick={backToTeamSummary}>
+              Back to team summary
+            </Button>
+          )}
+          <Typography variant="h4" fontWeight={600}>
+            {title}
+          </Typography>
+        </Box>
+        {!showTeamSummary && (
+          <Button
+            variant="contained"
+            startIcon={<DownloadIcon />}
+            onClick={handleExportPDF}
+            disabled={!rows || rows.length === 0}
+          >
+            Export to PDF
+          </Button>
+        )}
       </Box>
-      {isTeamReviewPage && (
-        <Alert severity={pendingReviews > 0 ? 'warning' : 'success'} sx={{ mb: 2 }}>
-          Pending reviews this month: <strong>{pendingReviews}</strong>
-        </Alert>
+
+      {showTeamSummary && (
+        <>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Hierarchy shows your <strong>direct reporting line</strong> and the people under them. You only review
+            direct reports (Sheet). Nested employees stay visible for status, but their own reporting line fills
+            their scores.
+          </Typography>
+
+          <Card sx={{ mb: 2 }}>
+            <CardContent>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} sm={6} md={2}>
+                  <TextField
+                    select
+                    fullWidth
+                    size="small"
+                    label="Month"
+                    value={month}
+                    onChange={(e) => setTeamPeriod(year, Number(e.target.value))}
+                  >
+                    {MONTHS.map((m) => (
+                      <MenuItem key={m.v} value={m.v}>
+                        {m.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6} md={2}>
+                  <TextField
+                    select
+                    fullWidth
+                    size="small"
+                    label="Year"
+                    value={year}
+                    onChange={(e) => setTeamPeriod(Number(e.target.value), month)}
+                  >
+                    {[0, 1, 2].map((d) => {
+                      const y = now.getFullYear() - d;
+                      return (
+                        <MenuItem key={y} value={y}>
+                          {y}
+                        </MenuItem>
+                      );
+                    })}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6} md={3}>
+                  <TextField
+                    select
+                    fullWidth
+                    size="small"
+                    label="Status"
+                    value={teamStatusFilter}
+                    onChange={(e) => setTeamStatusFilter(e.target.value)}
+                  >
+                    <MenuItem value="all">Full hierarchy</MenuItem>
+                    <MenuItem value="direct">Direct reports only</MenuItem>
+                    <MenuItem value="submitted">Submitted by Employee</MenuItem>
+                    <MenuItem value="manager_reviewed">Submitted by Reporting Line</MenuItem>
+                    <MenuItem value="pending_employee">Pending by Employees</MenuItem>
+                    <MenuItem value="pending_reporting_line">Pending by You (RL)</MenuItem>
+                    <MenuItem value="draft">Draft</MenuItem>
+                    <MenuItem value="not_started">Not Started</MenuItem>
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6} md={5}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    placeholder="Search by Employee ID, name, department, project…"
+                    value={teamSearch}
+                    onChange={(e) => setTeamSearch(e.target.value)}
+                  />
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            {[
+              {
+                key: 'direct',
+                label: 'Direct reports',
+                value: teamMetrics.directCount,
+                color: 'primary.main',
+                icon: <PeopleIcon color="primary" sx={{ fontSize: 36, opacity: 0.8 }} />
+              },
+              {
+                key: 'all',
+                label: 'In hierarchy',
+                value: teamMetrics.total,
+                color: 'primary.dark',
+                icon: <PeopleIcon color="primary" sx={{ fontSize: 36, opacity: 0.55 }} />
+              },
+              {
+                key: 'submitted',
+                label: 'Submitted by Employee',
+                value: teamMetrics.byEmployee,
+                color: 'success.main',
+                icon: <CheckCircleIcon color="success" sx={{ fontSize: 36, opacity: 0.8 }} />
+              },
+              {
+                key: 'manager_reviewed',
+                label: 'Filled by You',
+                value: teamMetrics.byReportingLine,
+                color: 'info.main',
+                icon: <AssessmentIcon color="info" sx={{ fontSize: 36, opacity: 0.8 }} />
+              },
+              {
+                key: 'pending_employee',
+                label: 'Pending by Employees',
+                value: teamMetrics.pendingByEmployee,
+                color: 'warning.main',
+                icon: <HourglassEmptyIcon color="warning" sx={{ fontSize: 36, opacity: 0.8 }} />
+              },
+              {
+                key: 'pending_reporting_line',
+                label: 'Pending by You (RL)',
+                value: teamMetrics.pendingByReportingLine,
+                color: 'error.main',
+                icon: <HourglassEmptyIcon color="error" sx={{ fontSize: 36, opacity: 0.8 }} />
+              },
+              {
+                key: 'avg',
+                label: 'Avg score (direct) / 5',
+                value: teamMetrics.avgScore,
+                color: 'secondary.main',
+                icon: <TrendingUpIcon color="secondary" sx={{ fontSize: 36, opacity: 0.8 }} />
+              }
+            ].map((card) => (
+              <Grid item xs={12} sm={6} md={4} lg={true} key={card.key}>
+                <Card
+                  sx={{
+                    borderLeft: 4,
+                    borderColor: card.color,
+                    cursor: card.key === 'avg' ? 'default' : 'pointer',
+                    outline: teamStatusFilter === card.key ? '2px solid' : 'none',
+                    outlineColor: card.color,
+                    height: '100%'
+                  }}
+                  onClick={() => {
+                    if (card.key === 'avg') return;
+                    setTeamStatusFilter(card.key === 'all' ? 'all' : card.key);
+                  }}
+                >
+                  <CardContent sx={{ py: 1.75, '&:last-child': { pb: 1.75 } }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {card.label}
+                        </Typography>
+                        <Typography variant="h4" fontWeight={700} sx={{ color: card.color, lineHeight: 1.2 }}>
+                          {card.value}
+                        </Typography>
+                      </Box>
+                      {card.icon}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+
+          {teamLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+              <CircularProgress />
+            </Box>
+          ) : team.length === 0 ? (
+            <Alert severity="warning">
+              No employees are assigned under your reporting line yet.
+            </Alert>
+          ) : filteredTeam.length === 0 ? (
+            <Alert severity="info">No team members match the selected filters.</Alert>
+          ) : (
+            <>
+              {expandableTeamIds.length > 0 && (
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mb: 1 }}>
+                  <Button size="small" startIcon={<UnfoldMoreIcon />} onClick={expandAllTeam}>
+                    Expand all
+                  </Button>
+                  <Button size="small" startIcon={<UnfoldLessIcon />} onClick={collapseAllTeam}>
+                    Collapse all
+                  </Button>
+                </Box>
+              )}
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small">
+                  <TableHead sx={{ bgcolor: 'action.hover' }}>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700 }}>Employee</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Designation</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Department</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Project</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Reports to</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>
+                        KPI Score
+                      </TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>Last Saved</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700 }}>
+                        Days Kept
+                      </TableCell>
+                      <TableCell align="center" sx={{ fontWeight: 700 }}>
+                        Action
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {visibleTeamRows.map((row) => {
+                      const statusMeta = TEAM_STATUS_META[row.status] || TEAM_STATUS_META.not_started;
+                      const days = daysKeptForRow(row, year, month);
+                      const canReview = isDirectReportRow(row);
+                      const needsRl = canReview && isPendingByReportingLineTeam(row);
+                      const level = Math.max(1, Number(row.level) || 1);
+                      const empId = String(row.employee?._id);
+                      const childCount = teamChildCountById.get(empId) || 0;
+                      const hasChildren = childCount > 0;
+                      const isExpanded = expandedTeamIds.has(empId);
+                      const indent = (level - 1) * 2.25;
+                      return (
+                        <TableRow
+                          key={empId}
+                          hover
+                          sx={{
+                            bgcolor: needsRl
+                              ? 'rgba(211, 47, 47, 0.04)'
+                              : canReview
+                                ? 'rgba(25, 118, 210, 0.03)'
+                                : 'transparent',
+                            opacity: canReview ? 1 : 0.85
+                          }}
+                        >
+                          <TableCell>
+                            <Box sx={{ pl: indent, display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+                              {hasChildren ? (
+                                <IconButton
+                                  size="small"
+                                  onClick={() => toggleTeamExpand(empId)}
+                                  aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                                  sx={{ mt: -0.25 }}
+                                >
+                                  {isExpanded ? (
+                                    <ExpandMoreIcon fontSize="small" />
+                                  ) : (
+                                    <ChevronRightIcon fontSize="small" />
+                                  )}
+                                </IconButton>
+                              ) : (
+                                <Box sx={{ width: 34 }} />
+                              )}
+                              <Box sx={{ minWidth: 0 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                  <Typography variant="body2" fontWeight={canReview ? 700 : 500}>
+                                    {teamEmployeeName(row.employee)}
+                                  </Typography>
+                                  <Chip
+                                    size="small"
+                                    label={canReview ? 'Direct' : `L${level}`}
+                                    color={canReview ? 'primary' : 'default'}
+                                    variant={canReview ? 'filled' : 'outlined'}
+                                    sx={{ height: 20, fontSize: '0.65rem' }}
+                                  />
+                                  {hasChildren && (
+                                    <Chip
+                                      size="small"
+                                      variant="outlined"
+                                      label={`${childCount} under`}
+                                      onClick={() => toggleTeamExpand(empId)}
+                                      sx={{ height: 20, fontSize: '0.65rem', cursor: 'pointer' }}
+                                    />
+                                  )}
+                                </Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  {row.employee?.employeeId || '—'}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </TableCell>
+                          <TableCell>{row.employee?.designation || '—'}</TableCell>
+                          <TableCell>{row.department?.name || '—'}</TableCell>
+                          <TableCell>{row.project?.name || '—'}</TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary">
+                              {row.employee?.reportingLine || '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip size="small" label={statusMeta.label} color={statusMeta.color} variant="outlined" />
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 700, color: 'primary.main' }}>
+                            {row.totalKPIScore != null ? Number(row.totalKPIScore).toFixed(2) : '—'}
+                          </TableCell>
+                          <TableCell>{formatDateTime(row.lastSavedAt)}</TableCell>
+                          <TableCell align="right">
+                            <Chip
+                              size="small"
+                              label={`${days}d`}
+                              color={days >= 14 ? 'error' : days >= 7 ? 'warning' : 'default'}
+                              variant={days >= 7 ? 'filled' : 'outlined'}
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            {canReview ? (
+                              <Button
+                                size="small"
+                                variant={needsRl ? 'contained' : 'outlined'}
+                                color={needsRl ? 'error' : 'primary'}
+                                endIcon={<OpenInNewIcon />}
+                                onClick={() => openTeamMemberSheet(row.employee._id)}
+                              >
+                                Sheet
+                              </Button>
+                            ) : (
+                              <Tooltip title="Reviewed by their own reporting line — not by you">
+                                <Chip size="small" label="View only" variant="outlined" />
+                              </Tooltip>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </>
+          )}
+        </>
       )}
-      {isBlueCollar && (
+
+      {!showTeamSummary && isBlueCollar && (
         <Alert severity="info" sx={{ mb: 2 }}>
           <strong>Blue collar KPI</strong> — supervisor / reporting line enters marks only.
           The employee does not self-score. KPIs come from their designation pack.
         </Alert>
       )}
 
-      {!isHrPage && team.length > 0 && (
+      {!isHrPage && !isTeamReviewPage && team.length > 0 && (
         <Card sx={{ mb: 2 }}>
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -723,7 +1369,7 @@ const KPIMonthlySheet = () => {
               </Box>
               {teamMemberId && (
                 <Button size="small" variant="outlined" onClick={() => setTeamMemberId('')}>
-                  {isTeamReviewPage ? 'Unselect employee' : 'Back to my sheet'}
+                  Back to my sheet
                 </Button>
               )}
             </Box>
@@ -793,13 +1439,7 @@ const KPIMonthlySheet = () => {
         </Card>
       )}
 
-      {!isHrPage && team.length === 0 && isTeamReviewPage && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          No employees are assigned under your reporting line yet.
-        </Alert>
-      )}
-
-      {isHrPage && isHrAdmin && (
+      {!showTeamSummary && isHrPage && isHrAdmin && (
         <Card sx={{ mb: 2 }}>
           <CardContent>
             <Stack spacing={2}>
@@ -924,6 +1564,8 @@ const KPIMonthlySheet = () => {
         </Card>
       )}
 
+      {!showTeamSummary && (
+      <>
       <Card sx={{ mb: 2 }}>
         <CardContent sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
           <TextField select label="Month" size="small" value={month} onChange={(e) => setMonth(Number(e.target.value))} sx={{ minWidth: 140 }}>
@@ -1268,6 +1910,8 @@ const KPIMonthlySheet = () => {
             </DialogActions>
           </Dialog>
         </Box>
+      )}
+      </>
       )}
     </Box>
   );

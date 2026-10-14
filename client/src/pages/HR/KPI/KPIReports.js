@@ -58,10 +58,16 @@ const MONTHS = [
 ];
 
 const STATUS_META = {
-  submitted: { label: 'Submitted', color: 'success' },
-  manager_reviewed: { label: 'Manager Reviewed', color: 'primary' },
-  draft: { label: 'Draft', color: 'warning' },
-  not_started: { label: 'Not Started', color: 'default' }
+  submitted: { label: 'Submitted by Employee', color: 'success' },
+  manager_reviewed: { label: 'Submitted by Reporting Line', color: 'primary' },
+  draft: { label: 'Draft (Pending)', color: 'warning' },
+  not_started: { label: 'Not Started (Pending)', color: 'default' }
+};
+
+/** Default report period = previous calendar month (same as KPI Submission). */
+const getDefaultKpiPeriod = (d = new Date()) => {
+  const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  return { year: prev.getFullYear(), month: prev.getMonth() + 1 };
 };
 
 const formatDateTime = (value) => {
@@ -84,10 +90,21 @@ const employeeName = (employee) =>
   employee?.employeeId ||
   '—';
 
+const isBlueCollarRecord = (r) => r?.employeeCategory === 'blue_collar';
+
+/** Waiting on employee (white collar draft / not started). Blue collar does not self-submit. */
+const isPendingByEmployee = (r) =>
+  !isBlueCollarRecord(r) && (r.status === 'draft' || r.status === 'not_started');
+
+/** Waiting on reporting line: white = employee submitted; blue = draft / not started. */
+const isPendingByReportingLine = (r) => {
+  if (isBlueCollarRecord(r)) return r.status === 'draft' || r.status === 'not_started';
+  return r.status === 'submitted';
+};
+
 const KPIReports = () => {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [year, setYear] = useState(() => getDefaultKpiPeriod().year);
+  const [month, setMonth] = useState(() => getDefaultKpiPeriod().month);
   const [projectId, setProjectId] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -140,25 +157,33 @@ const KPIReports = () => {
   // Filter records locally by status
   const filteredRecords = useMemo(() => {
     if (statusFilter === 'all') return records;
+    if (statusFilter === 'pending_employee') return records.filter(isPendingByEmployee);
+    if (statusFilter === 'pending_reporting_line') return records.filter(isPendingByReportingLine);
     return records.filter((r) => r.status === statusFilter);
   }, [records, statusFilter]);
 
-  // Compute overall KPI metrics
+  // Use full month set for headline cards (not status-filtered), so counts stay easy to scan
   const metrics = useMemo(() => {
-    const total = filteredRecords.length;
-    const submitted = filteredRecords.filter((r) => r.status === 'submitted').length;
-    const reviewed = filteredRecords.filter((r) => r.status === 'manager_reviewed').length;
-    const draft = filteredRecords.filter((r) => r.status === 'draft').length;
-    const notStarted = filteredRecords.filter((r) => r.status === 'not_started').length;
-
-    const scoredRecords = filteredRecords.filter((r) => r.totalKPIScore != null);
+    const total = records.length;
+    const byEmployee = records.filter((r) => r.status === 'submitted').length;
+    const byReportingLine = records.filter((r) => r.status === 'manager_reviewed').length;
+    const pendingByEmployee = records.filter(isPendingByEmployee).length;
+    const pendingByReportingLine = records.filter(isPendingByReportingLine).length;
+    const scoredRecords = records.filter((r) => r.totalKPIScore != null && Number(r.totalKPIScore) > 0);
     const avgScore =
       scoredRecords.length > 0
         ? (scoredRecords.reduce((sum, r) => sum + Number(r.totalKPIScore), 0) / scoredRecords.length).toFixed(2)
         : '0.00';
 
-    return { total, submitted, reviewed, draft, notStarted, avgScore };
-  }, [filteredRecords]);
+    return {
+      total,
+      byEmployee,
+      byReportingLine,
+      pendingByEmployee,
+      pendingByReportingLine,
+      avgScore
+    };
+  }, [records]);
 
   // Department level aggregation
   const deptAnalytics = useMemo(() => {
@@ -171,13 +196,17 @@ const KPIReports = () => {
           totalCount: 0,
           submittedCount: 0,
           reviewedCount: 0,
+          pendingByEmployee: 0,
+          pendingByReportingLine: 0,
           scores: []
         });
       }
       const entry = map.get(deptName);
       entry.totalCount += 1;
-      if (r.status === 'submitted') entry.submittedCount += 1;
-      if (r.status === 'manager_reviewed') entry.reviewedCount += 1;
+      if (r.status === 'submitted') entry.submittedCount += 1; // by employee
+      if (r.status === 'manager_reviewed') entry.reviewedCount += 1; // by reporting line
+      if (isPendingByEmployee(r)) entry.pendingByEmployee += 1;
+      if (isPendingByReportingLine(r)) entry.pendingByReportingLine += 1;
       if (r.totalKPIScore != null) entry.scores.push(Number(r.totalKPIScore));
     });
 
@@ -289,8 +318,10 @@ const KPIReports = () => {
       const deptData = deptAnalytics.map((da) => ({
         'Department': da.departmentName,
         'Total Employees': da.totalCount,
-        'Submitted Sheets': da.submittedCount,
-        'Manager Reviewed': da.reviewedCount,
+        'Submitted by Employee': da.submittedCount,
+        'Submitted by Reporting Line': da.reviewedCount,
+        'Pending by Employees': da.pendingByEmployee,
+        'Pending by Reporting Line': da.pendingByReportingLine,
         'Completion Rate (%)': `${da.completionRate}%`,
         'Average KPI Score': da.avgScore
       }));
@@ -456,10 +487,12 @@ const KPIReports = () => {
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <MenuItem value="all">All Statuses</MenuItem>
-              <MenuItem value="submitted">Submitted</MenuItem>
-              <MenuItem value="manager_reviewed">Manager Reviewed</MenuItem>
-              <MenuItem value="draft">Draft</MenuItem>
-              <MenuItem value="not_started">Not Started</MenuItem>
+              <MenuItem value="submitted">Submitted by Employee</MenuItem>
+              <MenuItem value="manager_reviewed">Submitted by Reporting Line</MenuItem>
+              <MenuItem value="pending_employee">Pending by Employees</MenuItem>
+              <MenuItem value="pending_reporting_line">Pending by Reporting Line</MenuItem>
+              <MenuItem value="draft">Draft only</MenuItem>
+              <MenuItem value="not_started">Not Started only</MenuItem>
             </TextField>
           </Grid>
 
@@ -481,79 +514,89 @@ const KPIReports = () => {
         </Alert>
       )}
 
-      {/* Metric Cards */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: 'background.paper', borderLeft: 4, borderColor: 'primary.main' }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Total Employees
-                  </Typography>
-                  <Typography variant="h4" fontWeight={700}>
-                    {metrics.total}
-                  </Typography>
+      {/* Metric Cards — clickable to filter by that status */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {[
+          {
+            key: 'all',
+            label: 'Total Employees',
+            value: metrics.total,
+            color: 'primary.main',
+            icon: <PeopleIcon color="primary" sx={{ fontSize: 36, opacity: 0.8 }} />
+          },
+          {
+            key: 'submitted',
+            label: 'Submitted by Employee',
+            value: metrics.byEmployee,
+            color: 'success.main',
+            icon: <CheckCircleIcon color="success" sx={{ fontSize: 36, opacity: 0.8 }} />
+          },
+          {
+            key: 'manager_reviewed',
+            label: 'Submitted by Reporting Line',
+            value: metrics.byReportingLine,
+            color: 'info.main',
+            icon: <AssessmentIcon color="info" sx={{ fontSize: 36, opacity: 0.8 }} />
+          },
+          {
+            key: 'pending_employee',
+            label: 'Pending by Employees',
+            value: metrics.pendingByEmployee,
+            color: 'warning.main',
+            icon: <HourglassEmptyIcon color="warning" sx={{ fontSize: 36, opacity: 0.8 }} />
+          },
+          {
+            key: 'pending_reporting_line',
+            label: 'Pending by Reporting Line',
+            value: metrics.pendingByReportingLine,
+            color: 'error.main',
+            icon: <HourglassEmptyIcon color="error" sx={{ fontSize: 36, opacity: 0.8 }} />
+          },
+          {
+            key: 'avg',
+            label: 'Average KPI Score / 5',
+            value: metrics.avgScore,
+            color: 'secondary.main',
+            icon: <TrendingUpIcon color="secondary" sx={{ fontSize: 36, opacity: 0.8 }} />
+          }
+        ].map((card) => (
+          <Grid item xs={12} sm={6} md={4} lg={true} key={card.key}>
+            <Card
+              sx={{
+                bgcolor: 'background.paper',
+                borderLeft: 4,
+                borderColor: card.color,
+                cursor: card.key === 'avg' ? 'default' : 'pointer',
+                outline: statusFilter === card.key ? '2px solid' : 'none',
+                outlineColor: card.color,
+                height: '100%'
+              }}
+              onClick={() => {
+                if (card.key === 'avg') return;
+                setStatusFilter(card.key === 'all' ? 'all' : card.key);
+              }}
+            >
+              <CardContent sx={{ py: 1.75, '&:last-child': { pb: 1.75 } }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {card.label}
+                    </Typography>
+                    <Typography variant="h4" fontWeight={700} sx={{ color: card.color, lineHeight: 1.2 }}>
+                      {card.value}
+                    </Typography>
+                    {card.sub && (
+                      <Typography variant="caption" color="text.secondary">
+                        {card.sub}
+                      </Typography>
+                    )}
+                  </Box>
+                  {card.icon}
                 </Box>
-                <PeopleIcon color="primary" sx={{ fontSize: 36, opacity: 0.8 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: 'background.paper', borderLeft: 4, borderColor: 'success.main' }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Submitted / Reviewed
-                  </Typography>
-                  <Typography variant="h4" fontWeight={700} color="success.main">
-                    {metrics.submitted + metrics.reviewed}
-                  </Typography>
-                </Box>
-                <CheckCircleIcon color="success" sx={{ fontSize: 36, opacity: 0.8 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: 'background.paper', borderLeft: 4, borderColor: 'warning.main' }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Draft / Pending
-                  </Typography>
-                  <Typography variant="h4" fontWeight={700} color="warning.main">
-                    {metrics.draft + metrics.notStarted}
-                  </Typography>
-                </Box>
-                <HourglassEmptyIcon color="warning" sx={{ fontSize: 36, opacity: 0.8 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: 'background.paper', borderLeft: 4, borderColor: 'info.main' }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">
-                    Average KPI Score (Out of 5)
-                  </Typography>
-                  <Typography variant="h4" fontWeight={700} color="info.main">
-                    {metrics.avgScore}
-                  </Typography>
-                </Box>
-                <TrendingUpIcon color="info" sx={{ fontSize: 36, opacity: 0.8 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
       </Grid>
 
       {/* Sub-view selection tabs */}
@@ -692,10 +735,34 @@ const KPIReports = () => {
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                           <Typography variant="body2" color="text.secondary">
-                            Submitted / Reviewed:
+                            By Employee:
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="success.main">
-                            {dept.submittedCount + dept.reviewedCount}
+                            {dept.submittedCount}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            By Reporting Line:
+                          </Typography>
+                          <Typography variant="body2" fontWeight={600} color="info.main">
+                            {dept.reviewedCount}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Pending by Employees:
+                          </Typography>
+                          <Typography variant="body2" fontWeight={600} color="warning.main">
+                            {dept.pendingByEmployee}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Pending by Reporting Line:
+                          </Typography>
+                          <Typography variant="body2" fontWeight={600} color="warning.dark">
+                            {dept.pendingByReportingLine}
                           </Typography>
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
