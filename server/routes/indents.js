@@ -1153,11 +1153,41 @@ router.put('/:id/split-po-assignments',
     indent.updatedBy = req.user.id;
     await indent.save();
 
-    const quotationIds = [...new Set(Object.values(vendorAssignments))];
-    await Quotation.updateMany(
-      { _id: { $in: quotationIds } },
-      { $set: { status: 'Shortlisted' } }
-    );
+    const quotationIds = [...new Set(Object.values(vendorAssignments))]
+      .map((id) => (id != null ? String(id) : ''))
+      .filter(Boolean);
+
+    // Shortlist only assigned vendors; clear prior Shortlisted on the same lots that are no longer assigned.
+    const assignedQuotes = quotationIds.length
+      ? await Quotation.find({ _id: { $in: quotationIds }, indent: indent._id }).select('_id lotNumber').lean()
+      : [];
+    const lotsAffected = [...new Set(assignedQuotes.map((q) => q.lotNumber || 'A'))];
+
+    for (const lot of lotsAffected) {
+      const lotMatch =
+        lot === 'A'
+          ? { $or: [{ lotNumber: 'A' }, { lotNumber: null }, { lotNumber: { $exists: false } }] }
+          : { lotNumber: lot };
+      const idsInLot = assignedQuotes
+        .filter((q) => (q.lotNumber || 'A') === lot)
+        .map((q) => q._id);
+      await Quotation.updateMany(
+        {
+          indent: indent._id,
+          status: 'Shortlisted',
+          _id: { $nin: idsInLot },
+          ...lotMatch
+        },
+        { $set: { status: 'Received' } }
+      );
+    }
+
+    if (quotationIds.length) {
+      await Quotation.updateMany(
+        { _id: { $in: quotationIds }, indent: indent._id },
+        { $set: { status: 'Shortlisted' } }
+      );
+    }
 
     res.json({
       success: true,

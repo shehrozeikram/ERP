@@ -767,6 +767,15 @@ const userCanViewPurchaseOrder = async (user, purchaseOrder) => {
   return userIsInvolvedInPurchaseOrder(user, purchaseOrder);
 };
 
+/** Match quotations for a comparative lot (legacy quotes without lotNumber count as lot A). */
+const quotationLotFilter = (lotNumber = 'A') => {
+  const lot = lotNumber || 'A';
+  if (lot === 'A') {
+    return { $or: [{ lotNumber: 'A' }, { lotNumber: null }, { lotNumber: { $exists: false } }] };
+  }
+  return { lotNumber: lot };
+};
+
 const ensureComparativeApprovalObject = (indent, lotNumber = 'A') => {
   if (!Array.isArray(indent.comparativeApprovals)) {
     indent.comparativeApprovals = [];
@@ -6396,36 +6405,54 @@ router.post('/requisitions/:id/comparative-approve',
     await indent.save();
 
     if (allApproved) {
-      // Backend guarantee: once all approvers approve, finalize vendor quotation(s).
-      // Finalize every Shortlisted quotation for this indent (single winner + split PO).
-      // If none are Shortlisted (e.g. assignments saved but quotes not re-tagged), fall back to splitPOAssignments ids.
+      // Lot-based rule: at most one Finalized quotation per lot.
+      // Auto-finalize only when exactly one Shortlisted winner exists for this lot.
+      // Multiple Shortlisted (split-PO assignments) stay Shortlisted — do not bulk-finalize.
+      const approvedLot = ca.lotNumber || req.body.lotNumber || 'A';
+      const lotFilter = quotationLotFilter(approvedLot);
+
       const alreadyFinalized = await Quotation.findOne({
         indent: indent._id,
-        status: 'Finalized'
+        status: 'Finalized',
+        ...lotFilter
       })
         .select('_id')
         .lean();
 
       if (!alreadyFinalized) {
-        const shortlistResult = await Quotation.updateMany(
-          { indent: indent._id, status: 'Shortlisted' },
-          { $set: { status: 'Finalized' } }
-        );
-        const shortlistModified =
-          typeof shortlistResult.modifiedCount === 'number'
-            ? shortlistResult.modifiedCount
-            : shortlistResult.nModified;
+        const shortlistedForLot = await Quotation.find({
+          indent: indent._id,
+          status: 'Shortlisted',
+          ...lotFilter
+        })
+          .select('_id')
+          .lean();
 
-        if (!shortlistModified && indent.splitPOAssignments && typeof indent.splitPOAssignments === 'object') {
+        if (shortlistedForLot.length === 1) {
+          await Quotation.updateOne(
+            { _id: shortlistedForLot[0]._id },
+            { $set: { status: 'Finalized' } }
+          );
+        } else if (shortlistedForLot.length === 0 && indent.splitPOAssignments && typeof indent.splitPOAssignments === 'object') {
+          // Fallback: assignments saved but quotes not re-tagged — finalize only if a single vendor for this lot.
           const rawIds = [...new Set(Object.values(indent.splitPOAssignments))];
           const ids = rawIds
             .map((id) => (mongoose.Types.ObjectId.isValid(String(id)) ? String(id) : null))
             .filter(Boolean);
           if (ids.length) {
-            await Quotation.updateMany(
-              { _id: { $in: ids }, indent: indent._id },
-              { $set: { status: 'Finalized' } }
-            );
+            const assignedForLot = await Quotation.find({
+              _id: { $in: ids },
+              indent: indent._id,
+              ...lotFilter
+            })
+              .select('_id')
+              .lean();
+            if (assignedForLot.length === 1) {
+              await Quotation.updateOne(
+                { _id: assignedForLot[0]._id },
+                { $set: { status: 'Finalized' } }
+              );
+            }
           }
         }
       }
@@ -6594,11 +6621,7 @@ router.delete('/requisitions/:id/comparative-statement',
     // 1. Identify Quotations to target
     let quotationQuery = { indent: indentId };
     if (targetLot) {
-      if (targetLot === 'A') {
-        quotationQuery = { indent: indentId, $or: [{ lotNumber: 'A' }, { lotNumber: null }, { lotNumber: { $exists: false } }] };
-      } else {
-        quotationQuery = { indent: indentId, lotNumber: targetLot };
-      }
+      quotationQuery = { indent: indentId, ...quotationLotFilter(targetLot) };
     }
     const targetQuotations = await Quotation.find(quotationQuery).select('_id').lean();
     const targetQuotationIds = targetQuotations.map(q => q._id);
