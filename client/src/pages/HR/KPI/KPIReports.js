@@ -735,7 +735,7 @@ const KPIReports = () => {
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                           <Typography variant="body2" color="text.secondary">
-                            By Employee:
+                            Submit By Employee:
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="success.main">
                             {dept.submittedCount}
@@ -743,7 +743,7 @@ const KPIReports = () => {
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                           <Typography variant="body2" color="text.secondary">
-                            By Reporting Line:
+                            Submit By Reporting Line:
                           </Typography>
                           <Typography variant="body2" fontWeight={600} color="info.main">
                             {dept.reviewedCount}

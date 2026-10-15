@@ -92,7 +92,7 @@ const TEAM_STATUS_META = {
   not_started: { label: 'Not Started (Pending)', color: 'default' }
 };
 
-/** Default team-review period = previous calendar month (same as KPI Reports). */
+/** Default KPI period = previous calendar month (white & blue collar; same as KPI Reports). */
 const getDefaultKpiPeriod = (d = new Date()) => {
   const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
   return { year: prev.getFullYear(), month: prev.getMonth() + 1 };
@@ -387,12 +387,13 @@ const KPIMonthlySheet = () => {
   const [year, setYear] = useState(() => {
     const y = parseInt(searchParams.get('year'), 10);
     if (Number.isFinite(y)) return y;
-    return isTeamReviewPage ? defaultPeriod.year : now.getFullYear();
+    // Own sheet, HR sheet, and team review all open on previous month (white + blue collar).
+    return defaultPeriod.year;
   });
   const [month, setMonth] = useState(() => {
     const m = parseInt(searchParams.get('month'), 10);
     if (Number.isFinite(m)) return m;
-    return isTeamReviewPage ? defaultPeriod.month : now.getMonth() + 1;
+    return defaultPeriod.month;
   });
   const [sheet, setSheet] = useState(null);
   const [rows, setRows] = useState([]);
