@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Typography, Paper, Divider, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, alpha, useTheme } from '@mui/material';
 import { DigitalSignatureImage, ProcurementDigitalSignaturesRow } from '../../../components/common/DigitalSignatureImage';
-import { sanitizeApprovalAuthorities } from '../../../utils/purchaseOrderAuthority';
+import { sanitizeApprovalAuthorities, formatPurchaseOrderCostCenter } from '../../../utils/purchaseOrderAuthority';
 
 const formatDateForPrint = (date) => {
   if (!date) return '';
@@ -304,11 +304,7 @@ const PODocumentView = ({ data }) => {
           </Box>
           <Box sx={{ display: 'flex', mb: 0.5, flexWrap: 'wrap' }}>
             <Typography component="span" sx={{ minWidth: { xs: 110, sm: 140 }, fontWeight: 600 }}>Cost Center:</Typography>
-            <Typography component="span">
-              {data.costCenter 
-                ? (typeof data.costCenter === 'object' ? `${data.costCenter.code || ''} - ${data.costCenter.name || ''}` : data.costCenter)
-                : (data.indent?.department?.name || '___________')}
-            </Typography>
+            <Typography component="span">{formatPurchaseOrderCostCenter(data)}</Typography>
           </Box>
         </Box>
       </Box>

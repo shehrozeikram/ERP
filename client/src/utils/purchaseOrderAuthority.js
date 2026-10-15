@@ -16,3 +16,18 @@ export const sanitizeApprovalAuthorities = (approvalAuthorities, createdAt) => {
   }
   return authorities;
 };
+
+/**
+ * Display label for PO cost center (same as Procurement PO details).
+ * Prefer purchaseOrder.costCenter — never substitute indent department.
+ */
+export const formatPurchaseOrderCostCenter = (po, emptyLabel = '___________') => {
+  const cc = po?.costCenter;
+  if (!cc) return emptyLabel;
+  if (typeof cc === 'object') {
+    const label = [cc.code, cc.name].filter(Boolean).join(' - ').trim();
+    return label || emptyLabel;
+  }
+  const text = String(cc).trim();
+  return text || emptyLabel;
+};

@@ -78,6 +78,7 @@ import { isGeneralModuleCashApproval } from '../../components/CashApprovals/cash
 import ComparativeStatementView from '../../components/Procurement/ComparativeStatementView';
 import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
 import { formatDateTime } from '../../utils/dateUtils';
+import { formatPurchaseOrderCostCenter } from '../../utils/purchaseOrderAuthority';
 
 const Payments = () => {
   const navigate = useNavigate();
@@ -1099,7 +1100,7 @@ const Payments = () => {
             </Box>
             <Box sx={{ display: 'flex', mb: 0.5 }}>
               <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
-              <Typography component="span">{poData.indent?.department?.name || '___________'}</Typography>
+              <Typography component="span">{formatPurchaseOrderCostCenter(poData)}</Typography>
             </Box>
           </Box>
         </Box>

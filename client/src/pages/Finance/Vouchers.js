@@ -58,6 +58,7 @@ import {
   getLineDuePaymentAmount
 } from '../../utils/centralizedStoreBillDisplay';
 import { numberToWords } from '../../utils/numberToWords';
+import { formatPurchaseOrderCostCenter } from '../../utils/purchaseOrderAuthority';
 import { useAuth } from '../../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -1598,7 +1599,7 @@ const Vouchers = () => {
                           </Box>
                           <Box sx={{ display: 'flex', mb: 0.1 }}>
                             <Typography component="span" sx={{ minWidth: '110px', fontWeight: 600, fontSize: 'inherit' }}>Cost Center:</Typography>
-                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{viewDialog.po.indent?.department?.name || viewDialog.po.indent?.department || '___________'}</Typography>
+                            <Typography component="span" sx={{ fontSize: 'inherit' }}>{formatPurchaseOrderCostCenter(viewDialog.po)}</Typography>
                           </Box>
                         </Box>
                       </Box>

@@ -63,7 +63,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getCurrentHolder } from '../../utils/documentTracker';
 import {
   isSrManagerProcurementApplicable,
-  sanitizeApprovalAuthorities
+  sanitizeApprovalAuthorities,
+  formatPurchaseOrderCostCenter
 } from '../../utils/purchaseOrderAuthority';
 
 const PO_APPROVAL_AUTHORITY_FIELDS = [
@@ -2138,9 +2139,7 @@ const PurchaseOrders = () => {
                           Cost Center:{' '}
                         </Typography>
                         <Typography component="span" sx={{ fontSize: '0.9rem' }}>
-                          {typeof viewDialog.data.costCenter === 'object' 
-                            ? `${viewDialog.data.costCenter.code || ''} - ${viewDialog.data.costCenter.name || ''}`
-                            : viewDialog.data.costCenter}
+                          {formatPurchaseOrderCostCenter(viewDialog.data, '—')}
                         </Typography>
                       </Box>
                     )}

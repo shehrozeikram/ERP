@@ -1256,6 +1256,7 @@ router.get('/purchase-orders/ceo-secretariat',
       .populate(purchaseOrderIndentPopulate)
       .populate('quotation', 'quotationNumber quotationDate')
       .populate('authorityApprovals.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('costCenter', 'code name department')
       .sort({ updatedAt: -1 })
       .exec();
     res.json({

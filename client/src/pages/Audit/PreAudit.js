@@ -101,6 +101,7 @@ import {
   isCentralizedStoreBill
 } from '../../utils/centralizedStoreBillDisplay';
 import { canPerformInitialPreAuditActions } from '../../utils/auditAccess';
+import { formatPurchaseOrderCostCenter } from '../../utils/purchaseOrderAuthority';
 
 /** Comment from the most recent workflow step that moved the document to Pre-Audit (Send to Audit), e.g. resubmit notes. */
 function getLatestSendToAuditWorkflowComment(workflowHistory) {
@@ -1978,7 +1979,7 @@ const PreAudit = () => {
             </Box>
             <Box sx={{ display: 'flex', mb: 0.5 }}>
               <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
-              <Typography component="span">{poData.indent?.department?.name || '___________'}</Typography>
+              <Typography component="span">{formatPurchaseOrderCostCenter(poData)}</Typography>
             </Box>
           </Box>
         </Box>

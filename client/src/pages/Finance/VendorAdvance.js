@@ -63,6 +63,7 @@ import { DigitalSignatureImage } from '../../components/common/DigitalSignatureI
 import { WorkflowAuditFeedbackPanel } from '../../components/Admin/workflowAuditReturn';
 import { formatDateTime } from '../../utils/dateUtils';
 import { numberToWords } from '../../utils/numberToWords';
+import { formatPurchaseOrderCostCenter } from '../../utils/purchaseOrderAuthority';
 import toast from 'react-hot-toast';
 
 const emptyCategoryLine = () => ({
@@ -1989,7 +1990,7 @@ const VendorAdvance = () => {
                         </Box>
                         <Box sx={{ display: 'flex', mb: 0.1 }}>
                           <Typography component="span" sx={{ minWidth: '110px', fontWeight: 600, fontSize: 'inherit' }}>Cost Center:</Typography>
-                          <Typography component="span" sx={{ fontSize: 'inherit' }}>{viewDialog.po.indent?.department?.name || viewDialog.po.indent?.department || '___________'}</Typography>
+                          <Typography component="span" sx={{ fontSize: 'inherit' }}>{formatPurchaseOrderCostCenter(viewDialog.po)}</Typography>
                         </Box>
                       </Box>
                     </Box>

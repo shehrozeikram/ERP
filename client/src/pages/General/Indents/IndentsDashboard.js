@@ -64,6 +64,7 @@ import CashApprovalGeneralDetailShell from '../../../components/CashApprovals/Ca
 import { isGeneralModuleCashApproval } from '../../../components/CashApprovals/cashApprovalGeneralDocumentUtils';
 import ComparativeStatementView from '../../../components/Procurement/ComparativeStatementView';
 import QuotationDetailView from '../../../components/Procurement/QuotationDetailView';
+import { formatPurchaseOrderCostCenter } from '../../../utils/purchaseOrderAuthority';
 
 // Stat Card Component
 const StatCard = ({ title, value, subtitle, icon, color, onClick }) => (
@@ -686,7 +687,7 @@ const IndentsDashboard = () => {
             </Box>
             <Box sx={{ display: 'flex', mb: 0.5 }}>
               <Typography component="span" sx={{ minWidth: '140px', fontWeight: 600 }}>Cost Center:</Typography>
-              <Typography component="span">{poData.indent?.department?.name || '___________'}</Typography>
+              <Typography component="span">{formatPurchaseOrderCostCenter(poData)}</Typography>
             </Box>
           </Box>
         </Box>
