@@ -123,6 +123,7 @@ router.get('/projects', asyncHandler(async (req, res) => {
     ConstructionProject.find(filter)
       .populate('projectManager', 'firstName lastName email')
       .populate('budgetApprovedBy', 'firstName lastName')
+      .populate('parentProject', 'name projectNumber isMasterProject projectType status')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(Number(limit))

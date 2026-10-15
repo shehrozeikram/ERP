@@ -25,29 +25,54 @@ import {
 import MasterExecutiveControlTower from '../../components/ProjectManagement/MasterExecutiveControlTower';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const BUDGET_CATEGORIES = [
-  'Civil Works', 'Finishes', 'Electrical', 'Plumbing', 'HVAC System',
-  'Sewerage', 'Water Supply & Gas',
-  'Labor', 'Consultancy', 'Materials', 'Contingency', 'Miscellaneous'
+const PROJECT_TYPES = ['INFRASTRUCTURE DEVELOPMENT', 'COMMERCIAL', 'VILLAS'];
+const PROJECT_STATUSES = ['Draft', 'Planning', 'Active', 'On Hold', 'Completed', 'Cancelled'];
+const HIERARCHY_LEVELS = [
+  { value: 'master', label: 'Master Project (e.g. Taj Residencia)' },
+  { value: 'zone', label: 'Zone (Infrastructure / Commercial / Villas)' },
+  { value: 'block', label: 'Block / Sector (Gardenia, Iris, 5 Marla…)' }
 ];
 
-const PROJECT_TYPES = ['Villa', 'Apartment', 'Commercial Building', 'Infrastructure', 'Renovation', 'Other'];
-const PROJECT_STATUSES = ['Draft', 'Planning', 'Active', 'On Hold', 'Completed', 'Cancelled'];
+/** Leaf sectors that open under each zone type (from Taj Residencia PM workflow). */
+const SECTORS_BY_TYPE = {
+  'INFRASTRUCTURE DEVELOPMENT': [
+    'Gardenia', 'Iris', 'Rose', 'Geranium', 'Cosmos', 'Zinnia', 'Blue Bell',
+    'Lotus (Exec)', 'Cosmos-II', 'Daffodils', 'Lotus', 'Lavender', 'Tulip',
+    'Lily', 'Jasmine', 'Sun Flower', 'Marigold', 'Daisy'
+  ],
+  COMMERCIAL: [
+    'Boulevard Tower', 'Commercial Hub'
+  ],
+  VILLAS: [
+    '4 Marla', '5 Marla', '7 Marla', '10 Marla', '1 Kanal'
+  ]
+};
 
 const STATUS_COLOR = {
   Draft: 'default', Planning: 'info', Active: 'success',
   'On Hold': 'warning', Completed: 'primary', Cancelled: 'error'
 };
 
-const defaultBudgetCategories = () =>
-  BUDGET_CATEGORIES.map(c => ({ category: c, estimatedAmount: 0, approvedAmount: 0 }));
+const getParentId = (p) => {
+  if (!p?.parentProject) return null;
+  return String(p.parentProject._id || p.parentProject);
+};
+
+/** Derive hierarchy role from flags (Master → Zone → Block). */
+const getHierarchyLevel = (p) => {
+  if (!p) return 'block';
+  const hasParent = Boolean(getParentId(p));
+  if (p.isMasterProject && !hasParent) return 'master';
+  if (p.isMasterProject && hasParent) return 'zone';
+  return 'block';
+};
 
 const defaultForm = {
-  name: '', projectType: 'Villa', description: '', society: '', sector: '',
-  plotNumber: '', address: '', clientName: '', clientContact: '',
-  contractValue: '', isMasterProject: false, parentProject: '',
+  hierarchyLevel: 'master',
+  name: '', projectType: 'INFRASTRUCTURE DEVELOPMENT', description: '', society: '', sector: '',
+  address: '', isMasterProject: true, parentProject: '',
   startDate: '', expectedEndDate: '', notes: '',
-  budgetCategories: defaultBudgetCategories()
+  customSector: ''
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -90,63 +115,177 @@ const StatCard = ({ label, value, color = 'primary.main', subtitle, icon }) => (
 );
 
 // ─── Create / Edit Dialog ────────────────────────────────────────────────────
-const ProjectFormDialog = ({ open, onClose, onSaved, editing, masterProjects = [] }) => {
+const ProjectFormDialog = ({ open, onClose, onSaved, editing, allProjects = [] }) => {
   const [form, setForm] = useState(defaultForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  const rootMasters = allProjects.filter((p) => getHierarchyLevel(p) === 'master');
+  const zoneProjects = allProjects.filter((p) => getHierarchyLevel(p) === 'zone');
+
+  const selectedZone = zoneProjects.find((z) => String(z._id) === String(form.parentProject));
+  const effectiveType = form.hierarchyLevel === 'block'
+    ? (selectedZone?.projectType || form.projectType)
+    : form.projectType;
+  const sectorOptions = SECTORS_BY_TYPE[effectiveType] || [];
+  const knownSectors = new Set(Object.values(SECTORS_BY_TYPE).flat());
+  const sectorSelectValue = form.sector && knownSectors.has(form.sector) ? form.sector : (form.sector ? '__custom__' : '');
+
   useEffect(() => {
     if (open) {
       if (editing) {
+        const level = getHierarchyLevel(editing);
+        const sector = editing.sector || '';
         setForm({
+          hierarchyLevel: level,
           name: editing.name || '',
-          projectType: editing.projectType || 'Villa',
+          projectType: editing.projectType || 'INFRASTRUCTURE DEVELOPMENT',
           isMasterProject: Boolean(editing.isMasterProject),
           parentProject: editing.parentProject?._id || editing.parentProject || '',
           description: editing.description || '',
           society: editing.society || '',
-          sector: editing.sector || '',
-          plotNumber: editing.plotNumber || '',
+          sector,
+          customSector: sector && !knownSectors.has(sector) ? sector : '',
           address: editing.address || '',
-          clientName: editing.clientName || '',
-          clientContact: editing.clientContact || '',
-          contractValue: editing.contractValue || '',
           startDate: editing.startDate ? dayjs(editing.startDate).format('YYYY-MM-DD') : '',
           expectedEndDate: editing.expectedEndDate ? dayjs(editing.expectedEndDate).format('YYYY-MM-DD') : '',
           notes: editing.notes || '',
-          status: editing.status || 'Draft',
-          budgetCategories: editing.budgetCategories?.length
-            ? editing.budgetCategories
-            : defaultBudgetCategories()
+          status: editing.status || 'Draft'
         });
       } else {
         setForm(defaultForm);
       }
       setError('');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editing]);
 
   const set = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
 
-  const setBudget = (idx, field) => (e) => {
-    setForm(prev => {
-      const cats = [...prev.budgetCategories];
-      cats[idx] = { ...cats[idx], [field]: Number(e.target.value) || 0 };
-      return { ...prev, budgetCategories: cats };
+  const applyHierarchyLevel = (level) => {
+    setForm((prev) => {
+      if (level === 'master') {
+        return {
+          ...prev,
+          hierarchyLevel: 'master',
+          isMasterProject: true,
+          parentProject: '',
+          sector: '',
+          customSector: '',
+          name: prev.hierarchyLevel === 'master' ? prev.name : ''
+        };
+      }
+      if (level === 'zone') {
+        const masterId = prev.parentProject && rootMasters.some((m) => String(m._id) === String(prev.parentProject))
+          ? prev.parentProject
+          : (rootMasters[0]?._id || '');
+        const type = prev.projectType || 'INFRASTRUCTURE DEVELOPMENT';
+        return {
+          ...prev,
+          hierarchyLevel: 'zone',
+          isMasterProject: true,
+          parentProject: masterId,
+          projectType: type,
+          name: prev.hierarchyLevel === 'zone' && prev.name ? prev.name : type,
+          sector: '',
+          customSector: ''
+        };
+      }
+      // block
+      const zonesForType = zoneProjects.filter((z) => z.projectType === (prev.projectType || 'INFRASTRUCTURE DEVELOPMENT'));
+      const zoneId = prev.parentProject && zoneProjects.some((z) => String(z._id) === String(prev.parentProject))
+        ? prev.parentProject
+        : (zonesForType[0]?._id || zoneProjects[0]?._id || '');
+      const zone = zoneProjects.find((z) => String(z._id) === String(zoneId));
+      const type = zone?.projectType || prev.projectType || 'INFRASTRUCTURE DEVELOPMENT';
+      return {
+        ...prev,
+        hierarchyLevel: 'block',
+        isMasterProject: false,
+        parentProject: zoneId,
+        projectType: type,
+        sector: '',
+        customSector: '',
+        name: prev.hierarchyLevel === 'block' ? prev.name : ''
+      };
     });
   };
 
+  const handleZoneParentChange = (zoneId) => {
+    const zone = zoneProjects.find((z) => String(z._id) === String(zoneId));
+    const type = zone?.projectType || form.projectType;
+    setForm((prev) => ({
+      ...prev,
+      parentProject: zoneId,
+      projectType: type,
+      sector: '',
+      customSector: '',
+      name: prev.sector ? prev.sector : prev.name
+    }));
+  };
+
+  const handleSectorChange = (value) => {
+    if (value === '__custom__') {
+      setForm((prev) => ({ ...prev, sector: prev.customSector || '', customSector: prev.customSector || '' }));
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      sector: value,
+      customSector: '',
+      name: prev.name?.trim() && prev.name !== prev.sector ? prev.name : value
+    }));
+  };
+
+  const handleZoneTypeChange = (type) => {
+    setForm((prev) => ({
+      ...prev,
+      projectType: type,
+      name: prev.name === prev.projectType || !prev.name.trim() ? type : prev.name
+    }));
+  };
+
   const handleSave = async () => {
-    if (!form.name.trim()) { setError('Project name is required'); return; }
+    const level = form.hierarchyLevel;
+    const sectorName = sectorSelectValue === '__custom__' || (!sectorSelectValue && form.customSector)
+      ? (form.customSector || form.sector || '').trim()
+      : (form.sector || '').trim();
+    const name = (form.name || '').trim() || (level === 'zone' ? form.projectType : sectorName);
+
+    if (!name) { setError('Project name is required'); return; }
+    if (level === 'zone' && !form.parentProject) {
+      setError('Select the Master Project this zone belongs to');
+      return;
+    }
+    if (level === 'block' && !form.parentProject) {
+      setError('Select the Zone (Infrastructure / Commercial / Villas) for this block');
+      return;
+    }
+    if (level === 'block' && !sectorName) {
+      setError('Select or enter a sector / block name');
+      return;
+    }
+
     setSaving(true);
     setError('');
     try {
       const payload = {
-        ...form,
+        name,
+        projectType: level === 'block'
+          ? (selectedZone?.projectType || form.projectType)
+          : (form.projectType || 'INFRASTRUCTURE DEVELOPMENT'),
+        description: form.description,
+        society: form.society,
+        sector: level === 'block' ? sectorName : (form.sector || ''),
+        address: form.address,
         startDate: form.startDate || undefined,
-        expectedEndDate: form.expectedEndDate || undefined
+        expectedEndDate: form.expectedEndDate || undefined,
+        notes: form.notes,
+        isMasterProject: level === 'master' || level === 'zone',
+        parentProject: level === 'master' ? null : form.parentProject
       };
       if (editing) {
+        if (form.status) payload.status = form.status;
         await updateProject(editing._id, payload);
       } else {
         await createProject(payload);
@@ -160,15 +299,13 @@ const ProjectFormDialog = ({ open, onClose, onSaved, editing, masterProjects = [
     }
   };
 
-  const totalEstimated = form.budgetCategories.reduce((s, c) => s + (c.estimatedAmount || 0), 0);
-
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
         <Stack direction="row" alignItems="center" gap={1}>
           <ConstructionIcon color="primary" />
           <Typography variant="h6" fontWeight={600}>
-            {editing ? 'Edit Project' : 'Create New Project'}
+            {editing ? 'Edit Project' : 'Create Project'}
           </Typography>
         </Stack>
       </DialogTitle>
@@ -177,55 +314,169 @@ const ProjectFormDialog = ({ open, onClose, onSaved, editing, masterProjects = [
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         <Grid container spacing={2}>
-          {/* Basic Info */}
           <Grid item xs={12}>
             <Typography variant="subtitle2" color="primary" fontWeight={600} gutterBottom>
+              Hierarchy
+            </Typography>
+            <Divider sx={{ mb: 2 }} />
+            <Alert severity="info" sx={{ mb: 0 }}>
+              Master → Zone (Infra / Commercial / Villas) → Block (Gardenia, Iris, 5 Marla…).
+              Budget comes later from BOQ, not on create.
+            </Alert>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth required>
+              <InputLabel>Project Level</InputLabel>
+              <Select
+                value={form.hierarchyLevel}
+                label="Project Level"
+                onChange={(e) => applyHierarchyLevel(e.target.value)}
+              >
+                {HIERARCHY_LEVELS.map((l) => (
+                  <MenuItem key={l.value} value={l.value}>{l.label}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {form.hierarchyLevel === 'zone' && (
+            <>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth required>
+                  <InputLabel>Under Master Project</InputLabel>
+                  <Select
+                    value={form.parentProject || ''}
+                    label="Under Master Project"
+                    onChange={set('parentProject')}
+                  >
+                    {rootMasters.length === 0 && (
+                      <MenuItem value="" disabled>Create a Master Project first</MenuItem>
+                    )}
+                    {rootMasters.map((mp) => (
+                      <MenuItem key={mp._id} value={mp._id}>{mp.name}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth required>
+                  <InputLabel>Zone Type</InputLabel>
+                  <Select
+                    value={form.projectType}
+                    label="Zone Type"
+                    onChange={(e) => handleZoneTypeChange(e.target.value)}
+                  >
+                    {PROJECT_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+            </>
+          )}
+
+          {form.hierarchyLevel === 'block' && (
+            <>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth required>
+                  <InputLabel>Under Zone</InputLabel>
+                  <Select
+                    value={form.parentProject || ''}
+                    label="Under Zone"
+                    onChange={(e) => handleZoneParentChange(e.target.value)}
+                  >
+                    {zoneProjects.length === 0 && (
+                      <MenuItem value="" disabled>Create a Zone under Master first</MenuItem>
+                    )}
+                    {zoneProjects.map((z) => {
+                      const masterName = z.parentProject?.name || '';
+                      return (
+                        <MenuItem key={z._id} value={z._id}>
+                          {z.name} ({z.projectType}){masterName ? ` — ${masterName}` : ''}
+                        </MenuItem>
+                      );
+                    })}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <FormControl fullWidth required>
+                  <InputLabel>
+                    {effectiveType === 'COMMERCIAL' ? 'Commercial Unit'
+                      : effectiveType === 'VILLAS' ? 'Villa Size / Type'
+                        : 'Sector / Block'}
+                  </InputLabel>
+                  <Select
+                    value={sectorSelectValue}
+                    label={
+                      effectiveType === 'COMMERCIAL' ? 'Commercial Unit'
+                        : effectiveType === 'VILLAS' ? 'Villa Size / Type'
+                          : 'Sector / Block'
+                    }
+                    onChange={(e) => handleSectorChange(e.target.value)}
+                    disabled={!form.parentProject}
+                  >
+                    {sectorOptions.map((s) => (
+                      <MenuItem key={s} value={s}>{s}</MenuItem>
+                    ))}
+                    <MenuItem value="__custom__">Other (custom name)…</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              {(sectorSelectValue === '__custom__' || (!sectorSelectValue && !sectorOptions.length)) && (
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Custom sector / block name"
+                    value={form.customSector}
+                    onChange={(e) => setForm((prev) => ({
+                      ...prev,
+                      customSector: e.target.value,
+                      sector: e.target.value,
+                      name: prev.name === prev.sector || !prev.name.trim() ? e.target.value : prev.name
+                    }))}
+                  />
+                </Grid>
+              )}
+              <Grid item xs={12}>
+                <Typography variant="caption" color="text.secondary">
+                  Sectors shown match zone type: <strong>{effectiveType || '—'}</strong>
+                </Typography>
+              </Grid>
+            </>
+          )}
+
+          <Grid item xs={12}>
+            <Typography variant="subtitle2" color="primary" fontWeight={600} gutterBottom sx={{ mt: 1 }}>
               Project Information
             </Typography>
             <Divider sx={{ mb: 2 }} />
           </Grid>
 
-          <Grid item xs={12} md={8}>
-            <TextField fullWidth required label="Project Name" value={form.name} onChange={set('name')} />
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <FormControl fullWidth>
-              <InputLabel>Project Type</InputLabel>
-              <Select value={form.projectType} label="Project Type" onChange={set('projectType')}>
-                {PROJECT_TYPES.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <FormControl fullWidth>
-              <InputLabel>Is Master Portfolio Project?</InputLabel>
-              <Select
-                value={form.isMasterProject ? 'true' : 'false'}
-                label="Is Master Portfolio Project?"
-                onChange={(e) => setForm(prev => ({ ...prev, isMasterProject: e.target.value === 'true', parentProject: e.target.value === 'true' ? '' : prev.parentProject }))}
-              >
-                <MenuItem value="false">No (Standard Unit / Sub-Project)</MenuItem>
-                <MenuItem value="true">Yes (Master Portfolio Project)</MenuItem>
-              </Select>
-            </FormControl>
+          <Grid item xs={12} md={form.hierarchyLevel === 'master' ? 12 : 8}>
+            <TextField
+              fullWidth
+              required
+              label="Project Name"
+              value={form.name}
+              onChange={set('name')}
+              placeholder={
+                form.hierarchyLevel === 'master' ? 'e.g. Taj Residencia'
+                  : form.hierarchyLevel === 'zone' ? form.projectType
+                    : 'e.g. Gardenia'
+              }
+            />
           </Grid>
 
-          {!form.isMasterProject && (
+          {form.hierarchyLevel === 'master' && (
             <Grid item xs={12} md={6}>
               <FormControl fullWidth>
-                <InputLabel>Parent Master Project</InputLabel>
-                <Select
-                  value={form.parentProject || ''}
-                  label="Parent Master Project"
-                  onChange={set('parentProject')}
-                >
-                  <MenuItem value="">None (Independent Project)</MenuItem>
-                  {masterProjects.map((mp) => (
-                    <MenuItem key={mp._id} value={mp._id}>
-                      🏢 {mp.name}
-                    </MenuItem>
-                  ))}
+                <InputLabel>Default Project Type</InputLabel>
+                <Select value={form.projectType} label="Default Project Type" onChange={set('projectType')}>
+                  {form.projectType && !PROJECT_TYPES.includes(form.projectType) && (
+                    <MenuItem value={form.projectType}>{form.projectType} (legacy)</MenuItem>
+                  )}
+                  {PROJECT_TYPES.map((t) => <MenuItem key={t} value={t}>{t}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
@@ -236,39 +487,25 @@ const ProjectFormDialog = ({ open, onClose, onSaved, editing, masterProjects = [
               <FormControl fullWidth>
                 <InputLabel>Status</InputLabel>
                 <Select value={form.status || 'Draft'} label="Status" onChange={set('status')}>
-                  {PROJECT_STATUSES.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                  {PROJECT_STATUSES.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
           )}
 
-          <Grid item xs={12} md={4}>
-            <TextField fullWidth label="Society / Project Name" value={form.society} onChange={set('society')} />
+          <Grid item xs={12} md={6}>
+            <TextField fullWidth label="Society / Area" value={form.society} onChange={set('society')}
+              placeholder="e.g. Taj Residencia" />
           </Grid>
-          <Grid item xs={12} md={4}>
-            <TextField fullWidth label="Sector / Block" value={form.sector} onChange={set('sector')} />
-          </Grid>
-          <Grid item xs={12} md={4}>
-            <TextField fullWidth label="Plot Number" value={form.plotNumber} onChange={set('plotNumber')} />
-          </Grid>
+
+          {form.hierarchyLevel !== 'block' && (
+            <Grid item xs={12} md={6}>
+              <TextField fullWidth label="Sector / Block (optional)" value={form.sector} onChange={set('sector')} />
+            </Grid>
+          )}
 
           <Grid item xs={12}>
-            <TextField fullWidth label="Address" value={form.address} onChange={set('address')} />
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <TextField fullWidth label="Client / Owner Name" value={form.clientName} onChange={set('clientName')} />
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <TextField fullWidth label="Client Contact" value={form.clientContact} onChange={set('clientContact')} />
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <TextField
-              fullWidth label="Contract Value (PKR)" type="number"
-              value={form.contractValue} onChange={set('contractValue')}
-              inputProps={{ min: 0 }}
-              helperText="Total amount client pays — used for milestone billing"
-            />
+            <TextField fullWidth label="Address / Location" value={form.address} onChange={set('address')} />
           </Grid>
 
           <Grid item xs={12} md={6}>
@@ -284,33 +521,6 @@ const ProjectFormDialog = ({ open, onClose, onSaved, editing, masterProjects = [
             <TextField fullWidth multiline rows={2} label="Description / Scope" value={form.description}
               onChange={set('description')} />
           </Grid>
-
-          {/* Budget */}
-          <Grid item xs={12} sx={{ mt: 1 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Typography variant="subtitle2" color="primary" fontWeight={600}>
-                Budget Estimation by Category
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Total Estimated: <strong>{fmt(totalEstimated)}</strong>
-              </Typography>
-            </Stack>
-            <Divider sx={{ mt: 1, mb: 2 }} />
-          </Grid>
-
-          {form.budgetCategories.map((cat, idx) => (
-            <Grid item xs={12} sm={6} md={4} key={cat.category}>
-              <TextField
-                fullWidth
-                label={cat.category}
-                type="number"
-                value={cat.estimatedAmount || ''}
-                onChange={setBudget(idx, 'estimatedAmount')}
-                InputProps={{ inputProps: { min: 0 } }}
-                size="small"
-              />
-            </Grid>
-          ))}
 
           <Grid item xs={12}>
             <TextField fullWidth multiline rows={2} label="Notes" value={form.notes} onChange={set('notes')} />
@@ -347,6 +557,7 @@ const ProjectManagement = () => {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [selectedMasterProjectId, setSelectedMasterProjectId] = useState(null);
+  const [hierarchyProjects, setHierarchyProjects] = useState([]);
 
   const pagination = usePagination({
     defaultRowsPerPage: 20,
@@ -383,8 +594,18 @@ const ProjectManagement = () => {
     }
   }, []);
 
+  const loadHierarchyOptions = useCallback(async () => {
+    try {
+      const res = await getProjects({ page: 1, limit: 500 });
+      setHierarchyProjects(res.data?.data?.projects || []);
+    } catch {
+      // parent dropdown can fall back to current page list
+    }
+  }, []);
+
   useEffect(() => { loadProjects(); }, [loadProjects]);
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadHierarchyOptions(); }, [loadHierarchyOptions]);
 
   const handleDelete = async () => {
     if (!deleteConfirm) return;
@@ -474,13 +695,16 @@ const ProjectManagement = () => {
             </Box>
           </Stack>
           <Stack direction="row" gap={1.5} alignItems="center">
-            {projects.some(p => p.isMasterProject) && (
+            {(hierarchyProjects.some((p) => getHierarchyLevel(p) === 'master') ||
+              projects.some((p) => getHierarchyLevel(p) === 'master')) && (
               <Button
                 variant={selectedMasterProjectId ? "contained" : "outlined"}
                 color="primary"
                 startIcon={<StructureIcon />}
                 onClick={() => {
-                  const firstMaster = projects.find(p => p.isMasterProject);
+                  const firstMaster =
+                    hierarchyProjects.find((p) => getHierarchyLevel(p) === 'master') ||
+                    projects.find((p) => getHierarchyLevel(p) === 'master');
                   if (firstMaster) setSelectedMasterProjectId(firstMaster._id);
                 }}
                 sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 1.5 }}
@@ -489,14 +713,14 @@ const ProjectManagement = () => {
               </Button>
             )}
             <Tooltip title="Refresh Registry">
-              <IconButton onClick={() => { loadProjects(); loadStats(); }} disabled={loading}>
+              <IconButton onClick={() => { loadProjects(); loadStats(); loadHierarchyOptions(); }} disabled={loading}>
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
             <Button 
               variant="contained" 
               startIcon={<AddIcon />} 
-              onClick={() => { setEditingProject(null); setDialogOpen(true); }}
+              onClick={() => { setEditingProject(null); loadHierarchyOptions(); setDialogOpen(true); }}
               sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 1.5 }}
             >
               New Project
@@ -635,35 +859,70 @@ const ProjectManagement = () => {
                   </TableRow>
                 ) : (
                   (() => {
-                    const masterMap = new Map();
-                    const standaloneProjects = [];
+                    // Prefer full hierarchy list so Master → Zone → Block nesting stays intact.
+                    const raw = hierarchyProjects.length ? hierarchyProjects : projects;
+                    const q = (search || '').trim().toLowerCase();
+                    const matchesFilter = (p) => {
+                      if (statusFilter && p.status !== statusFilter) return false;
+                      if (typeFilter && p.projectType !== typeFilter) return false;
+                      if (!q) return true;
+                      return [p.name, p.projectNumber, p.society, p.sector, p.projectType]
+                        .filter(Boolean)
+                        .some((v) => String(v).toLowerCase().includes(q));
+                    };
 
-                    projects.forEach((p) => {
-                      if (p.isMasterProject) {
-                        if (!masterMap.has(String(p._id))) {
-                          masterMap.set(String(p._id), { master: p, children: [] });
-                        }
+                    // Keep ancestors of matches so the tree still makes sense when filtering blocks.
+                    const byIdAll = new Map(raw.map((p) => [String(p._id), p]));
+                    const keep = new Set();
+                    raw.forEach((p) => {
+                      if (!matchesFilter(p)) return;
+                      keep.add(String(p._id));
+                      let parentId = getParentId(p);
+                      while (parentId && byIdAll.has(parentId)) {
+                        keep.add(parentId);
+                        parentId = getParentId(byIdAll.get(parentId));
+                      }
+                    });
+                    const source = raw.filter((p) => keep.has(String(p._id)));
+
+                    const byId = new Map(source.map((p) => [String(p._id), p]));
+                    const childrenByParent = new Map();
+                    const roots = [];
+
+                    source.forEach((p) => {
+                      const parentId = getParentId(p);
+                      if (parentId && byId.has(parentId)) {
+                        if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+                        childrenByParent.get(parentId).push(p);
+                      } else {
+                        roots.push(p);
                       }
                     });
 
-                    projects.forEach((p) => {
-                      if (!p.isMasterProject && p.parentProject) {
-                        const parentId = p.parentProject._id || p.parentProject;
-                        if (masterMap.has(String(parentId))) {
-                          masterMap.get(String(parentId)).children.push(p);
-                        } else {
-                          standaloneProjects.push(p);
-                        }
-                      } else if (!p.isMasterProject) {
-                        standaloneProjects.push(p);
-                      }
-                    });
+                    const sortNodes = (nodes) => {
+                      const order = { master: 0, zone: 1, block: 2 };
+                      return [...nodes].sort((a, b) => {
+                        const la = order[getHierarchyLevel(a)] ?? 9;
+                        const lb = order[getHierarchyLevel(b)] ?? 9;
+                        if (la !== lb) return la - lb;
+                        return String(a.name || '').localeCompare(String(b.name || ''));
+                      });
+                    };
 
-                    const renderRow = (project, isChild = false) => {
+                    const levelChip = (level) => {
+                      if (level === 'master') return { label: 'Master', color: 'primary' };
+                      if (level === 'zone') return { label: 'Zone', color: 'secondary' };
+                      return { label: 'Block', color: 'default' };
+                    };
+
+                    const renderRow = (project, depth = 0) => {
                       const pct = project.overallProgress || 0;
                       const budgetUsed = project.totalApprovedBudget
                         ? Math.round((project.totalActualSpent / project.totalApprovedBudget) * 100)
                         : 0;
+                      const level = getHierarchyLevel(project);
+                      const chip = levelChip(level);
+                      const borderColor = level === 'master' ? '#1976d2' : level === 'zone' ? '#9c27b0' : 'transparent';
 
                       return (
                         <TableRow
@@ -671,10 +930,12 @@ const ProjectManagement = () => {
                           hover
                           sx={{
                             '& td': { py: 1.3 },
-                            borderLeft: project.isMasterProject ? '4px solid #1976d2' : 'none',
-                            bgcolor: project.isMasterProject
-                              ? 'rgba(25, 118, 210, 0.02)'
-                              : isChild
+                            borderLeft: borderColor !== 'transparent' ? `4px solid ${borderColor}` : 'none',
+                            bgcolor: level === 'master'
+                              ? 'rgba(25, 118, 210, 0.03)'
+                              : level === 'zone'
+                              ? 'rgba(156, 39, 176, 0.03)'
+                              : depth > 0
                               ? 'rgba(0, 0, 0, 0.01)'
                               : 'inherit'
                           }}
@@ -685,30 +946,30 @@ const ProjectManagement = () => {
                             </Typography>
                           </TableCell>
                           <TableCell>
-                            <Box sx={{ pl: isChild ? 2.5 : 0 }}>
-                              <Stack direction="row" alignItems="center" spacing={1}>
-                                {isChild && <Typography color="text.disabled" sx={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700 }}>└─</Typography>}
-                                {project.isMasterProject ? (
-                                  <Typography variant="body2" fontWeight={700} color="primary.main">
-                                    {project.name}
-                                  </Typography>
-                                ) : (
-                                  <Typography variant="body2" fontWeight={500} color="text.primary">
-                                    {project.name}
+                            <Box sx={{ pl: depth * 2.5 }}>
+                              <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                                {depth > 0 && (
+                                  <Typography color="text.disabled" sx={{ fontSize: '0.75rem', fontFamily: 'monospace', fontWeight: 700 }}>
+                                    └─
                                   </Typography>
                                 )}
-                                {project.isMasterProject && (
-                                  <Chip label="Master Portfolio" size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600, borderRadius: 1 }} />
-                                )}
-                              </Stack>
-                              {project.clientName && (
-                                <Typography variant="caption" color="text.secondary" sx={{ pl: isChild ? 2.5 : 0, display: 'block', mt: 0.2 }}>
-                                  Client: {project.clientName}
+                                <Typography
+                                  variant="body2"
+                                  fontWeight={level === 'master' ? 700 : level === 'zone' ? 600 : 500}
+                                  color={level === 'master' ? 'primary.main' : 'text.primary'}
+                                >
+                                  {project.name}
                                 </Typography>
-                              )}
-                              {project.sector && (
-                                <Typography variant="caption" color="text.secondary" display="block" sx={{ pl: isChild ? 2.5 : 0 }}>
-                                  {project.society ? `${project.society} — ` : ''}{project.sector}
+                                <Chip
+                                  label={chip.label}
+                                  size="small"
+                                  color={chip.color}
+                                  sx={{ height: 18, fontSize: '0.65rem', fontWeight: 600, borderRadius: 1 }}
+                                />
+                              </Stack>
+                              {(project.sector || project.society) && (
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ pl: depth > 0 ? 2.5 : 0 }}>
+                                  {[project.society, project.sector].filter(Boolean).join(' — ')}
                                 </Typography>
                               )}
                             </Box>
@@ -772,7 +1033,7 @@ const ProjectManagement = () => {
                           </TableCell>
                           <TableCell align="right">
                             <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                              {project.isMasterProject && (
+                              {level === 'master' && (
                                 <Tooltip title="Senior Management Control Tower">
                                   <Button
                                     size="small" variant="contained" color="secondary"
@@ -794,7 +1055,7 @@ const ProjectManagement = () => {
                               </Tooltip>
                               <Tooltip title="Edit">
                                 <IconButton size="small"
-                                  onClick={() => { setEditingProject(project); setDialogOpen(true); }}>
+                                  onClick={() => { setEditingProject(project); loadHierarchyOptions(); setDialogOpen(true); }}>
                                   <EditIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
@@ -835,15 +1096,14 @@ const ProjectManagement = () => {
                     };
 
                     const rows = [];
-                    masterMap.forEach(({ master, children }) => {
-                      rows.push(renderRow(master, false));
-                      children.forEach((child) => {
-                        rows.push(renderRow(child, true));
+                    const walk = (nodes, depth) => {
+                      sortNodes(nodes).forEach((node) => {
+                        rows.push(renderRow(node, depth));
+                        const kids = childrenByParent.get(String(node._id)) || [];
+                        if (kids.length) walk(kids, depth + 1);
                       });
-                    });
-                    standaloneProjects.forEach((p) => {
-                      rows.push(renderRow(p, false));
-                    });
+                    };
+                    walk(roots, 0);
 
                     return rows;
                   })()
@@ -852,7 +1112,7 @@ const ProjectManagement = () => {
             </Table>
           </TableContainer>
 
-          {!loading && projects.length > 0 && (
+          {!loading && !hierarchyProjects.length && projects.length > 0 && (
             <TablePaginationWrapper
               page={pagination.page}
               rowsPerPage={pagination.rowsPerPage}
@@ -869,9 +1129,14 @@ const ProjectManagement = () => {
       <ProjectFormDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
-        onSaved={() => { loadProjects(); loadStats(); setSuccess(editingProject ? 'Project updated' : 'Project created'); }}
+        onSaved={() => {
+          loadProjects();
+          loadStats();
+          loadHierarchyOptions();
+          setSuccess(editingProject ? 'Project updated' : 'Project created');
+        }}
         editing={editingProject}
-        masterProjects={projects.filter(p => p.isMasterProject)}
+        allProjects={hierarchyProjects.length ? hierarchyProjects : projects}
       />
 
       {/* Cancel Confirmation */}

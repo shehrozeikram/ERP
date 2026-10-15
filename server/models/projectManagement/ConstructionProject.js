@@ -48,8 +48,19 @@ const constructionProjectSchema = new mongoose.Schema({
   description: { type: String, trim: true },
   projectType: {
     type: String,
-    enum: ['Villa', 'Apartment', 'Commercial Building', 'Infrastructure', 'Renovation', 'Other'],
-    default: 'Villa'
+    enum: [
+      'INFRASTRUCTURE DEVELOPMENT',
+      'COMMERCIAL',
+      'VILLAS',
+      // Legacy values kept so existing projects still load/save until reclassified
+      'Villa',
+      'Apartment',
+      'Commercial Building',
+      'Infrastructure',
+      'Renovation',
+      'Other'
+    ],
+    default: 'INFRASTRUCTURE DEVELOPMENT'
   },
   status: {
     type: String,
