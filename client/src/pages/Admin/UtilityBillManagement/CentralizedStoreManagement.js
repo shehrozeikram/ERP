@@ -49,39 +49,13 @@ import centralizedStoreService from '../../../services/centralizedStoreService';
 import { formatPKR } from '../../../utils/currency';
 import { usePagination } from '../../../hooks/usePagination';
 import TablePaginationWrapper from '../../../components/TablePaginationWrapper';
+import CentralizedStoreAddItemDialog, {
+  mapCategoryToUtilityType,
+  categoryUsesMeter,
+  emptyCentralizedStoreItemForm
+} from '../../../components/UtilityBill/CentralizedStoreAddItemDialog';
 
-
-const mapCategoryToUtilityType = (categoryName = '') => {
-  const n = String(categoryName).toLowerCase();
-  if (n === 'iesco' || n.includes('electric')) return 'Electricity';
-  if (n === 'sngpl' || n.includes('gas')) return 'Gas';
-  if (n === 'cda water' || n.includes('water')) return 'Water';
-  if (n.includes('ptcl') || n.includes('nayatel')) return 'Phone';
-  if (n.includes('rent')) return 'Rent';
-  if (n.includes('vehicle')) return 'Other';
-  if (n.includes('repair') || n.includes('maintain')) return 'Maintenance';
-  return 'Other';
-};
-
-/** Meter no. applies only to Electricity and Gas categories */
-const categoryUsesMeter = (categoryName = '') => {
-  const n = String(categoryName).toLowerCase();
-  return n === 'iesco' || n === 'sngpl' || n.includes('electric') || n.includes('gas');
-};
-
-const emptyItemForm = {
-  category: '',
-  subCategory: '',
-  name: '',
-  utilityType: 'Electricity',
-  meterNumber: '',
-  referenceNumber: '',
-  location: '',
-  company: '',
-  department: '',
-  defaultAmount: 0,
-  description: ''
-};
+const emptyItemForm = emptyCentralizedStoreItemForm();
 
 const emptyEditDialog = {
   open: false,
@@ -106,7 +80,6 @@ const CentralizedStoreManagement = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [catDialog, setCatDialog] = useState({ open: false, editing: null, name: '', description: '', parentCategory: '', chartOfAccount: '', company: '' });
-  const [itemForm, setItemForm] = useState(emptyItemForm);
   const [addItemDialogOpen, setAddItemDialogOpen] = useState(false);
   const [treeDialogOpen, setTreeDialogOpen] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState({});
@@ -273,43 +246,6 @@ const CentralizedStoreManagement = () => {
     }
   };
 
-  const handleCategoryChange = (categoryId) => {
-    const cat = categories.find((c) => String(c._id) === String(categoryId));
-    const usesMeter = categoryUsesMeter(cat?.name);
-    const catItems = items.filter((i) => String(i.category?._id || i.category) === String(categoryId));
-    const nextMeter = catItems.length + 1;
-    setItemForm((prev) => ({
-      ...prev,
-      category: categoryId,
-      subCategory: '',
-      utilityType: mapCategoryToUtilityType(cat?.name),
-      name: prev.name || (usesMeter ? `Meter ${nextMeter}` : ''),
-      meterNumber: usesMeter ? (prev.meterNumber || String(nextMeter)) : '',
-      location: prev.location || 'Main Office'
-    }));
-  };
-
-  const resetItemForm = (keepCategory = false) => {
-    const category = keepCategory ? itemForm.category : '';
-    const cat = categories.find((c) => String(c._id) === String(category));
-    const usesMeter = categoryUsesMeter(cat?.name);
-    const catItems = items.filter((i) => String(i.category?._id || i.category) === String(category));
-    const nextMeter = catItems.length + 1;
-    setItemForm({
-      category,
-      subCategory: '',
-      name: usesMeter ? `Meter ${nextMeter}` : '',
-      utilityType: mapCategoryToUtilityType(cat?.name),
-      meterNumber: usesMeter ? String(nextMeter) : '',
-      referenceNumber: '',
-      location: 'Main Office',
-      company: '',
-      department: '',
-      defaultAmount: 0,
-      description: ''
-    });
-  };
-
   const buildItemBody = (form) => {
     const finalCategory = form.subCategory || form.category;
     const usesMeter = categoryUsesMeter(categoryNameById.get(String(finalCategory)));
@@ -325,30 +261,6 @@ const CentralizedStoreManagement = () => {
       defaultAmount: Number(form.defaultAmount) || 0,
       description: form.description
     };
-  };
-
-  const saveNewItem = async () => {
-    if (!itemForm.category) {
-      setError('Please select a category');
-      return;
-    }
-    if (!itemForm.name?.trim()) {
-      setError('Item name is required');
-      return;
-    }
-    try {
-      setSaving(true);
-      setError('');
-      await centralizedStoreService.createItem(buildItemBody(itemForm));
-      setSuccess('Item added to the list');
-      resetItemForm(true);
-      setAddItemDialogOpen(false);
-      load();
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save item');
-    } finally {
-      setSaving(false);
-    }
   };
 
   const openEditItem = (item) => {
@@ -410,7 +322,7 @@ const CentralizedStoreManagement = () => {
       const res = await centralizedStoreService.addUtilityType(name);
       const types = res.data?.utilityTypes || [];
       setUtilityTypes(types);
-      setItemForm((prev) => ({ ...prev, utilityType: name }));
+      setEditDialog((prev) => (prev.open ? { ...prev, utilityType: name } : prev));
       setTypeDialog({ open: false, name: '' });
       setSuccess(`Type "${name}" added`);
     } catch (err) {
@@ -493,13 +405,7 @@ const CentralizedStoreManagement = () => {
             <Select
               value={form.category}
               label="Category"
-              onChange={(e) => {
-                if (isEdit) {
-                  handleEditCategoryChange(e.target.value, setForm);
-                } else {
-                  handleCategoryChange(e.target.value);
-                }
-              }}
+              onChange={(e) => handleEditCategoryChange(e.target.value, setForm)}
             >
               {categories.filter(c => !c.parentCategory).map((c) => (
                 <MenuItem key={c._id} value={c._id}>
@@ -786,23 +692,21 @@ const CentralizedStoreManagement = () => {
 
 
 
-      <Dialog open={addItemDialogOpen} onClose={() => setAddItemDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Add item</DialogTitle>
-        <DialogContent dividers>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Item code (CSI-######) is assigned automatically when you save.
-          </Typography>
-          {renderItemFields(itemForm, setItemForm)}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => { resetItemForm(false); setAddItemDialogOpen(false); }} disabled={saving}>
-            Cancel
-          </Button>
-          <Button variant="contained" onClick={saveNewItem} disabled={saving || !categories.length}>
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <CentralizedStoreAddItemDialog
+        open={addItemDialogOpen}
+        onClose={() => setAddItemDialogOpen(false)}
+        onCreated={() => {
+          setSuccess('Item added to the list');
+          setAddItemDialogOpen(false);
+          load();
+        }}
+        categories={categories}
+        items={items}
+        companies={companies}
+        departments={departments}
+        utilityTypes={utilityTypes}
+        title="Add item"
+      />
 
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1} mb={1.5}>
         <Typography variant="h6" fontWeight={700}>

@@ -68,6 +68,7 @@ import {
   categoryMatchesBillKind,
   storeItemMatchesBillKind
 } from '../../../utils/centralizedStoreBillKind';
+import CentralizedStoreAddItemDialog from '../../../components/UtilityBill/CentralizedStoreAddItemDialog';
 
 const userDisplayName = (user) => {
   if (!user) return '';
@@ -267,6 +268,12 @@ const ADD_NEW_VENDOR_OPTION = {
   isAddNew: true
 };
 
+const ADD_NEW_STORE_ITEM_OPTION = {
+  _id: '__ADD_NEW_STORE_ITEM__',
+  name: '+ Create new item…',
+  isAddNew: true
+};
+
 const emptyQuickVendorForm = () => ({
   name: '',
   contactPerson: '',
@@ -363,6 +370,8 @@ const UtilityBillForm = () => {
   const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
   const [vendorSaving, setVendorSaving] = useState(false);
   const [quickVendorForm, setQuickVendorForm] = useState(emptyQuickVendorForm);
+  const [itemDialogOpen, setItemDialogOpen] = useState(false);
+  const [storeUtilityTypes, setStoreUtilityTypes] = useState([]);
 
   const requesterId = getUserId(user);
   const mergedApproverOptions = useMemo(
@@ -489,6 +498,7 @@ const UtilityBillForm = () => {
       setEmployees(payload.employees || []);
       setStoreCategories(catalogRes?.data?.categories || []);
       setStoreItems(catalogRes?.data?.items || []);
+      setStoreUtilityTypes(catalogRes?.data?.utilityTypes || []);
       setVendors(vendorsRes?.data?.data?.vendors || vendorsRes?.data?.vendors || []);
       setCompaniesList(companiesRes?.data?.data || []);
       setProjectsList(projectsRes?.data?.data || []);
@@ -584,6 +594,31 @@ const UtilityBillForm = () => {
     });
   }, [storeItems, selectedBillCategory, selectedBillSubCategory, storeCategories, isCentralizedStoreBill, lockedBillKind, preferredBillKind]);
 
+  const itemAutocompleteOptions = useMemo(
+    () => (selectedBillCategory ? [ADD_NEW_STORE_ITEM_OPTION, ...itemsInSelectedCategory] : itemsInSelectedCategory),
+    [selectedBillCategory, itemsInSelectedCategory]
+  );
+
+  const openCreateItemDialog = () => {
+    if (!selectedBillCategory) {
+      setError('Select a category first.');
+      return;
+    }
+    setError(null);
+    setItemDialogOpen(true);
+  };
+
+  const handleStoreItemCreated = (created) => {
+    if (!created?._id) return;
+    setStoreItems((prev) => {
+      const list = prev || [];
+      if (list.some((i) => String(i._id) === String(created._id))) return list;
+      return [...list, created];
+    });
+    setPendingStoreItem(created);
+    setItemDialogOpen(false);
+  };
+
   const isUtilityBillForm =
     isCentralizedStoreBill &&
     (lockedBillKind === 'utility' || preferredBillKind === 'utility');
@@ -637,6 +672,12 @@ const UtilityBillForm = () => {
     const finalCat = selectedBillSubCategory || selectedBillCategory;
     const categoryName = storeItem.category?.name || finalCat?.name || '';
     const lineLabel = categoryName ? `${categoryName} — ${storeItem.name}` : storeItem.name;
+    // Bill line "Company" uses site = company name; prefer item.company from store setup.
+    const itemCompanyId = storeItem.company?._id || storeItem.company || '';
+    const itemCompanyName =
+      (typeof storeItem.company === 'object' && storeItem.company?.name)
+        ? storeItem.company.name
+        : ((companiesList || []).find((c) => String(c._id) === String(itemCompanyId))?.name || '');
     setBillLines((prev) => [
       ...prev,
       {
@@ -649,7 +690,7 @@ const UtilityBillForm = () => {
         utilityType: storeItem.utilityType,
         meterNumber: storeItem.meterNumber || '',
         location: storeItem.location || '',
-        site: storeItem.site || '',
+        site: itemCompanyName || storeItem.site || '',
         quantity: 1,
         unitPrice: storeItem.defaultAmount || 0,
         discount: 0,
@@ -1604,14 +1645,38 @@ const UtilityBillForm = () => {
                     <Autocomplete
                       fullWidth
                       disabled={!selectedBillCategory}
-                      options={itemsInSelectedCategory}
+                      options={itemAutocompleteOptions}
                       getOptionLabel={(o) => o?.name || ''}
                       value={pendingStoreItem}
                       isOptionEqualToValue={(a, b) => String(a?._id) === String(b?._id)}
-                      onChange={(_, item) => setPendingStoreItem(item)}
+                      onChange={(_, item) => {
+                        if (item?.isAddNew) {
+                          setPendingStoreItem(null);
+                          openCreateItemDialog();
+                          return;
+                        }
+                        setPendingStoreItem(item);
+                      }}
+                      filterOptions={(opts, state) => {
+                        const term = (state?.inputValue || '').trim().toLowerCase();
+                        const filtered = opts.filter((o) => {
+                          if (!o) return false;
+                          if (o.isAddNew) return true;
+                          if (!term) return true;
+                          return (o.name || '').toLowerCase().includes(term)
+                            || String(o.code || '').toLowerCase().includes(term);
+                        });
+                        const addNew = filtered.find((o) => o?.isAddNew) || ADD_NEW_STORE_ITEM_OPTION;
+                        const rest = filtered.filter((o) => !o?.isAddNew);
+                        return selectedBillCategory ? [addNew, ...rest] : rest;
+                      }}
                       renderOption={(props, option) => (
-                        <li {...props} key={option._id}>
-                          {option.name}
+                        <li
+                          {...props}
+                          key={option?.isAddNew ? '__add_new_item__' : option?._id}
+                          style={option?.isAddNew ? { fontWeight: 600, color: '#1976d2' } : undefined}
+                        >
+                          {option?.name}
                         </li>
                       )}
                       renderInput={(params) => (
@@ -1623,7 +1688,7 @@ const UtilityBillForm = () => {
                           helperText={
                             billLines.length
                               ? 'You can add the same item again as another line'
-                              : 'Select category, then pick an item to add'
+                              : 'Select category, then pick or create an item'
                           }
                         />
                       )}
@@ -2296,6 +2361,23 @@ const UtilityBillForm = () => {
           </form>
         </CardContent>
       </Card>
+
+      <CentralizedStoreAddItemDialog
+        open={itemDialogOpen}
+        onClose={() => setItemDialogOpen(false)}
+        onCreated={handleStoreItemCreated}
+        categories={storeCategories}
+        items={storeItems}
+        companies={companiesList}
+        departments={departments}
+        utilityTypes={storeUtilityTypes}
+        initialCategory={selectedBillCategory?._id || ''}
+        initialSubCategory={selectedBillSubCategory?._id || ''}
+        initialDepartment={formData.department || (isGeneralStoreBill ? 'General' : 'Admin')}
+        initialLocation={formData.location || 'Main Office'}
+        lockCategory
+        title="Add item"
+      />
 
       <Dialog open={vendorDialogOpen} onClose={() => !vendorSaving && setVendorDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Add new vendor</DialogTitle>
