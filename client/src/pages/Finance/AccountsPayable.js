@@ -195,10 +195,26 @@ const AccountsPayable = () => {
 
   const canEditVendorBill = (bill) => {
     if (!bill) return false;
-    if (['paid', 'partial', 'cancelled'].includes(bill.status)) return false;
+    if (['paid', 'partial', 'cancelled', 'Pending Audit', 'Forwarded to Audit Director'].includes(bill.status)) return false;
     if (getSettledAmount(bill) > 0) return false;
     if (getSettlementPending(bill) > 0) return false;
     return true;
+  };
+
+  const handleResubmitToAudit = async (bill) => {
+    if (!bill?._id) return;
+    try {
+      const res = await api.post(`/finance/accounts-payable/${bill._id}/resubmit-to-audit`, {
+        comments: 'Resubmitted to Pre-Audit after audit observations'
+      });
+      toast.success(res.data?.message || 'Bill resubmitted to Pre-Audit');
+      if (selectedBill?._id === bill._id && res.data?.data) {
+        setSelectedBill(res.data.data);
+      }
+      fetchAccountsPayable();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to resubmit to Pre-Audit');
+    }
   };
 
   const getOutstanding = (bill) => {
@@ -1449,7 +1465,9 @@ const AccountsPayable = () => {
       'cancelled': 'default',
       'PENDING DEPT APPROVAL': 'warning',
       'DEPT REJECTED': 'error',
-      'PENDING AUDIT': 'info'
+      'PENDING AUDIT': 'info',
+      'RETURNED FROM AUDIT': 'error',
+      'FORWARDED TO AUDIT DIRECTOR': 'primary'
     };
     return colorMap[status] || 'default';
   };
@@ -2113,14 +2131,26 @@ const AccountsPayable = () => {
                                 <Chip onClick={() => handleVoucherCreatedClick(bill)} label="VOUCHER CREATED" size="small" color="success" variant="filled" sx={{ height: 26, fontWeight: 'bold', fontSize: '0.7rem', cursor: 'pointer' }} />
                               </Tooltip>
                             )}
-                            {bill.status !== 'paid' && outstanding > 0 && bill.status !== 'draft' && bill.approvalStatus !== 'Submitted' && bill.approvalStatus !== 'Rejected' && (
+                            {bill.status !== 'paid'
+                              && outstanding > 0
+                              && bill.status !== 'draft'
+                              && !['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'].includes(bill.status)
+                              && bill.approvalStatus !== 'Submitted'
+                              && bill.approvalStatus !== 'Rejected' && (
                               <Tooltip title="Make Payment">
                                 <IconButton size="small" color="success" onClick={() => handleOpenPayment(bill)}>
                                   <PaymentIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
                             )}
-                            <Tooltip title={canEditVendorBill(bill) ? 'Edit Bill' : 'Cannot edit after payment'}>
+                            {bill.status === 'Returned from Audit' && (
+                              <Tooltip title="Resubmit to Pre-Audit">
+                                <IconButton size="small" color="warning" onClick={() => handleResubmitToAudit(bill)}>
+                                  <RefreshIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            <Tooltip title={canEditVendorBill(bill) ? 'Edit Bill' : 'Cannot edit after payment / while in audit'}>
                               <span>
                                 <IconButton size="small" onClick={() => handleOpenEdit(bill)} disabled={!canEditVendorBill(bill)}>
                                   <EditIcon fontSize="small" />

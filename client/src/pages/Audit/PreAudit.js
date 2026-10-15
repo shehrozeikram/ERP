@@ -470,6 +470,13 @@ const PreAudit = () => {
           observations: observations.length > 0 ? observations : undefined
         });
         setSuccess('Purchase order rejected successfully.');
+      } else if (doc.isVendorBill) {
+        await api.put(`/pre-audit/${doc._id}/reject`, {
+          rejectionComments: rejectionComments || 'Rejected with observations',
+          observations: observations.length > 0 ? observations : undefined,
+          useStamp: useStampForAction
+        });
+        setSuccess('Vendor bill rejected and returned to finance. They can correct and resend.');
       } else {
         await api.put(`/pre-audit/${doc._id}/reject`, {
           rejectionComments: rejectionComments || 'Rejected with observations',

@@ -4329,7 +4329,8 @@ router.get('/accounts-payable',
         // Payment UI already blocks draft / Submitted dept-approval bills.
         baseFilters.status = {
           $ne: 'paid',
-          $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit']
+          // Hide only in-flight audit queue; keep Returned from Audit visible so finance can correct/resubmit
+          $nin: ['Pending Audit', 'Forwarded to Audit Director']
         };
       } else if (status === 'pending_dept_approval') {
         baseFilters.status = 'draft';
@@ -4339,9 +4340,9 @@ router.get('/accounts-payable',
         baseFilters.status = status;
       }
     } else {
-      // By default in Finance AP, hide bills that are pending pre-audit / audit director approval
-      // Keep draft COA bills visible so creators can track department approval
-      baseFilters.status = { $nin: ['Pending Audit', 'Forwarded to Audit Director', 'Returned from Audit'] };
+      // By default in Finance AP, hide bills still in pre-audit / audit director queue.
+      // Returned from Audit stays visible so finance can fix observations and resend.
+      baseFilters.status = { $nin: ['Pending Audit', 'Forwarded to Audit Director'] };
     }
 
     // Bill type filter (server-side so counts/pages cover the full set)
@@ -5025,6 +5026,54 @@ router.post('/accounts-payable/:id/department-reject',
       .populate('createdBy', 'firstName lastName email');
 
     res.json({ success: true, message: 'Bill rejected at department approval', data: populated });
+  })
+);
+
+// @route   POST /api/finance/accounts-payable/:id/resubmit-to-audit
+// @desc    Resubmit vendor bill to Pre-Audit after audit return/reject with observations
+// @access  Private (Finance and Admin)
+router.post('/accounts-payable/:id/resubmit-to-audit',
+  authorize('super_admin', 'admin', 'finance_manager', 'general_manager'),
+  asyncHandler(async (req, res) => {
+    const bill = await AccountsPayable.findById(req.params.id);
+    if (!bill) {
+      return res.status(404).json({ success: false, message: 'Bill not found' });
+    }
+    if (bill.status !== 'Returned from Audit') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only bills returned from audit can be resubmitted to Pre-Audit'
+      });
+    }
+
+    const userId = req.user.id || req.user._id;
+    const comments = String(req.body?.comments || '').trim() || 'Resubmitted to Pre-Audit after audit observations';
+    bill.workflowHistory = Array.isArray(bill.workflowHistory) ? bill.workflowHistory : [];
+    bill.workflowHistory.push({
+      fromStatus: 'Returned from Audit',
+      toStatus: 'Pending Audit',
+      changedBy: userId,
+      changedAt: new Date(),
+      comments,
+      module: 'Finance'
+    });
+    bill.status = 'Pending Audit';
+    bill.preAuditInitialApprovedAt = undefined;
+    bill.preAuditInitialApprovedBy = undefined;
+    bill.lastModifiedBy = userId;
+    await bill.save();
+
+    await notifyCoaBillAuditQueue({ actorId: userId, bill });
+
+    const populated = await AccountsPayable.findById(bill._id)
+      .populate('createdBy', 'firstName lastName email')
+      .populate('observations.addedBy', 'firstName lastName email');
+
+    res.json({
+      success: true,
+      message: 'Bill resubmitted to Pre-Audit successfully',
+      data: populated
+    });
   })
 );
 

@@ -2357,6 +2357,82 @@ router.put('/:id/reject',
       });
     }
 
+    // Vendor bills (Finance AP) — reject with observations returns to finance for correction
+    const AccountsPayableReject = require('../models/finance/AccountsPayable');
+    const vbReject = await AccountsPayableReject.findById(req.params.id);
+    if (vbReject && ['Pending Audit', 'Forwarded to Audit Director'].includes(vbReject.status)) {
+      const fromVbStatus = vbReject.status;
+      vbReject.workflowHistory = vbReject.workflowHistory || [];
+      vbReject.observations = vbReject.observations || [];
+
+      if (observations && Array.isArray(observations) && observations.length > 0) {
+        observations.forEach((obs) => {
+          const text = obs.observation || obs.text || obs;
+          if (!text) return;
+          vbReject.observations.push({
+            observation: text,
+            severity: (obs.severity || 'medium').toLowerCase(),
+            addedBy: req.user.id,
+            addedAt: new Date(),
+            resolved: false
+          });
+          vbReject.workflowHistory.push({
+            fromStatus: fromVbStatus,
+            toStatus: 'Returned from Audit',
+            changedBy: req.user.id,
+            changedAt: new Date(),
+            comments: `Observation (${obs.severity || 'medium'}): ${text}`,
+            module: 'Pre-Audit',
+            ...stampMeta
+          });
+        });
+      }
+
+      vbReject.workflowHistory.push({
+        fromStatus: fromVbStatus,
+        toStatus: 'Returned from Audit',
+        changedBy: req.user.id,
+        changedAt: new Date(),
+        comments: `Rejected with observations: ${rejectionComments}`,
+        module: 'Pre-Audit',
+        ...stampMeta
+      });
+      vbReject.status = 'Returned from Audit';
+      vbReject.preAuditInitialApprovedAt = undefined;
+      vbReject.preAuditInitialApprovedBy = undefined;
+      vbReject.lastModifiedBy = req.user.id;
+      await vbReject.save();
+
+      await createAndEmitNotification({
+        recipientIds: [vbReject.createdBy].filter(Boolean).map((id) => String(id._id || id)),
+        title: 'Vendor Bill rejected by Audit',
+        message: `Vendor Bill ${vbReject.billNumber || ''} was rejected by Audit and returned for correction.`,
+        type: 'warning',
+        category: 'approval',
+        priority: 'high',
+        actionUrl: '/finance/accounts-payable',
+        createdBy: req.user.id,
+        excludeUserId: req.user.id,
+        metadata: {
+          module: 'finance',
+          entityId: vbReject._id,
+          entityType: 'AccountsPayable',
+          targetTab: 'returned',
+          isVendorBill: true
+        }
+      });
+
+      return res.json({
+        success: true,
+        message: 'Vendor bill rejected and returned to finance. They can correct and resend to Pre-Audit.',
+        data: {
+          _id: vbReject._id,
+          isVendorBill: true,
+          status: 'Returned from Audit'
+        }
+      });
+    }
+
     // Handle regular Pre Audit documents
     const document = await PreAudit.findById(req.params.id);
     if (!document) {
