@@ -7880,7 +7880,7 @@ router.get('/reports/bank-reconciliation',
       .sort({ date: 1, entryNumber: 1 })
       .lean();
 
-    const postedGlEntries = allGlEntriesUpToAsOf.filter((e) => e.status !== 'cancelled' && e.status !== 'reversed');
+    const postedGlEntriesRaw = allGlEntriesUpToAsOf.filter((e) => e.status !== 'cancelled' && e.status !== 'reversed');
 
     // Also query Journal Entries directly with line accounts matching target bank account(s)
     // Apply company scope via jeMatch so only this company's JEs are fetched
@@ -7912,6 +7912,35 @@ router.get('/reports/bank-reconciliation',
     const moneyKey = (n) => String(Math.round((Number(n) || 0) * 100));
     const bankLineFingerprint = (jeId, accId, debit, credit) =>
       `${String(jeId)}|${String(accId)}|${moneyKey(debit)}|${moneyKey(credit)}`;
+
+    // Collapse duplicate GL rows for the same JE bank line (re-post / partial create bugs).
+    // Prefer a cleared row; otherwise keep the earliest created.
+    const postedGlEntries = [];
+    const glFpIndex = new Map();
+    postedGlEntriesRaw.forEach((gle) => {
+      const je = gle.journalEntry || {};
+      const jeId = je._id ? String(je._id) : (gle.journalEntry ? String(gle.journalEntry) : '');
+      const accId = gle.account?._id ? String(gle.account._id) : String(gle.account || '');
+      const debit = Number(gle.debit) || 0;
+      const credit = Number(gle.credit) || 0;
+      const fp = jeId && accId ? bankLineFingerprint(jeId, accId, debit, credit) : String(gle._id);
+      const gleCleared = Boolean(gle.clearanceStatus === 'cleared' || gle.isReconciled);
+      if (glFpIndex.has(fp)) {
+        const idx = glFpIndex.get(fp);
+        const prev = postedGlEntries[idx];
+        const prevCleared = Boolean(prev.clearanceStatus === 'cleared' || prev.isReconciled);
+        if (gleCleared && !prevCleared) {
+          postedGlEntries[idx] = gle;
+        } else if (!gleCleared && !prevCleared) {
+          const prevT = new Date(prev.createdAt || prev.date || 0).getTime();
+          const nextT = new Date(gle.createdAt || gle.date || 0).getTime();
+          if (nextT < prevT) postedGlEntries[idx] = gle;
+        }
+        return;
+      }
+      glFpIndex.set(fp, postedGlEntries.length);
+      postedGlEntries.push(gle);
+    });
 
     postedGlEntries.forEach((gle) => {
       const je = gle.journalEntry || {};
@@ -8297,6 +8326,20 @@ router.post('/reports/bank-reconciliation/reconcile',
                 console.error('Bank recon: missing req.user for GL create');
                 return null;
               }
+              const debitAmt = Number(line.debit) || 0;
+              const creditAmt = Number(line.credit) || 0;
+              // Never create a second GL for the same JE bank line (duplicate Unpresented rows).
+              const existingGl = await GeneralLedger.findOne({
+                journalEntry: je._id,
+                account: line.account,
+                debit: debitAmt,
+                credit: creditAmt,
+                status: { $nin: ['cancelled', 'reversed'] }
+              }).sort({ createdAt: 1 });
+              if (existingGl) {
+                await GeneralLedger.updateOne({ _id: existingGl._id }, { $set: glUpdate });
+                return String(existingGl._id);
+              }
               const created = await GeneralLedger.create({
                 companyId: je.companyId || null,
                 journalEntry: je._id,
@@ -8305,8 +8348,8 @@ router.post('/reports/bank-reconciliation/reconcile',
                 entryNumber: je.entryNumber || je.reference || 'N/A',
                 reference: je.reference || '',
                 description: line.description || je.description || 'Bank transaction',
-                debit: Number(line.debit) || 0,
-                credit: Number(line.credit) || 0,
+                debit: debitAmt,
+                credit: creditAmt,
                 department: 'Finance',
                 module: je.module || 'finance',
                 referenceType: je.referenceType || 'manual',
@@ -8366,27 +8409,41 @@ router.post('/reports/bank-reconciliation/reconcile',
           });
           if (line) {
             try {
-              const created = await GeneralLedger.create({
-                companyId: je.companyId || null,
+              const debitAmt = Number(line.debit) || 0;
+              const creditAmt = Number(line.credit) || 0;
+              const existingGl = await GeneralLedger.findOne({
                 journalEntry: je._id,
                 account: line.account,
-                date: je.date || new Date(),
-                entryNumber: je.entryNumber || je.reference || 'N/A',
-                reference: je.reference || '',
-                description: line.description || je.description || 'Bank transaction',
-                debit: Number(line.debit) || 0,
-                credit: Number(line.credit) || 0,
-                department: 'Finance',
-                module: je.module || 'finance',
-                referenceType: je.referenceType || 'manual',
-                createdBy: userId,
-                status: 'posted',
-                clearanceStatus: glUpdate.clearanceStatus,
-                clearedAt: glUpdate.clearedAt,
-                isReconciled: glUpdate.isReconciled,
-                reconciledAt: glUpdate.reconciledAt
-              });
-              updatedGlIds.push(String(created._id));
+                debit: debitAmt,
+                credit: creditAmt,
+                status: { $nin: ['cancelled', 'reversed'] }
+              }).sort({ createdAt: 1 });
+              if (existingGl) {
+                await GeneralLedger.updateOne({ _id: existingGl._id }, { $set: glUpdate });
+                updatedGlIds.push(String(existingGl._id));
+              } else {
+                const created = await GeneralLedger.create({
+                  companyId: je.companyId || null,
+                  journalEntry: je._id,
+                  account: line.account,
+                  date: je.date || new Date(),
+                  entryNumber: je.entryNumber || je.reference || 'N/A',
+                  reference: je.reference || '',
+                  description: line.description || je.description || 'Bank transaction',
+                  debit: debitAmt,
+                  credit: creditAmt,
+                  department: 'Finance',
+                  module: je.module || 'finance',
+                  referenceType: je.referenceType || 'manual',
+                  createdBy: userId,
+                  status: 'posted',
+                  clearanceStatus: glUpdate.clearanceStatus,
+                  clearedAt: glUpdate.clearedAt,
+                  isReconciled: glUpdate.isReconciled,
+                  reconciledAt: glUpdate.reconciledAt
+                });
+                updatedGlIds.push(String(created._id));
+              }
             } catch (createErr) {
               console.error('Bank recon last-resort GL create failed:', createErr.message);
             }
