@@ -161,19 +161,36 @@ const ComparativeStatements = () => {
         const rawQuotes = response.data.data || [];
         setQuotations(rawQuotes);
 
-        // Auto-select remaining-items quotations if indent is partially fulfilled
-        const unfulfilledQuotes = rawQuotes.filter((q) =>
+        // Partially fulfilled: prefer remaining-item quotes for next lot, BUT also keep
+        // quotes for lots already fully ordered (e.g. Lot A Gutka) so their CS still shows.
+        const indentItems = fullRequisition.items || [];
+        const quoteMatchesRemaining = (q) =>
           (q.items || []).some((qi) => {
-            const matchingIndentItem = (fullRequisition.items || []).find(
+            const matchingIndentItem = indentItems.find(
               (it) => (it.itemName || it.description || '').trim().toLowerCase() === (qi.description || '').trim().toLowerCase()
             );
-            const isRemaining = matchingIndentItem ? (matchingIndentItem.orderedQuantity || 0) < matchingIndentItem.quantity : true;
+            const isRemaining = matchingIndentItem
+              ? (matchingIndentItem.orderedQuantity || 0) < matchingIndentItem.quantity
+              : true;
             return isRemaining && (Number(qi.quantity) > 0 || Number(qi.unitPrice) > 0);
-          })
-        );
+          });
+        const quoteMatchesFulfilledLot = (q) => {
+          const related = indentItems.filter((it) =>
+            (q.items || []).some((qi) =>
+              (it.itemName || it.description || '').trim().toLowerCase() === (qi.description || '').trim().toLowerCase()
+            )
+          );
+          return (
+            related.length > 0 &&
+            related.every((it) => (it.orderedQuantity || 0) >= (Number(it.quantity) || 0))
+          );
+        };
 
-        if (unfulfilledQuotes.length > 0 && fullRequisition.status === 'Partially Fulfilled') {
-          setSelectedQuotationIds(unfulfilledQuotes.map((q) => q._id));
+        if (fullRequisition.status === 'Partially Fulfilled') {
+          const remaining = rawQuotes.filter(quoteMatchesRemaining);
+          const fulfilledLotQuotes = rawQuotes.filter(quoteMatchesFulfilledLot);
+          const merged = [...new Map([...remaining, ...fulfilledLotQuotes].map((q) => [String(q._id), q])).values()];
+          setSelectedQuotationIds((merged.length ? merged : rawQuotes).map((q) => q._id));
         } else {
           setSelectedQuotationIds(rawQuotes.map((q) => q._id));
         }
@@ -775,7 +792,12 @@ const ComparativeStatements = () => {
                 )
               }}
 
-              quotations={activeQuotations.filter(q => (q.lotNumber || 'A') === selectedLot)}
+              quotations={(() => {
+                const lotQuotes = quotations.filter((q) => (q.lotNumber || 'A') === selectedLot);
+                const selectedLotQuotes = activeQuotations.filter((q) => (q.lotNumber || 'A') === selectedLot);
+                // If chip filter dropped a fulfilled lot (common on Partially Fulfilled), still show that lot's CS.
+                return selectedLotQuotes.length > 0 ? selectedLotQuotes : lotQuotes;
+              })()}
               approvalAuthority={approvalAuthority}
               note={comparativeNote}
               readOnly={false}
