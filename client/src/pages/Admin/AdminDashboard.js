@@ -133,12 +133,12 @@ const AdminDashboard = () => {
 
     switch (task.submodule) {
       case 'utility_bills_management':
-        return `/admin/utility-bills/${task.id}`;
+        return `/admin/centralized-store/bills/${task.id}`;
       case 'rental_management':
         return `/admin/rental-management/${task.id}`;
       case 'payment_settlement':
-        // Payment settlement has no dedicated view route; open edit/view page route
-        return `/admin/payment-settlement/edit/${task.id}`;
+        // Admin Payment Settlement UI removed — open in General Payments
+        return `/general/payments`;
       default:
         return task.editPath || task.viewPath || task.routePath || '/admin/dashboard';
     }

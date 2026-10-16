@@ -1,7 +1,7 @@
 /**
  * DESTRUCTIVE (local only): Deletes Admin workflow records and Audit module data from MONGODB_URI_LOCAL.
  *
- * Admin: utility bills, payment settlements, rental management, rental agreements, petty cash.
+ * Admin: utility bills, payment settlements, rental management, rental agreements.
  * General: cash approval requests (originatingModule general).
  * Audit: pre-audit queue, audits, findings, schedules, checklists, trail, corrective actions.
  * Also removes related in-app notifications and activity logs for those modules.
@@ -25,8 +25,6 @@ const root = path.join(__dirname, '..');
 function loadModels() {
   return {
     // Admin workflow / admin submodules (delete dependents first)
-    PettyCashExpense: require(path.join(root, 'server/models/hr/PettyCashExpense')),
-    PettyCashFund: require(path.join(root, 'server/models/hr/PettyCashFund')),
     UtilityBill: require(path.join(root, 'server/models/hr/UtilityBill')),
     PaymentSettlement: require(path.join(root, 'server/models/hr/PaymentSettlement')),
     RentalManagement: require(path.join(root, 'server/models/hr/RentalManagement')),
@@ -47,8 +45,6 @@ function loadModels() {
 
 /** Collections wiped in order (respects typical FK / dependency chains). */
 const DELETE_ORDER = [
-  'PettyCashExpense',
-  'PettyCashFund',
   'UtilityBill',
   'PaymentSettlement',
   'RentalManagement',
@@ -71,7 +67,6 @@ const ADMIN_ACTIVITY_MODULES = [
   'Rental Agreements',
   'Rental Management',
   'Payment Settlements',
-  'Petty Cash',
   'General'
 ];
 

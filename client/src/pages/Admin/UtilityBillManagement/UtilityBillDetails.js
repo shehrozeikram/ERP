@@ -141,20 +141,15 @@ const UtilityBillDetails = ({
   const id = idProp || idParam;
   const isFinanceContext = location.pathname.startsWith('/finance/utility-bills');
   const isGeneralStoreContext = location.pathname.startsWith('/general/centralized-store');
-  const isCentralizedStoreContext = location.pathname.startsWith('/admin/centralized-store') || isGeneralStoreContext;
   const billsListPath = isFinanceContext
     ? '/finance/accounts-payable'
     : isGeneralStoreContext
       ? '/general/centralized-store/bills'
-      : isCentralizedStoreContext
-        ? '/admin/centralized-store/bills'
-        : '/admin/utility-bills';
+      : '/admin/centralized-store/bills';
   const billEditPath = (billId) =>
     isGeneralStoreContext
       ? `/general/centralized-store/bill/${billId}/edit`
-      : isCentralizedStoreContext
-        ? `/admin/centralized-store/bill/${billId}/edit`
-        : `/admin/utility-bills/${billId}/edit`;
+      : `/admin/centralized-store/bill/${billId}/edit`;
   const { user } = useAuth();
   const [bill, setBill] = useState(null);
   const [loading, setLoading] = useState(true);

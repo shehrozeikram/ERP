@@ -39,7 +39,9 @@ import {
   AccordionSummary,
   AccordionDetails,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  Badge,
+  Collapse
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -57,6 +59,8 @@ import {
   Cancel as CancelIcon,
   Close as CloseIcon,
   ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  FilterList as FilterListIcon,
   History as HistoryIcon,
   Print as PrintIcon,
   ZoomIn as ZoomInIcon,
@@ -115,6 +119,21 @@ function getLatestSendToAuditWorkflowComment(workflowHistory) {
   return '';
 }
 
+const PRE_AUDIT_TAB_STATUS_KEYS = [
+  'pending',
+  'under_review',
+  'forwarded_to_director',
+  'approved',
+  'returned_with_observations'
+];
+const PRE_AUDIT_TAB_LABELS = [
+  'Pending',
+  'Under Review',
+  'Forwarded to Director',
+  'Approved',
+  'Returned'
+];
+
 const PreAudit = () => {
   const theme = useTheme();
   const { user } = useAuth();
@@ -136,6 +155,14 @@ const PreAudit = () => {
     priority: ''
   });
   const [tabValue, setTabValue] = useState(0);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
+  const [tabCounts, setTabCounts] = useState({
+    pending: null,
+    under_review: null,
+    forwarded_to_director: null,
+    approved: null,
+    returned_with_observations: null
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(location.search || '');
@@ -301,7 +328,12 @@ const PreAudit = () => {
 
       const response = await api.get(`/pre-audit?${params}`);
       setDocuments(response.data.data);
-      setTotalCount(response.data.pagination.totalCount);
+      const count = response.data.pagination.totalCount;
+      setTotalCount(count);
+      const statusKey = PRE_AUDIT_TAB_STATUS_KEYS[tabValue];
+      if (statusKey) {
+        setTabCounts((prev) => ({ ...prev, [statusKey]: count }));
+      }
     } catch (error) {
       console.error('Error fetching pre-audit documents:', error);
       setError(error.response?.data?.message || 'Failed to fetch documents');
@@ -309,6 +341,19 @@ const PreAudit = () => {
       setLoading(false);
     }
   }, [page, rowsPerPage, searchQuery, filters, tabValue]);
+
+  const getDocumentAmount = (doc) =>
+    doc?.amount ?? doc?.totalAmount ?? doc?.originalDocument?.amount ?? doc?.originalDocument?.totalAmount ?? doc?.originalDocument?.grandTotal;
+
+  const getDaysWaiting = (doc) => {
+    const raw = doc?.documentDate || doc?.createdAt || doc?.date;
+    if (!raw) return null;
+    const start = new Date(raw);
+    if (Number.isNaN(start.getTime())) return null;
+    return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
+  };
+
+  const activeFilterCount = [filters.sourceModule, filters.documentType, filters.priority].filter(Boolean).length;
 
   useEffect(() => {
     fetchDocuments();
@@ -2224,11 +2269,46 @@ const PreAudit = () => {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h4" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-          Pre Audit
-        </Typography>
+    <Box sx={{ p: { xs: 2, md: 3 } }}>
+      <Box
+        sx={{
+          mb: 2.5,
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          gap: 2
+        }}
+      >
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 700, color: 'primary.main', letterSpacing: '-0.02em' }}>
+            Pre Audit
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Work queue · {PRE_AUDIT_TAB_LABELS[tabValue]}
+            {typeof totalCount === 'number' ? ` · ${totalCount} document${totalCount === 1 ? '' : 's'}` : ''}
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {PRE_AUDIT_TAB_STATUS_KEYS.slice(0, 4).map((key, idx) => {
+            const count = tabCounts[key];
+            const isActive = tabValue === idx;
+            return (
+              <Chip
+                key={key}
+                size="small"
+                label={`${PRE_AUDIT_TAB_LABELS[idx]}${count != null ? ` ${count}` : ''}`}
+                color={isActive ? 'primary' : 'default'}
+                variant={isActive ? 'filled' : 'outlined'}
+                onClick={() => {
+                  setPage(0);
+                  setTabValue(idx);
+                }}
+                sx={{ fontWeight: isActive ? 600 : 500 }}
+              />
+            );
+          })}
+        </Stack>
       </Box>
 
       {error && (
@@ -2243,104 +2323,168 @@ const PreAudit = () => {
         </Alert>
       )}
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={12} md={4}>
-              <TextField
-                fullWidth
+      <Card
+        sx={{
+          mb: 3,
+          borderRadius: 2,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+          border: '1px solid',
+          borderColor: 'divider'
+        }}
+      >
+        <CardContent sx={{ pb: '16px !important' }}>
+          <Box
+            sx={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 1.5,
+              alignItems: 'center',
+              mb: 1.5
+            }}
+          >
+            <TextField
+              size="small"
+              placeholder="Search by number, title, vendor…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              sx={{ flex: '1 1 240px', minWidth: 200, maxWidth: 420 }}
+              InputProps={{
+                startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary', fontSize: 20 }} />
+              }}
+            />
+            <Button
+              size="small"
+              variant={moreFiltersOpen || activeFilterCount > 0 ? 'contained' : 'outlined'}
+              color={activeFilterCount > 0 ? 'primary' : 'inherit'}
+              startIcon={<FilterListIcon />}
+              endIcon={moreFiltersOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              onClick={() => setMoreFiltersOpen((v) => !v)}
+              sx={{ textTransform: 'none', fontWeight: 600 }}
+            >
+              Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+            </Button>
+            {activeFilterCount > 0 && (
+              <Button
                 size="small"
-                placeholder="Search documents..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                InputProps={{
-                  startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                }}
-              />
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Status</InputLabel>
-                <Select
-                  value={filters.status}
-                  label="Status"
-                  onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="pending">Pending</MenuItem>
-                  <MenuItem value="under_review">Under Review</MenuItem>
-                  <MenuItem value="forwarded_to_director">Forwarded to Director</MenuItem>
-                  <MenuItem value="approved">Approved</MenuItem>
-                  <MenuItem value="returned_with_observations">Returned</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Module</InputLabel>
-                <Select
-                  value={filters.sourceModule}
-                  label="Module"
-                  onChange={(e) => setFilters({ ...filters, sourceModule: e.target.value })}
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="hr">HR</MenuItem>
-                  <MenuItem value="finance">Finance</MenuItem>
-                  <MenuItem value="procurement">Procurement</MenuItem>
-                  <MenuItem value="admin">Admin</MenuItem>
-                  <MenuItem value="sales">Sales</MenuItem>
-                  <MenuItem value="crm">CRM</MenuItem>
-                  <MenuItem value="it">IT</MenuItem>
-                  <MenuItem value="general">General</MenuItem>
-                  <MenuItem value="taj_residencia">Taj Residencia</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Document Type</InputLabel>
-                <Select
-                  value={filters.documentType}
-                  label="Document Type"
-                  onChange={(e) => setFilters({ ...filters, documentType: e.target.value })}
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="invoice">Invoice</MenuItem>
-                  <MenuItem value="receipt">Receipt</MenuItem>
-                  <MenuItem value="agreement">Agreement</MenuItem>
-                  <MenuItem value="report">Report</MenuItem>
-                  <MenuItem value="statement">Statement</MenuItem>
-                  <MenuItem value="certificate">Certificate</MenuItem>
-                  <MenuItem value="license">License</MenuItem>
-                  <MenuItem value="permit">Permit</MenuItem>
-                  <MenuItem value="other">Other</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} md={2}>
-              <FormControl fullWidth size="small">
-                <InputLabel>Priority</InputLabel>
-                <Select
-                  value={filters.priority}
-                  label="Priority"
-                  onChange={(e) => setFilters({ ...filters, priority: e.target.value })}
-                >
-                  <MenuItem value="">All</MenuItem>
-                  <MenuItem value="low">Low</MenuItem>
-                  <MenuItem value="medium">Medium</MenuItem>
-                  <MenuItem value="high">High</MenuItem>
-                  <MenuItem value="urgent">Urgent</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-          </Grid>
+                color="inherit"
+                onClick={() => setFilters({ status: '', sourceDepartment: '', sourceModule: '', documentType: '', priority: '' })}
+                sx={{ textTransform: 'none' }}
+              >
+                Clear
+              </Button>
+            )}
+          </Box>
 
-          <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} sx={{ mb: 2 }}>
-            <Tab label="Pending" />
-            <Tab label="Under Review" />
-            <Tab label="Forwarded to Director" />
-            <Tab label="Approved" />
-            <Tab label="Returned" />
+          <Collapse in={moreFiltersOpen}>
+            <Grid container spacing={1.5} sx={{ mb: 2 }}>
+              <Grid item xs={12} sm={4} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Module</InputLabel>
+                  <Select
+                    value={filters.sourceModule}
+                    label="Module"
+                    onChange={(e) => setFilters({ ...filters, sourceModule: e.target.value })}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="hr">HR</MenuItem>
+                    <MenuItem value="finance">Finance</MenuItem>
+                    <MenuItem value="procurement">Procurement</MenuItem>
+                    <MenuItem value="admin">Admin</MenuItem>
+                    <MenuItem value="sales">Sales</MenuItem>
+                    <MenuItem value="crm">CRM</MenuItem>
+                    <MenuItem value="it">IT</MenuItem>
+                    <MenuItem value="general">General</MenuItem>
+                    <MenuItem value="taj_residencia">Taj Residencia</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={4} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Document Type</InputLabel>
+                  <Select
+                    value={filters.documentType}
+                    label="Document Type"
+                    onChange={(e) => setFilters({ ...filters, documentType: e.target.value })}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="invoice">Invoice</MenuItem>
+                    <MenuItem value="receipt">Receipt</MenuItem>
+                    <MenuItem value="agreement">Agreement</MenuItem>
+                    <MenuItem value="report">Report</MenuItem>
+                    <MenuItem value="statement">Statement</MenuItem>
+                    <MenuItem value="certificate">Certificate</MenuItem>
+                    <MenuItem value="license">License</MenuItem>
+                    <MenuItem value="permit">Permit</MenuItem>
+                    <MenuItem value="other">Other</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={4} md={3}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Priority</InputLabel>
+                  <Select
+                    value={filters.priority}
+                    label="Priority"
+                    onChange={(e) => setFilters({ ...filters, priority: e.target.value })}
+                  >
+                    <MenuItem value="">All</MenuItem>
+                    <MenuItem value="low">Low</MenuItem>
+                    <MenuItem value="medium">Medium</MenuItem>
+                    <MenuItem value="high">High</MenuItem>
+                    <MenuItem value="urgent">Urgent</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+          </Collapse>
+
+          <Tabs
+            value={tabValue}
+            onChange={(e, newValue) => {
+              setPage(0);
+              setTabValue(newValue);
+            }}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{
+              mb: 2,
+              minHeight: 44,
+              borderBottom: 1,
+              borderColor: 'divider',
+              '& .MuiTab-root': { minHeight: 44, textTransform: 'none', fontWeight: 600, fontSize: '0.875rem' }
+            }}
+          >
+            {PRE_AUDIT_TAB_LABELS.map((label, idx) => {
+              const key = PRE_AUDIT_TAB_STATUS_KEYS[idx];
+              const count = tabCounts[key];
+              return (
+                <Tab
+                  key={key}
+                  label={
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <span>{label}</span>
+                      {count != null && (
+                        <Badge
+                          badgeContent={count > 99 ? '99+' : count}
+                          color={tabValue === idx ? 'primary' : 'default'}
+                          sx={{
+                            '& .MuiBadge-badge': {
+                              position: 'static',
+                              transform: 'none',
+                              fontSize: '0.7rem',
+                              height: 20,
+                              minWidth: 20,
+                              borderRadius: 10,
+                              fontWeight: 700
+                            }
+                          }}
+                        />
+                      )}
+                    </Box>
+                  }
+                />
+              );
+            })}
           </Tabs>
 
           {tabValue === 2 && (
@@ -2368,10 +2512,13 @@ const PreAudit = () => {
               <Skeleton variant="rectangular" height={200} />
             </Box>
           ) : documents.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 4 }}>
-              <DescriptionIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
-              <Typography variant="h6" color="text.secondary">
-                No documents found
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <DescriptionIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1.5 }} />
+              <Typography variant="subtitle1" fontWeight={600} color="text.secondary">
+                No documents in this queue
+              </Typography>
+              <Typography variant="body2" color="text.disabled" sx={{ mt: 0.5 }}>
+                Try another tab or clear filters
               </Typography>
             </Box>
           ) : (() => {
@@ -2401,26 +2548,39 @@ const PreAudit = () => {
                   const totalDocuments = Object.values(monthYears).reduce((sum, m) => sum + m.documents.length, 0);
 
                   return (
-                    <Accordion key={department} defaultExpanded sx={{ mb: 2 }}>
+                    <Accordion
+                      key={department}
+                      defaultExpanded
+                      sx={{
+                        mb: 1.5,
+                        borderRadius: '8px !important',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        boxShadow: 'none',
+                        '&:before': { display: 'none' },
+                        overflow: 'hidden'
+                      }}
+                    >
                       <AccordionSummary
                         expandIcon={<ExpandMoreIcon />}
                         sx={{
-                          backgroundColor: '#f5f5f5',
+                          backgroundColor: alpha(theme.palette.primary.main, 0.04),
+                          minHeight: 48,
                           '&:hover': {
-                            backgroundColor: '#eeeeee'
+                            backgroundColor: alpha(theme.palette.primary.main, 0.07)
                           }
                         }}
                       >
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                          <BusinessIcon color="primary" />
-                          <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', pr: 1 }}>
+                          <BusinessIcon color="primary" fontSize="small" />
+                          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                             {department}
                           </Typography>
                           <Chip
-                            label={`${totalDocuments} document${totalDocuments !== 1 ? 's' : ''}`}
+                            label={totalDocuments}
                             size="small"
                             color="primary"
-                            sx={{ ml: 'auto' }}
+                            sx={{ ml: 'auto', height: 22, fontWeight: 700 }}
                           />
                         </Box>
                       </AccordionSummary>
@@ -2429,93 +2589,103 @@ const PreAudit = () => {
                           {Object.entries(monthYears)
                             .sort(([, a], [, b]) => b.sortKey.localeCompare(a.sortKey)) // Sort by year-month descending (newest first)
                             .map(([monthYear, { documents: monthDocuments }]) => (
-                              <Accordion key={`${department}-${monthYear}`} defaultExpanded sx={{ mb: 1, boxShadow: 'none', border: '1px solid #e0e0e0' }}>
+                              <Accordion
+                                key={`${department}-${monthYear}`}
+                                defaultExpanded
+                                sx={{ mb: 0.5, boxShadow: 'none', border: 'none', '&:before': { display: 'none' } }}
+                              >
                                 <AccordionSummary
                                   expandIcon={<ExpandMoreIcon />}
                                   sx={{
-                                    backgroundColor: '#fafafa',
-                                    '&:hover': {
-                                      backgroundColor: '#f5f5f5'
-                                    },
+                                    backgroundColor: 'grey.50',
+                                    minHeight: 40,
+                                    '& .MuiAccordionSummary-content': { my: 0.5 },
                                     pl: 3
                                   }}
                                 >
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
-                                    <ScheduleIcon color="secondary" />
-                                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, width: '100%', pr: 1 }}>
+                                    <ScheduleIcon color="action" fontSize="small" />
+                                    <Typography variant="body2" sx={{ fontWeight: 600 }}>
                                       {monthYear}
                                     </Typography>
                                     <Chip
-                                      label={`${monthDocuments.length} document${monthDocuments.length !== 1 ? 's' : ''}`}
+                                      label={monthDocuments.length}
                                       size="small"
-                                      color="secondary"
-                                      sx={{ ml: 'auto' }}
+                                      variant="outlined"
+                                      sx={{ ml: 'auto', height: 20, fontSize: '0.7rem' }}
                                     />
                                   </Box>
                                 </AccordionSummary>
                                 <AccordionDetails sx={{ p: 0 }}>
-                                  <TableContainer component={Paper} variant="outlined">
-                                    <Table>
+                                  <TableContainer>
+                                    <Table size="small">
                                       <TableHead>
-                                        <TableRow sx={{ background: '#fafafa' }}>
-                                          <TableCell>Document #</TableCell>
-                                          <TableCell>Title</TableCell>
-                                          <TableCell>Module</TableCell>
-                                          <TableCell>Type</TableCell>
-                                          <TableCell>Date</TableCell>
-                                          <TableCell>Amount</TableCell>
-                                          <TableCell>Previous Month Bill</TableCell>
-                                          <TableCell>Priority</TableCell>
-                                          <TableCell>Status</TableCell>
-                                          <TableCell>Actions</TableCell>
+                                        <TableRow sx={{ background: alpha(theme.palette.grey[500], 0.06) }}>
+                                          <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Document #</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Title</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Module</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }} align="right">Amount</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }} align="right">Prev. Month</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Age</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Priority</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
                                         </TableRow>
                                       </TableHead>
                                       <TableBody>
-                                        {monthDocuments.map((doc) => (
-                                          <TableRow key={doc._id} hover>
-                                            <TableCell>{doc.documentNumber}</TableCell>
+                                        {monthDocuments.map((doc) => {
+                                          const amt = getDocumentAmount(doc);
+                                          const daysWaiting = getDaysWaiting(doc);
+                                          const priorityBorder =
+                                            doc.priority === 'urgent'
+                                              ? theme.palette.error.main
+                                              : doc.priority === 'high'
+                                                ? theme.palette.warning.main
+                                                : 'transparent';
+                                          return (
+                                          <TableRow
+                                            key={doc._id}
+                                            hover
+                                            sx={{
+                                              borderLeft: `3px solid ${priorityBorder}`,
+                                              '& td': { py: 1 }
+                                            }}
+                                          >
                                             <TableCell>
-                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                                                <Typography variant="body2" fontWeight="medium">
+                                              <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.8rem' }}>
+                                                {doc.documentNumber}
+                                              </Typography>
+                                            </TableCell>
+                                            <TableCell sx={{ maxWidth: 320 }}>
+                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                                                <Typography variant="body2" fontWeight={600} sx={{ lineHeight: 1.3 }}>
                                                   {doc.isCashApproval
                                                     ? `${isCashApprovalBillDoc(doc) ? 'Cash Approval Bill' : 'Cash Approval'}: ${doc.documentNumber || doc?.originalDocument?.caNumber || doc.title || '—'}`
                                                     : doc.title}
                                                 </Typography>
                                                 {doc.isWorkflowDocument && !doc.isPostGrnAudit && (
-                                                  <Chip
-                                                    label="Workflow"
-                                                    size="small"
-                                                    color="primary"
-                                                    variant="outlined"
-                                                  />
+                                                  <Chip label="Workflow" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
                                                 )}
                                                 {doc.isPostGrnAudit && (
-                                                  <Chip
-                                                    label="Post-GRN"
-                                                    size="small"
-                                                    color="warning"
-                                                    variant="filled"
-                                                  />
+                                                  <Chip label="Post-GRN" size="small" color="warning" variant="filled" sx={{ height: 20, fontSize: '0.65rem' }} />
                                                 )}
                                                 {doc.isCashApproval && (
                                                   <Chip
-                                                    label={isCashApprovalBillDoc(doc) ? 'Cash Approval Bill' : 'Cash Approval'}
+                                                    label={isCashApprovalBillDoc(doc) ? 'CA Bill' : 'Cash Approval'}
                                                     size="small"
                                                     color="success"
                                                     variant="outlined"
+                                                    sx={{ height: 20, fontSize: '0.65rem' }}
                                                   />
                                                 )}
                                                 {doc.isVendorBill && (
-                                                  <Chip
-                                                    label="Vendor Bill"
-                                                    size="small"
-                                                    color="secondary"
-                                                    variant="outlined"
-                                                  />
+                                                  <Chip label="Vendor Bill" size="small" color="secondary" variant="outlined" sx={{ height: 20, fontSize: '0.65rem' }} />
                                                 )}
                                               </Box>
                                               {doc.description && (
-                                                <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 200, display: 'block' }}>
+                                                <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: 280, display: 'block' }}>
                                                   {doc.description}
                                                 </Typography>
                                               )}
@@ -2542,29 +2712,53 @@ const PreAudit = () => {
                                               })()}
                                             </TableCell>
                                             <TableCell>
-                                              <Chip label={doc.sourceModule} size="small" variant="outlined" />
+                                              <Chip
+                                                label={doc.sourceModule}
+                                                size="small"
+                                                variant="outlined"
+                                                sx={{ height: 22, textTransform: 'capitalize', fontSize: '0.7rem' }}
+                                              />
                                             </TableCell>
                                             <TableCell>
-                                              <Chip label={doc.documentType} size="small" />
+                                              <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize' }}>
+                                                {doc.documentType || '—'}
+                                              </Typography>
                                             </TableCell>
-                                            <TableCell>{formatDate(doc.documentDate)}</TableCell>
-                                            <TableCell>
-                                              {(() => {
-                                                const amt = doc.amount ?? doc.totalAmount ?? doc.originalDocument?.amount ?? doc.originalDocument?.totalAmount ?? doc.originalDocument?.grandTotal;
-                                                return (amt !== undefined && amt !== null) ? formatPKR(amt) : '—';
-                                              })()}
+                                            <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                              <Typography variant="body2">{formatDate(doc.documentDate)}</Typography>
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                                              <Typography variant="body2" fontWeight={700}>
+                                                {(amt !== undefined && amt !== null) ? formatPKR(amt) : '—'}
+                                              </Typography>
+                                            </TableCell>
+                                            <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                                               {(() => {
                                                 const lastMonthAmt = doc.lastMonthAmount ?? doc.originalDocument?.lastMonthAmount;
-                                                return (lastMonthAmt !== undefined && lastMonthAmt !== null) ? formatPKR(lastMonthAmt) : '—';
+                                                return (
+                                                  <Typography variant="body2" color="text.secondary">
+                                                    {(lastMonthAmt !== undefined && lastMonthAmt !== null) ? formatPKR(lastMonthAmt) : '—'}
+                                                  </Typography>
+                                                );
                                               })()}
+                                            </TableCell>
+                                            <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                              {daysWaiting != null ? (
+                                                <Chip
+                                                  size="small"
+                                                  label={daysWaiting === 0 ? 'Today' : `${daysWaiting}d`}
+                                                  color={daysWaiting >= 7 ? 'warning' : 'default'}
+                                                  variant={daysWaiting >= 7 ? 'filled' : 'outlined'}
+                                                  sx={{ height: 22, fontWeight: 600, fontSize: '0.7rem' }}
+                                                />
+                                              ) : '—'}
                                             </TableCell>
                                             <TableCell>
                                               <Chip
                                                 label={doc.priority}
                                                 size="small"
                                                 color={getPriorityColor(doc.priority)}
+                                                sx={{ height: 22, textTransform: 'capitalize', fontSize: '0.7rem', fontWeight: 600 }}
                                               />
                                             </TableCell>
                                             <TableCell>
@@ -2572,10 +2766,11 @@ const PreAudit = () => {
                                                 label={doc.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                                                 size="small"
                                                 color={getStatusColor(doc.status)}
+                                                sx={{ height: 22, fontSize: '0.68rem', fontWeight: 600 }}
                                               />
                                             </TableCell>
-                                            <TableCell>
-                                              <Stack direction="row" spacing={1}>
+                                            <TableCell align="right">
+                                              <Stack direction="row" spacing={0.25} justifyContent="flex-end">
                                                 <Tooltip title="View Details">
                                                   <IconButton
                                                     size="small"
@@ -2875,7 +3070,8 @@ const PreAudit = () => {
                                               </Stack>
                                             </TableCell>
                                           </TableRow>
-                                        ))}
+                                          );
+                                        })}
                                       </TableBody>
                                     </Table>
                                   </TableContainer>
@@ -2979,6 +3175,59 @@ const PreAudit = () => {
               </IconButton>
             </Box>
           </Box>
+          {viewDialog.document && (
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: 1.5,
+                px: 2,
+                py: 1.25,
+                background: alpha(theme.palette.primary.main, 0.04),
+                borderBottom: '1px solid',
+                borderColor: 'divider',
+                '@media print': { display: 'none' }
+              }}
+            >
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 700, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
+              >
+                {viewDialog.document.documentNumber || viewDialog.fullDocument?.documentNumber || '—'}
+              </Typography>
+              {viewDialog.document.sourceModule && (
+                <Chip
+                  size="small"
+                  label={viewDialog.document.sourceModule}
+                  variant="outlined"
+                  sx={{ height: 22, textTransform: 'capitalize', fontSize: '0.7rem' }}
+                />
+              )}
+              {viewDialog.document.status && (
+                <Chip
+                  size="small"
+                  label={String(viewDialog.document.status).replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                  color={getStatusColor(viewDialog.document.status)}
+                  sx={{ height: 22, fontSize: '0.7rem', fontWeight: 600 }}
+                />
+              )}
+              {viewDialog.document.priority && (
+                <Chip
+                  size="small"
+                  label={viewDialog.document.priority}
+                  color={getPriorityColor(viewDialog.document.priority)}
+                  sx={{ height: 22, textTransform: 'capitalize', fontSize: '0.7rem', fontWeight: 600 }}
+                />
+              )}
+              <Typography variant="body2" sx={{ ml: 'auto', fontWeight: 700 }}>
+                {(() => {
+                  const amt = getDocumentAmount(viewDialog.document) ?? getDocumentAmount(viewDialog.fullDocument);
+                  return amt != null ? formatPKR(amt) : '';
+                })()}
+              </Typography>
+            </Box>
+          )}
         </DialogTitle>
         <DialogContent sx={{ p: 0, background: '#ffffff', overflow: 'auto', '@media print': { p: 0, overflow: 'visible' } }}>
           {viewDialog.loading ? (

@@ -457,6 +457,245 @@ router.get(
   })
 );
 
+/** GET /api/kpi/worksheets/dashboard?year=&month= — KPI Management overview metrics + chart series */
+router.get(
+  '/dashboard',
+  asyncHandler(async (req, res) => {
+    if (!(await canAccessKpiManagement(req.user, 'read'))) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to view the KPI dashboard'
+      });
+    }
+
+    const now = new Date();
+    const year = Math.max(2000, parseInt(req.query.year, 10) || now.getFullYear());
+    const month = Math.min(12, Math.max(1, parseInt(req.query.month, 10) || now.getMonth() + 1));
+
+    const employees = await Employee.find({ isActive: true, isDeleted: { $ne: true } })
+      .select('firstName lastName employeeId placementProject placementDepartment department placementDesignation employeeCategory')
+      .populate('placementProject', 'name')
+      .populate('placementDepartment', 'name')
+      .populate('department', 'name')
+      .populate('placementDesignation', 'title')
+      .lean();
+
+    const trendMonths = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      const d = new Date(year, month - 1 - i, 1);
+      trendMonths.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
+    }
+
+    const worksheets = await KPIWorksheet.find({
+      $or: trendMonths.map((m) => ({ year: m.year, month: m.month }))
+    })
+      .select('employee year month rows totalKPIScore')
+      .lean();
+
+    const worksheetsByPeriod = new Map();
+    worksheets.forEach((ws) => {
+      const key = `${ws.year}-${ws.month}`;
+      if (!worksheetsByPeriod.has(key)) worksheetsByPeriod.set(key, new Map());
+      worksheetsByPeriod.get(key).set(String(ws.employee), ws);
+    });
+
+    const buildPeriodRows = (periodYear, periodMonth) => {
+      const wsMap = worksheetsByPeriod.get(`${periodYear}-${periodMonth}`) || new Map();
+      return employees.map((emp) => {
+        const ws = wsMap.get(String(emp._id));
+        const rows = ws?.rows || [];
+        const employeeCategory = resolveEmployeeCategoryLabel(emp);
+        const status = ws ? worksheetSubmissionStatusForCategory(rows, employeeCategory) : 'not_started';
+        const department = emp.placementDepartment || emp.department || { _id: null, name: 'Unassigned' };
+        return {
+          employee: {
+            _id: emp._id,
+            firstName: emp.firstName,
+            lastName: emp.lastName,
+            employeeId: emp.employeeId,
+            designation: emp.placementDesignation?.title || '—'
+          },
+          employeeCategory,
+          department: {
+            _id: department?._id || null,
+            name: department?.name || 'Unassigned'
+          },
+          project: {
+            _id: emp.placementProject?._id || null,
+            name: emp.placementProject?.name || 'Unassigned'
+          },
+          status,
+          totalKPIScore: Number(ws?.totalKPIScore) || 0,
+          hasWorksheet: Boolean(ws)
+        };
+      });
+    };
+
+    const isCompleted = (row) => {
+      if (row.employeeCategory === 'blue_collar') return row.status === 'manager_reviewed';
+      return row.status === 'submitted' || row.status === 'manager_reviewed';
+    };
+
+    const currentRows = buildPeriodRows(year, month);
+    const statusCounts = {
+      submitted: 0,
+      managerReviewed: 0,
+      draft: 0,
+      notStarted: 0
+    };
+    currentRows.forEach((row) => {
+      if (row.status === 'submitted') statusCounts.submitted += 1;
+      else if (row.status === 'manager_reviewed') statusCounts.managerReviewed += 1;
+      else if (row.status === 'draft') statusCounts.draft += 1;
+      else statusCounts.notStarted += 1;
+    });
+
+    const completedCount = currentRows.filter(isCompleted).length;
+    const scoredRows = currentRows.filter((row) => row.totalKPIScore > 0);
+    const averageScore = scoredRows.length
+      ? Math.round(
+          (scoredRows.reduce((sum, row) => sum + row.totalKPIScore, 0) / scoredRows.length) * 10
+        ) / 10
+      : 0;
+
+    const blueCollar = currentRows.filter((row) => row.employeeCategory === 'blue_collar').length;
+    const whiteCollar = currentRows.length - blueCollar;
+
+    const deptMap = new Map();
+    currentRows.forEach((row) => {
+      const key = row.department?._id ? String(row.department._id) : row.department?.name || 'unassigned';
+      if (!deptMap.has(key)) {
+        deptMap.set(key, {
+          name: row.department?.name || 'Unassigned',
+          total: 0,
+          completed: 0,
+          scoreSum: 0,
+          scored: 0
+        });
+      }
+      const dept = deptMap.get(key);
+      dept.total += 1;
+      if (isCompleted(row)) dept.completed += 1;
+      if (row.totalKPIScore > 0) {
+        dept.scoreSum += row.totalKPIScore;
+        dept.scored += 1;
+      }
+    });
+
+    const byDepartment = [...deptMap.values()]
+      .map((dept) => ({
+        name: dept.name,
+        total: dept.total,
+        completed: dept.completed,
+        pending: Math.max(0, dept.total - dept.completed),
+        completionRate: dept.total ? Math.round((dept.completed / dept.total) * 100) : 0,
+        averageScore: dept.scored ? Math.round((dept.scoreSum / dept.scored) * 10) / 10 : 0
+      }))
+      .sort((a, b) => b.completionRate - a.completionRate || b.total - a.total)
+      .slice(0, 12);
+
+    const scoreBuckets = [
+      { label: '0–20', min: 0, max: 20, count: 0 },
+      { label: '21–40', min: 21, max: 40, count: 0 },
+      { label: '41–60', min: 41, max: 60, count: 0 },
+      { label: '61–80', min: 61, max: 80, count: 0 },
+      { label: '81–100', min: 81, max: 100, count: 0 },
+      { label: '100+', min: 101, max: null, count: 0 }
+    ];
+    scoredRows.forEach((row) => {
+      const score = row.totalKPIScore;
+      const bucket = scoreBuckets.find((b) =>
+        score >= b.min && (b.max == null || score <= b.max)
+      );
+      if (bucket) bucket.count += 1;
+    });
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const trend = trendMonths.map((m) => {
+      const rows = buildPeriodRows(m.year, m.month);
+      const completed = rows.filter(isCompleted).length;
+      const submitted = rows.filter((r) => r.status === 'submitted').length;
+      const managerReviewed = rows.filter((r) => r.status === 'manager_reviewed').length;
+      const draft = rows.filter((r) => r.status === 'draft').length;
+      const notStarted = rows.filter((r) => r.status === 'not_started').length;
+      const scored = rows.filter((r) => r.totalKPIScore > 0);
+      return {
+        year: m.year,
+        month: m.month,
+        label: `${monthNames[m.month - 1]} ${String(m.year).slice(2)}`,
+        totalEmployees: rows.length,
+        completed,
+        submitted,
+        managerReviewed,
+        draft,
+        notStarted,
+        completionRate: rows.length ? Math.round((completed / rows.length) * 100) : 0,
+        averageScore: scored.length
+          ? Math.round((scored.reduce((s, r) => s + r.totalKPIScore, 0) / scored.length) * 10) / 10
+          : 0
+      };
+    });
+
+    const attentionList = currentRows
+      .filter((row) => !isCompleted(row))
+      .slice(0, 8)
+      .map((row) => ({
+        employeeId: row.employee?.employeeId,
+        name: `${row.employee?.firstName || ''} ${row.employee?.lastName || ''}`.trim() || '—',
+        department: row.department?.name || '—',
+        status: row.status,
+        category: row.employeeCategory
+      }));
+
+    const topScores = [...scoredRows]
+      .sort((a, b) => b.totalKPIScore - a.totalKPIScore)
+      .slice(0, 5)
+      .map((row) => ({
+        employeeId: row.employee?.employeeId,
+        name: `${row.employee?.firstName || ''} ${row.employee?.lastName || ''}`.trim() || '—',
+        department: row.department?.name || '—',
+        score: row.totalKPIScore,
+        status: row.status
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        year,
+        month,
+        summary: {
+          totalEmployees: currentRows.length,
+          completed: completedCount,
+          pending: Math.max(0, currentRows.length - completedCount),
+          completionRate: currentRows.length
+            ? Math.round((completedCount / currentRows.length) * 100)
+            : 0,
+          averageScore,
+          scoredCount: scoredRows.length,
+          blueCollar,
+          whiteCollar,
+          ...statusCounts
+        },
+        statusBreakdown: [
+          { key: 'manager_reviewed', name: 'Manager reviewed', value: statusCounts.managerReviewed },
+          { key: 'submitted', name: 'Submitted', value: statusCounts.submitted },
+          { key: 'draft', name: 'Draft', value: statusCounts.draft },
+          { key: 'not_started', name: 'Not started', value: statusCounts.notStarted }
+        ],
+        categoryBreakdown: [
+          { key: 'blue_collar', name: 'Blue collar', value: blueCollar },
+          { key: 'white_collar', name: 'White collar', value: whiteCollar }
+        ],
+        byDepartment,
+        scoreBuckets: scoreBuckets.map(({ label, count }) => ({ label, count })),
+        trend,
+        attentionList,
+        topScores
+      }
+    });
+  })
+);
+
 /** GET /api/kpi/worksheets/submissions?year=&month=&projectId=&departmentId=&submittedOnly=&employeeCategory= */
 router.get(
   '/submissions',

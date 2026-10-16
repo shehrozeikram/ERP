@@ -15,6 +15,8 @@ export const fetchEmployeeKpiWorksheet = (employeeId, params) =>
 
 export const fetchKpiSubmissions = (params) => api.get(`${base}/submissions`, { params });
 
+export const fetchKpiDashboard = (params) => api.get(`${base}/dashboard`, { params });
+
 export const runKpiMonthlyBootstrap = (body) => api.post(`${base}/run-monthly-bootstrap`, body || {});
 
 /** Update employeeCategory / reportingLine from KPI Management (persists on Employee). */

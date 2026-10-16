@@ -27,9 +27,22 @@ export const DEFAULT_TRANSFER_PAYMENT_TYPES = [
   'Stamp Duty',
   'Tehsil Fee',
   'Form No.32',
+  'Form No.32-A',
   'Miscellaneous Charges',
   'Advance Tax',
-  'PLRA (Punjab Land Records Authority)'
+  'Gain Tax',
+  '7E - Tax',
+  '2% Deficiency',
+  'PLRA (Punjab Land Records Authority)',
+  'PLRA',
+  'Intiqal Transfer Fee',
+  'Fard Fee',
+  'Patwari Fee',
+  'CVT',
+  'Possession',
+  'Agent Commission',
+  'Commission',
+  'Other'
 ];
 
 const formatMoney = (value) =>
@@ -80,8 +93,15 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
   const [newTypeName, setNewTypeName] = useState('');
 
   const paymentTypeOptions = useMemo(() => {
-    const fromRows = payments.map((row) => row.paymentType).filter(Boolean);
-    const merged = [...DEFAULT_TRANSFER_PAYMENT_TYPES, ...customTypes, ...fromRows];
+    const normalize = (value) => String(value || '').trim();
+    const fromRows = payments.map((row) => normalize(row.paymentType)).filter(Boolean);
+    const fromCustom = (customTypes || []).map(normalize).filter(Boolean);
+    // Defaults first so Gain Tax / Stamp Duty / Tehsil Fee always appear in every row dropdown
+    const merged = [
+      ...DEFAULT_TRANSFER_PAYMENT_TYPES,
+      ...fromCustom,
+      ...fromRows
+    ].map(normalize).filter(Boolean);
     return [...new Set(merged)];
   }, [payments, customTypes]);
 
@@ -183,7 +203,7 @@ export default function LandTransferPaymentsPanel({ payments, onChange, customTy
                     >
                       <MenuItem value="">Select type</MenuItem>
                       {paymentTypeOptions.map((type) => (
-                        <MenuItem key={type} value={type}>{type}</MenuItem>
+                        <MenuItem key={`payment-type-${type}`} value={type}>{type}</MenuItem>
                       ))}
                     </TextField>
                   </TableCell>

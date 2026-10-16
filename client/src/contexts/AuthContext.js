@@ -8,7 +8,7 @@ const MAX_RETRIES = 3;
 const RETRY_DELAYS = [1000, 2000, 3000];
 const ROLE_REDIRECTS = {
   super_admin: '/dashboard',
-  admin: '/admin/staff-management',
+  admin: '/admin/users',
   hr_manager: '/hr',
   finance_manager: '/finance',
   procurement_manager: '/procurement',

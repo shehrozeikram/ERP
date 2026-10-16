@@ -637,11 +637,11 @@ const CentralizedStoreManagement = () => {
             if (window.location.pathname.startsWith('/general')) {
               navigate('/general/centralized-store/bills');
             } else {
-              navigate('/admin/utility-bills');
+              navigate('/admin/centralized-store/bills');
             }
           }}
         >
-          {window.location.pathname.startsWith('/general') ? 'Back to Bills' : 'Back to Utility Bills'}
+          Back to Bills
         </Button>
         <Stack direction="row" spacing={1}>
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} disabled={loading}>

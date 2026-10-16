@@ -158,23 +158,7 @@ import VehicleMaintenanceList from './pages/Admin/VehicleManagement/VehicleMaint
 import VehicleLogBookList from './pages/Admin/VehicleManagement/VehicleLogBookList';
 import VehicleLogBookDetailsView from './pages/Admin/VehicleManagement/VehicleLogBookDetailsView';
 import VehicleLocationList from './pages/Admin/VehicleManagement/VehicleLocationList';
-import GroceryList from './pages/Admin/GroceryManagement/GroceryList';
-import GroceryForm from './pages/Admin/GroceryManagement/GroceryForm';
-import StockAlerts from './pages/Admin/GroceryManagement/StockAlerts';
 import HouseInventoryDashboard from './pages/Admin/HouseInventory/HouseInventoryDashboard';
-import PettyCashDashboard from './pages/Admin/PettyCashManagement/PettyCashDashboard';
-import FundForm from './pages/Admin/PettyCashManagement/FundForm';
-import ExpenseForm from './pages/Admin/PettyCashManagement/ExpenseForm';
-import EventDashboard from './pages/Admin/EventManagement/EventDashboard';
-import EventList from './pages/Admin/EventManagement/EventList';
-import EventForm from './pages/Admin/EventManagement/EventForm';
-import EventDetails from './pages/Admin/EventManagement/EventDetails';
-import StaffManagementDashboard from './pages/Admin/StaffManagement/StaffManagementDashboard';
-import StaffAssignmentList from './pages/Admin/StaffManagement/StaffAssignmentList';
-import StaffAssignmentForm from './pages/Admin/StaffManagement/StaffAssignmentForm';
-import LocationManagement from './pages/Admin/StaffManagement/LocationManagement';
-import UtilityBillDashboard from './pages/Admin/UtilityBillManagement/UtilityBillDashboard';
-import UtilityBillList from './pages/Admin/UtilityBillManagement/UtilityBillList';
 import UtilityBillForm from './pages/Admin/UtilityBillManagement/UtilityBillForm';
 import StandardVendorBillForm from './pages/Finance/StandardVendorBillForm';
 import StandardCustomerInvoiceForm from './pages/Finance/StandardCustomerInvoiceForm';
@@ -185,7 +169,6 @@ import RentalAgreementList from './pages/Admin/RentalAgreements/RentalAgreementL
 import RentalAgreementDetail from './pages/Admin/RentalAgreements/RentalAgreementDetail';
 import RentalManagementDashboard from './pages/Admin/RentalManagement/RentalManagementDashboard';
 import RentalManagementDetail from './pages/Admin/RentalManagement/RentalManagementDetail';
-import PaymentSettlement from './pages/Admin/PaymentSettlement/PaymentSettlement';
 import RoleManagement from './pages/Admin/RoleManagement';
 import AdminDashboard from './pages/Admin/AdminDashboard';
 import SettingsPage from './pages/Settings/SettingsPage';
@@ -383,7 +366,7 @@ const RoleBasedRedirect = () => {
       case 'developer':
         return '/dashboard';
       case 'admin':
-        return '/admin/staff-management';
+        return '/admin/users';
       case 'hr_manager':
         return '/hr';
       case 'finance_manager':
@@ -430,7 +413,7 @@ const PublicRoute = ({ children }) => {
         case 'developer':
           return '/dashboard';
         case 'admin':
-          return '/admin/staff-management';
+          return '/admin/users';
         case 'hr_manager':
           return '/hr';
         case 'finance_manager':
@@ -1906,100 +1889,7 @@ function App() {
                       path="/admin/houses-inventory"
                       element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><HouseInventoryDashboard /></ProtectedRoute>}
                     />
-                    <Route
-                      path="/admin/groceries"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryList /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/groceries/new"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/groceries/:id"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/groceries/:id/edit"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><GroceryForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/groceries/stock-alerts"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StockAlerts /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/petty-cash"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PettyCashDashboard /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/petty-cash/funds/new"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><FundForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/petty-cash/funds/:id/edit"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><FundForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/petty-cash/expenses/new"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><ExpenseForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/petty-cash/expenses/:id/edit"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><ExpenseForm /></ProtectedRoute>}
-                    />
-
-                    {/* Event Management Routes */}
-                    <Route
-                      path="/admin/events"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventDashboard /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/events/list"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventList /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/events/new"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/events/:id"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventDetails /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/events/:id/edit"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><EventForm /></ProtectedRoute>}
-                    />
-
-                    {/* Staff Management Routes */}
-                    <Route
-                      path="/admin/staff-management"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffManagementDashboard /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/staff-management/assignments"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentList /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/staff-management/assignments/new"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/staff-management/assignments/:id"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/staff-management/assignments/:id/edit"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><StaffAssignmentForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/staff-management/locations"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><LocationManagement /></ProtectedRoute>}
-                    />
-
-                    {/* Utility Bills Management Routes */}
-                    <Route
-                      path="/admin/utility-bills"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillDashboard /></ProtectedRoute>}
-                    />
+                    {/* Centralized Store (bills + utility bills live here) */}
                     <Route
                       path="/admin/centralized-store"
                       element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><CentralizedStoreManagement /></ProtectedRoute>}
@@ -2020,22 +1910,6 @@ function App() {
                       path="/admin/centralized-store/bill/:id/edit"
                       element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>}
                     />
-                    <Route
-                      path="/admin/utility-bills/list"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillList /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/utility-bills/new"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/utility-bills/:id/edit"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><UtilityBillForm /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/utility-bills/:id"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin"]}><UtilityBillDetails /></ProtectedRoute>}
-                    />
 
                     {/* Rental Management Routes */}
                     <Route
@@ -2053,20 +1927,6 @@ function App() {
                     <Route
                       path="/admin/rental-management/:id"
                       element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><RentalManagementDetail /></ProtectedRoute>}
-                    />
-
-                    {/* Payment Settlement Routes */}
-                    <Route
-                      path="/admin/payment-settlement/:action/:id"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PaymentSettlement /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/payment-settlement/:action"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PaymentSettlement /></ProtectedRoute>}
-                    />
-                    <Route
-                      path="/admin/payment-settlement"
-                      element={<ProtectedRoute requiredRole={["super_admin", "admin", "hr_manager"]}><PaymentSettlement /></ProtectedRoute>}
                     />
 
                     {/* IT Module Routes */}

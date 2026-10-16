@@ -57,10 +57,6 @@ const SUBMODULES = {
     'sub_roles',
     'vehicle_management', 
     'house_inventory',
-    'grocery_management',
-    'petty_cash_management',
-    'event_management',
-    'staff_management',
     'utility_bills_management',
     'rental_agreements',
     'rental_management',
@@ -430,11 +426,6 @@ const PERMISSION_MAPPINGS = {
   'vehicle_update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'vehicle_delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
-  'admin.groceries.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.groceries.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.groceries.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.groceries.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-
   'admin.house_inventory.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.house_inventory.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.house_inventory.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
@@ -449,21 +440,6 @@ const PERMISSION_MAPPINGS = {
   'supplier_read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PROCUREMENT_MANAGER, 'general', 'centralized_store'],
   'supplier_update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER, ROLES.PROCUREMENT_MANAGER, 'general', 'centralized_store'],
   'supplier_delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  
-  'admin.petty_cash.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.petty_cash.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.petty_cash.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.petty_cash.approve': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  
-  'admin.events.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.events.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.events.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.events.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
-  
-  'admin.staff_assignment.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.staff_assignment.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.staff_assignment.update': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
-  'admin.staff_assignment.delete': [ROLES.SUPER_ADMIN, ROLES.ADMIN],
   
   'admin.locations.create': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],
   'admin.locations.read': [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.HR_MANAGER],

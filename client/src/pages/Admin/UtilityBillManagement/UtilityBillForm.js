@@ -303,9 +303,7 @@ const UtilityBillForm = () => {
         ? '/finance/accounts-payable' 
         : isProcurementBill 
           ? '/procurement/vendor-bills' 
-          : isCentralizedStoreBill 
-            ? '/admin/centralized-store/bills' 
-            : '/admin/utility-bills';
+          : '/admin/centralized-store/bills';
   const defaultType = searchParams.get('type') || 'Electricity';
   const accountHeadOptions = ['President Personal', 'SGCHQ', 'Boly.pk', 'Usman Solar'];
   const defaultMode = searchParams.get('mode') || (isCentralizedStoreBill ? 'store' : 'category');
@@ -1151,11 +1149,7 @@ const UtilityBillForm = () => {
         } else if (isGeneralStoreBill) {
           navigate(`/general/centralized-store/bills/${savedBill._id}`);
         } else {
-          navigate(
-            isCentralizedStoreBill
-              ? `/admin/centralized-store/bills/${savedBill._id}`
-              : `/admin/utility-bills/${savedBill._id}`
-          );
+          navigate(`/admin/centralized-store/bills/${savedBill._id}`);
         }
         return;
       }
@@ -1168,11 +1162,7 @@ const UtilityBillForm = () => {
         } else if (isGeneralStoreBill) {
           navigate(`/general/centralized-store/bills/${id}`);
         } else {
-          navigate(
-            isCentralizedStoreBill
-              ? `/admin/centralized-store/bills/${id}`
-              : `/admin/utility-bills/${id}`
-          );
+          navigate(`/admin/centralized-store/bills/${id}`);
         }
         return;
       }

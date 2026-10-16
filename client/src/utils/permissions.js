@@ -225,10 +225,6 @@ export const SUBMODULES = {
     'sub_roles',
     'vehicle_management', 
     'house_inventory',
-    'grocery_management',
-    'petty_cash_management',
-    'event_management',
-    'staff_management',
     'utility_bills_management',
     'rental_agreements',
     'rental_management',
@@ -594,8 +590,9 @@ export const MODULES = {
       },
       {
         name: 'KPI Management',
-        path: '/hr/kpi/sheet',
+        path: '/hr/kpi/dashboard',
         subItems: [
+          { name: 'Dashboard', path: '/hr/kpi/dashboard' },
           { name: 'Monthly KPI sheet', path: '/hr/kpi/sheet' },
           { name: 'KPI submissions', path: '/hr/kpi/submissions' },
           { name: 'KPI Reports', path: '/hr/kpi/reports' }
@@ -936,11 +933,6 @@ export const MODULES = {
         ]
       },
       { name: 'Houses Inventory', path: '/admin/houses-inventory' },
-      { name: 'Grocery Management', path: '/admin/groceries' },
-      { name: 'Petty Cash Management', path: '/admin/petty-cash' },
-      { name: 'Event Management', path: '/admin/events' },
-      { name: 'Staff Management', path: '/admin/staff-management' },
-      { name: 'Utility Bills Management', path: '/admin/utility-bills' },
       {
         name: 'Centralized Store',
         path: '/admin/centralized-store',
@@ -951,8 +943,7 @@ export const MODULES = {
         ]
       },
       { name: 'Rental Agreements', path: '/admin/rental-agreements' },
-      { name: 'Rental Management', path: '/admin/rental-management' },
-      { name: 'Payment Settlement', path: '/admin/payment-settlement' }
+      { name: 'Rental Management', path: '/admin/rental-management' }
     ]
   },
   
@@ -1448,18 +1439,12 @@ export const isRouteAccessible = (userRole, path, userSubRoles = [], userRoleRef
       '/settings': 'admin_settings',
       '/admin/vehicle-management': 'vehicle_management',
       '/admin/houses-inventory': 'house_inventory',
-      '/admin/groceries': 'grocery_management',
-      '/admin/petty-cash': 'petty_cash_management',
-      '/admin/events': 'event_management',
-      '/admin/staff-management': 'staff_management',
-      '/admin/utility-bills': 'utility_bills_management',
       '/admin/centralized-store': 'utility_bills_management',
       '/admin/centralized-store/bills': 'utility_bills_management',
       '/admin/centralized-store/bill/new': 'utility_bills_management',
       '/admin/centralized-store/bill': 'utility_bills_management',
       '/admin/rental-agreements': 'rental_agreements',
       '/admin/rental-management': 'rental_management',
-      '/admin/payment-settlement': 'payment_settlement',
       
       // HR Module
       '/hr/employees': 'employee_management',

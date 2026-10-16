@@ -78,12 +78,6 @@ const MODULE_MAP = {
   'user-sub-roles': 'Admin - User Sub Roles',
   'roles': 'Admin - Roles',
   'vehicles': 'Vehicle Management',
-  'groceries': 'Grocery Management',
-  'petty-cash': 'Petty Cash',
-  'events': 'Event Management',
-  'staff-management': 'Staff Management',
-  'staff-assignments': 'Staff Assignments',
-  
   // Other
   'positions': 'Positions',
   'banks': 'Banks',

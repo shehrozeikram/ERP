@@ -28,7 +28,9 @@ const TYPE_LABELS = {
   purchase_order: 'PO',
   cash_approval: 'Cash Approval',
   bill: 'Bill / AP',
-  voucher: 'Voucher'
+  voucher: 'Voucher',
+  grn: 'GRN',
+  utility_bill: 'Utility Bill'
 };
 
 const TYPE_COLORS = {
@@ -36,7 +38,9 @@ const TYPE_COLORS = {
   purchase_order: 'primary',
   cash_approval: 'secondary',
   bill: 'warning',
-  voucher: 'success'
+  voucher: 'success',
+  grn: 'default',
+  utility_bill: 'info'
 };
 
 const formatAmount = (amount) => {
@@ -89,6 +93,21 @@ const ResultCard = ({ item, onOpen }) => (
         <OpenIcon fontSize="small" />
       </IconButton>
     </Stack>
+    {item.location ? (
+      <Typography
+        variant="caption"
+        sx={{
+          display: 'block',
+          fontWeight: 700,
+          color: 'primary.main',
+          mb: 0.25,
+          whiteSpace: 'normal',
+          lineHeight: 1.35
+        }}
+      >
+        Now with: {item.location}
+      </Typography>
+    ) : null}
     <Typography variant="caption" color="text.secondary" display="block">
       {[item.status, item.company, formatAmount(item.amount), formatDate(item.date)]
         .filter(Boolean)
@@ -102,19 +121,32 @@ const ResultCard = ({ item, onOpen }) => (
   </Paper>
 );
 
+const getTovusWelcome = (user) => {
+  const name =
+    [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
+    user?.name ||
+    user?.fullName ||
+    'there';
+  return `Hi ${name} — I’m Tovus AI. How can I help you?`;
+};
+
 const AssistantWidget = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [messages, setMessages] = useState([
-    {
-      role: 'assistant',
-      text: 'Ask for an Indent, PO, Cash Approval, Bill, or Voucher — e.g. “find PO-000275” or “pending cash approvals”.'
-    }
-  ]);
+  const [messages, setMessages] = useState([]);
   const listRef = useRef(null);
+  const welcomedUserIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    const userId = String(user._id || user.id || '');
+    if (welcomedUserIdRef.current === userId) return;
+    welcomedUserIdRef.current = userId;
+    setMessages([{ role: 'assistant', text: getTovusWelcome(user), isWelcome: true }]);
+  }, [isAuthenticated, user]);
 
   useEffect(() => {
     if (listRef.current) {
@@ -167,7 +199,7 @@ const AssistantWidget = () => {
         <Fab
           className="app-print-hide"
           color="secondary"
-          aria-label="document assistant"
+          aria-label="Tovus AI"
           onClick={() => setOpen((v) => !v)}
           sx={{
             position: 'fixed',
@@ -212,9 +244,14 @@ const AssistantWidget = () => {
               justifyContent: 'space-between'
             }}
           >
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Document Assistant
-            </Typography>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                Tovus AI
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.9, display: 'block' }}>
+                SGC ERP document assistant
+              </Typography>
+            </Box>
             <IconButton
               size="small"
               onClick={() => setOpen(false)}
@@ -249,7 +286,9 @@ const AssistantWidget = () => {
                     boxShadow: 1
                   }}
                 >
-                  <Typography variant="body2">{m.text}</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {m.text}
+                  </Typography>
                   {m.results?.length > 0 ? (
                     <Box sx={{ mt: 1 }}>
                       <Divider sx={{ mb: 1 }} />
@@ -272,7 +311,7 @@ const AssistantWidget = () => {
             <TextField
               size="small"
               fullWidth
-              placeholder="Find PO-…, IND-…, CA-…"
+              placeholder="where are my bills?"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

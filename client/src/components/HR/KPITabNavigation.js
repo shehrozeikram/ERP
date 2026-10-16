@@ -1,11 +1,13 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Tabs, Tab, Paper } from '@mui/material';
+import DashboardIcon from '@mui/icons-material/Dashboard';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import SummarizeIcon from '@mui/icons-material/Summarize';
 
 const KPI_TABS = [
+  { label: 'Dashboard', path: '/hr/kpi/dashboard', icon: <DashboardIcon /> },
   { label: 'Monthly KPI Sheet', path: '/hr/kpi/sheet', icon: <AssignmentIcon /> },
   { label: 'KPI Submissions', path: '/hr/kpi/submissions', icon: <AssessmentIcon /> },
   { label: 'KPI Reports', path: '/hr/kpi/reports', icon: <SummarizeIcon /> },

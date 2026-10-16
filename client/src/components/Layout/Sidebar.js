@@ -18,7 +18,9 @@ import {
   Tooltip,
   Snackbar,
   Alert,
-  IconButton
+  IconButton,
+  TextField,
+  InputAdornment
 } from '@mui/material';
 import {
   Dashboard,
@@ -42,7 +44,9 @@ import {
   QrCode2 as QrCodeIcon,
   Chat as ChatIcon,
   DeveloperMode as DeveloperModeIcon,
-  MenuOpen as MenuOpenIcon
+  MenuOpen as MenuOpenIcon,
+  Search as SearchIcon,
+  Clear as ClearIcon
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -87,6 +91,28 @@ const iconMap = {
   return iconMap[iconName] || <Dashboard />;
 };
 
+/** Keep modules/groups whose label matches, or that contain a matching page/submodule. */
+const filterMenuBySearch = (items, query) => {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return items || [];
+
+  const walk = (node) => {
+    const selfMatch = String(node.text || '').toLowerCase().includes(q);
+    const childResults = (node.subItems || []).map(walk).filter(Boolean);
+
+    if (selfMatch) {
+      // Module/group name matches — keep full subtree
+      return { ...node };
+    }
+    if (childResults.length) {
+      return { ...node, subItems: childResults };
+    }
+    return null;
+  };
+
+  return (items || []).map(walk).filter(Boolean);
+};
+
 
 
 const Sidebar = () => {
@@ -120,6 +146,7 @@ const Sidebar = () => {
     };
   }, [location.pathname]);
   const [openSubmenu, setOpenSubmenu] = useState({});
+  const [menuSearch, setMenuSearch] = useState('');
   const [candidateHiredCount, setCandidateHiredCount] = useState(0);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
@@ -144,18 +171,12 @@ const Sidebar = () => {
       '/admin/sub-roles': 'sub_roles',
       '/admin/roles': 'sub_roles', // Role management uses same permission as sub-roles
       '/admin/vehicle-management': 'vehicle_management',
-      '/admin/groceries': 'grocery_management',
-      '/admin/petty-cash': 'petty_cash_management',
-      '/admin/events': 'event_management',
-      '/admin/staff-management': 'staff_management',
-      '/admin/utility-bills': 'utility_bills_management',
       '/admin/centralized-store': 'utility_bills_management',
       '/admin/centralized-store/bills': 'utility_bills_management',
       '/admin/centralized-store/bill/new': 'utility_bills_management',
       '/admin/centralized-store/bill': 'utility_bills_management',
       '/admin/rental-agreements': 'rental_agreements',
       '/admin/rental-management': 'rental_management',
-      '/admin/payment-settlement': 'payment_settlement',
       
       // HR Module
       '/hr/employees': 'employee_management',
@@ -894,9 +915,13 @@ const Sidebar = () => {
 
   const getSubmenuKey = (item, parentKey = '') => item.path || `${parentKey}/${item.text}`;
 
-  const isSubmenuOpen = (key, subItems) => (
-    openSubmenu[key] !== undefined ? openSubmenu[key] : isSubmenuActive(subItems)
-  );
+  const isSearchingMenu = Boolean(String(menuSearch || '').trim());
+
+  const isSubmenuOpen = (key, subItems) => {
+    // While searching, keep matching branches expanded so pages are visible
+    if (isSearchingMenu) return true;
+    return openSubmenu[key] !== undefined ? openSubmenu[key] : isSubmenuActive(subItems);
+  };
 
   return (
     <Drawer
@@ -1054,6 +1079,42 @@ const Sidebar = () => {
         </Box>
       </Box>
 
+      {/* Menu search */}
+      <Box sx={{ px: 2, pb: 1.5, pt: 0.5 }}>
+        <TextField
+          fullWidth
+          size="small"
+          placeholder="Search modules & pages…"
+          value={menuSearch}
+          onChange={(e) => setMenuSearch(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" color="action" />
+              </InputAdornment>
+            ),
+            endAdornment: menuSearch ? (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  aria-label="Clear menu search"
+                  onClick={() => setMenuSearch('')}
+                  edge="end"
+                >
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ) : null
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              bgcolor: alpha(theme.palette.background.paper, 0.9),
+              borderRadius: 2
+            }
+          }}
+        />
+      </Box>
+
       {/* Navigation Menu - Scrollable */}
       <Box sx={{ 
         flexGrow: 1, 
@@ -1074,8 +1135,18 @@ const Sidebar = () => {
       }}>
         <List sx={{ pt: 1 }}>
         {(() => {
-          const menuItems = getFilteredMenuItems(user?.role);
+          const menuItems = filterMenuBySearch(getFilteredMenuItems(user?.role), menuSearch);
           if (!menuItems || menuItems.length === 0) {
+            if (isSearchingMenu) {
+              return (
+                <ListItem>
+                  <ListItemText
+                    primary="No matching pages"
+                    secondary="Try another search term"
+                  />
+                </ListItem>
+              );
+            }
             console.warn('⚠️ No menu items found for user:', user?.email);
             return (
               <ListItem>

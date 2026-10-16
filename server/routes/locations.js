@@ -8,7 +8,7 @@ const Location = require('../models/hr/Location');
 router.use(authMiddleware);
 
 // Get all locations with optional filters
-router.get('/', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
+router.get('/', permissions.checkSubRolePermission('hr', 'talent_acquisition', 'read'), async (req, res) => {
   try {
     const { search, type, status, page = 1, limit = 10 } = req.query;
     const query = {};
@@ -48,7 +48,7 @@ router.get('/', permissions.checkSubRolePermission('admin', 'staff_management', 
 });
 
 // Get single location
-router.get('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'read'), async (req, res) => {
+router.get('/:id', permissions.checkSubRolePermission('hr', 'talent_acquisition', 'read'), async (req, res) => {
   try {
     const location = await Location.findById(req.params.id)
       .populate('createdBy', 'firstName lastName');
@@ -68,7 +68,7 @@ router.get('/:id', permissions.checkSubRolePermission('admin', 'staff_management
 });
 
 // Create new location
-router.post('/', permissions.checkSubRolePermission('admin', 'staff_management', 'create'), async (req, res) => {
+router.post('/', permissions.checkSubRolePermission('hr', 'talent_acquisition', 'create'), async (req, res) => {
   try {
     // Check for duplicate name
     const existingLocation = await Location.findOne({ name: req.body.name?.trim() });
@@ -114,7 +114,7 @@ router.post('/', permissions.checkSubRolePermission('admin', 'staff_management',
 });
 
 // Update location
-router.put('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'update'), async (req, res) => {
+router.put('/:id', permissions.checkSubRolePermission('hr', 'talent_acquisition', 'update'), async (req, res) => {
   try {
     const location = await Location.findByIdAndUpdate(
       req.params.id,
@@ -147,7 +147,7 @@ router.put('/:id', permissions.checkSubRolePermission('admin', 'staff_management
 });
 
 // Delete location
-router.delete('/:id', permissions.checkSubRolePermission('admin', 'staff_management', 'delete'), async (req, res) => {
+router.delete('/:id', permissions.checkSubRolePermission('hr', 'talent_acquisition', 'delete'), async (req, res) => {
   try {
     const location = await Location.findByIdAndDelete(req.params.id);
     
@@ -166,7 +166,7 @@ router.delete('/:id', permissions.checkSubRolePermission('admin', 'staff_managem
 });
 
 // Update location status
-router.put('/:id/status', permissions.checkSubRolePermission('admin', 'staff_management', 'update'), async (req, res) => {
+router.put('/:id/status', permissions.checkSubRolePermission('hr', 'talent_acquisition', 'update'), async (req, res) => {
   try {
     const { status } = req.body;
     const validStatuses = ['Active', 'Inactive', 'Under Maintenance'];

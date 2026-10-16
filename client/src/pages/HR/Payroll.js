@@ -125,6 +125,7 @@ const Payroll = () => {
   const [generalPayrollExpanded, setGeneralPayrollExpanded] = useState(false);
   const [employeeDetailsPage, setEmployeeDetailsPage] = useState({});
   const [employeeDetailsRowsPerPage, setEmployeeDetailsRowsPerPage] = useState(10);
+  const [employeeDetailsSearch, setEmployeeDetailsSearch] = useState({});
   const [generalPayrollPage, setGeneralPayrollPage] = useState(0);
   const [generalPayrollRowsPerPage, setGeneralPayrollRowsPerPage] = useState(10);
   const [currentOverview, setCurrentOverview] = useState(null);
@@ -472,6 +473,18 @@ const Payroll = () => {
     }));
   };
 
+  const handleEmployeeDetailsSearchChange = (monthKey, value) => {
+    setEmployeeDetailsSearch((prev) => ({
+      ...prev,
+      [monthKey]: value
+    }));
+    // Search applies across all pages — always restart at page 1
+    setEmployeeDetailsPage((prev) => ({
+      ...prev,
+      [monthKey]: 0
+    }));
+  };
+
   const handleGeneralPayrollPageChange = (newPage) => {
     setGeneralPayrollPage(newPage);
   };
@@ -485,16 +498,40 @@ const Payroll = () => {
     const monthKey = `${monthly.month}-${monthly.year}`;
     const currentPage = employeeDetailsPage[monthKey] || 0;
     const currentRowsPerPage = employeeDetailsRowsPerPage[monthKey] || 10;
+    const searchQuery = String(employeeDetailsSearch[monthKey] || '').trim().toLowerCase();
 
-    const startIndex = currentPage * currentRowsPerPage;
+    // Filter full month list first so search covers every page, then paginate
+    const filteredPayrolls = !searchQuery
+      ? (monthly.payrolls || [])
+      : (monthly.payrolls || []).filter((payroll) => {
+          const emp = payroll.employee || {};
+          const first = String(emp.firstName || '').toLowerCase();
+          const last = String(emp.lastName || '').toLowerCase();
+          const full = `${first} ${last}`.trim();
+          const rawId = String(emp.employeeId || '').toLowerCase();
+          const paddedId = formatEmployeeId(emp.employeeId).toLowerCase();
+          return (
+            first.includes(searchQuery) ||
+            last.includes(searchQuery) ||
+            full.includes(searchQuery) ||
+            rawId.includes(searchQuery) ||
+            paddedId.includes(searchQuery)
+          );
+        });
+
+    const totalPages = Math.ceil(filteredPayrolls.length / currentRowsPerPage) || 0;
+    const safePage = totalPages > 0 ? Math.min(currentPage, totalPages - 1) : 0;
+    const startIndex = safePage * currentRowsPerPage;
     const endIndex = startIndex + currentRowsPerPage;
 
     return {
-      paginatedEmployees: monthly.payrolls.slice(startIndex, endIndex),
-      currentPage,
+      paginatedEmployees: filteredPayrolls.slice(startIndex, endIndex),
+      currentPage: safePage,
       currentRowsPerPage,
-      totalEmployees: monthly.payrolls.length,
-      totalPages: Math.ceil(monthly.payrolls.length / currentRowsPerPage)
+      totalEmployees: filteredPayrolls.length,
+      totalInMonth: (monthly.payrolls || []).length,
+      searchQuery,
+      totalPages
     };
   };
 
@@ -2641,6 +2678,7 @@ Do you want to:
                                   {/* Employee Details Pagination Info */}
                                   {(() => {
                                     const paginationInfo = getPaginatedEmployeeDetails(monthly);
+                                    const searchValue = employeeDetailsSearch[monthKey] || '';
                                     return (
                                       <Box sx={{
                                         mb: 2,
@@ -2650,21 +2688,26 @@ Do you want to:
                                         border: '1px solid',
                                         borderColor: 'grey.200'
                                       }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 1.5 }}>
                                           <Box>
                                             <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 600 }}>
                                               👥 Employee List
                                             </Typography>
                                             <Typography variant="body2" color="textSecondary">
-                                              Showing {paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-{Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalEmployees)} of {paginationInfo.totalEmployees} employees
+                                              {paginationInfo.totalEmployees === 0
+                                                ? 'No employees match this search'
+                                                : `Showing ${paginationInfo.currentPage * paginationInfo.currentRowsPerPage + 1}-${Math.min((paginationInfo.currentPage + 1) * paginationInfo.currentRowsPerPage, paginationInfo.totalEmployees)} of ${paginationInfo.totalEmployees} employees`}
+                                              {paginationInfo.searchQuery
+                                                ? ` (filtered from ${paginationInfo.totalInMonth})`
+                                                : ''}
                                             </Typography>
                                             <Typography variant="caption" color="primary.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                              📊 Sorted by Employee ID (1, 2, 3...)
+                                              📊 Sorted by Employee ID (1, 2, 3...) · Search covers all pages
                                             </Typography>
                                           </Box>
                                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                             <Typography variant="body2" color="textSecondary">
-                                              Page {paginationInfo.currentPage + 1} of {paginationInfo.totalPages}
+                                              Page {paginationInfo.totalEmployees ? paginationInfo.currentPage + 1 : 0} of {paginationInfo.totalPages || 0}
                                             </Typography>
                                             {paginationInfo.totalPages > 1 && (
                                               <Chip
@@ -2676,6 +2719,20 @@ Do you want to:
                                             )}
                                           </Box>
                                         </Box>
+                                        <TextField
+                                          size="small"
+                                          placeholder="Search by name or ID…"
+                                          value={searchValue}
+                                          onChange={(e) => handleEmployeeDetailsSearchChange(monthKey, e.target.value)}
+                                          InputProps={{
+                                            startAdornment: (
+                                              <InputAdornment position="start">
+                                                <SearchIcon fontSize="small" color="action" />
+                                              </InputAdornment>
+                                            )
+                                          }}
+                                          sx={{ width: { xs: '100%', sm: 280 }, maxWidth: '100%' }}
+                                        />
                                       </Box>
                                     );
                                   })()}
@@ -2700,7 +2757,9 @@ Do you want to:
                                               <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
                                                 <Box sx={{ textAlign: 'center' }}>
                                                   <Typography variant="body2" color="textSecondary">
-                                                    No employees found for this month
+                                                    {paginationInfo.searchQuery
+                                                      ? 'No employees match this search in this month'
+                                                      : 'No employees found for this month'}
                                                   </Typography>
                                                 </Box>
                                               </TableCell>

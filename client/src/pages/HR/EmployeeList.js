@@ -34,7 +34,9 @@ import {
   ListItem,
   ListItemButton,
   ListItemAvatar,
-  ListItemText
+  ListItemText,
+  Tooltip,
+  Stack
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -44,7 +46,8 @@ import {
   Visibility as ViewIcon,
   Refresh as RefreshIcon,
   GetApp as GetAppIcon,
-  LocalGasStation as FuelIcon
+  LocalGasStation as FuelIcon,
+  InfoOutlined as InfoOutlinedIcon
 } from '@mui/icons-material';
 import ImportFuelAllowanceDialog from '../../components/HR/ImportFuelAllowanceDialog';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -902,45 +905,22 @@ const EmployeeList = () => {
           </Box>
         </Box>
         
-        <TableContainer sx={{ overflow: 'visible' }}>
-          <Table>
+        <TableContainer sx={{ width: '100%', overflowX: 'hidden' }}>
+          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
             <TableHead>
               <TableRow>
-                <TableCell>Employee</TableCell>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    Employee ID
-                    <Chip 
-                      label="↑ Sorted" 
-                      size="small" 
-                      color="primary" 
-                      variant="outlined"
-                      sx={{ fontSize: '0.7rem', height: 20 }}
-                    />
-                  </Box>
-                </TableCell>
-                <TableCell>ID Card</TableCell>
-                <TableCell>Religion</TableCell>
-                <TableCell>Marital Status</TableCell>
-                <TableCell>Qualification</TableCell>
-                <TableCell>Bank Name</TableCell>
-                <TableCell>Bank Account Number</TableCell>
-                <TableCell>Spouse Name</TableCell>
-                <TableCell>Appointment Date</TableCell>
-                <TableCell>Probation Period</TableCell>
-                <TableCell>End of Probation</TableCell>
-                <TableCell>Confirmation Date</TableCell>
-                <TableCell>Placement Info</TableCell>
-                <TableCell>Email</TableCell>
-                <TableCell>Phone</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Actions</TableCell>
+                <TableCell sx={{ width: '26%' }}>Employee</TableCell>
+                <TableCell sx={{ width: '22%' }}>Placement</TableCell>
+                <TableCell sx={{ width: '20%' }}>Contact</TableCell>
+                <TableCell sx={{ width: '14%' }}>Dates</TableCell>
+                <TableCell sx={{ width: '10%' }}>Status</TableCell>
+                <TableCell sx={{ width: '8%' }} align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {paginationLoading ? (
                 <TableRow>
-                  <TableCell colSpan={17} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                     <Box sx={{ textAlign: 'center' }}>
                       <CircularProgress size={24} sx={{ mb: 2 }} />
                       <Typography variant="body2" color="textSecondary">
@@ -950,108 +930,116 @@ const EmployeeList = () => {
                   </TableCell>
                 </TableRow>
               ) : paginatedEmployees.length > 0 ? (
-                paginatedEmployees.map((employee) => (
-                  <TableRow key={employee._id} data-employee-id={employee._id}>
-                    <TableCell sx={{ overflow: 'visible', position: 'relative' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', overflow: 'visible' }}>
-                        <Box
-                          sx={{
-                            display: 'inline-flex',
-                            overflow: 'visible',
-                            position: 'relative',
-                            '& .MuiAvatar-root': {
-                              transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                              position: 'relative',
-                              transformOrigin: 'left center',
-                            },
-                            '&:hover .MuiAvatar-root': {
-                              transform: 'scale(2.5)',
-                              zIndex: 1300,
-                              boxShadow: 3,
-                              position: 'relative',
-                            },
+                paginatedEmployees.map((employee) => {
+                  const bankLabel = typeof employee.bankName === 'object'
+                    ? employee.bankName?.name
+                    : employee.bankName;
+                  const detailLines = [
+                    `ID Card: ${employee.idCard || 'N/A'}`,
+                    `Religion: ${employee.religion || 'N/A'}`,
+                    `Marital: ${employee.maritalStatus || 'N/A'}`,
+                    `Qualification: ${employee.qualification || 'N/A'}`,
+                    `Bank: ${bankLabel || 'N/A'}`,
+                    `Account: ${employee.bankAccountNumber || employee.accountNumber || 'N/A'}`,
+                    `Spouse: ${employee.spouseName || 'N/A'}`,
+                    `Probation: ${employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}`,
+                    `Confirm: ${employee.confirmationDate ? new Date(employee.confirmationDate).toLocaleDateString() : 'N/A'}`
+                  ];
+                  return (
+                  <TableRow key={employee._id} data-employee-id={employee._id} hover>
+                    <TableCell sx={{ overflow: 'hidden' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 1 }}>
+                        <Avatar
+                          src={employee.profileImage ? getImageUrl(employee.profileImage) : undefined}
+                          sx={{ width: 36, height: 36, flexShrink: 0 }}
+                          imgProps={{
+                            onError: (e) => {
+                              e.target.style.display = 'none';
+                            }
                           }}
                         >
-                          <Avatar 
-                            src={employee.profileImage ? getImageUrl(employee.profileImage) : undefined}
-                            sx={{ mr: 2, width: 40, height: 40 }}
-                            imgProps={{
-                              onError: (e) => {
-                                // If image fails to load, hide the img element and show initials
-                                e.target.style.display = 'none';
-                              }
-                            }}
-                          >
-                            {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
-                          </Avatar>
-                        </Box>
-                        <Box>
-                          <Typography variant="subtitle2">
+                          {employee.firstName?.charAt(0)}{employee.lastName?.charAt(0)}
+                        </Avatar>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography variant="subtitle2" noWrap>
                             {employee.firstName} {employee.lastName}
-                            {employee.employmentStatus && employee.employmentStatus !== 'Active' && (
-                              <Chip 
-                                label={getEmployeeStatusLabel(employee)} 
-                                size="small" 
-                                color={getEmployeeStatusColor(employee)} 
-                                variant="outlined"
-                                sx={{ ml: 1, fontSize: '0.6rem', height: 18 }}
-                              />
-                            )}
                           </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {formatEmployeeId(employee.employeeId)}
-                          </Typography>
+                          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+                            <Typography variant="caption" color="textSecondary" noWrap>
+                              {formatEmployeeId(employee.employeeId)}
+                            </Typography>
+                            <Tooltip
+                              title={
+                                <Box sx={{ py: 0.5 }}>
+                                  {detailLines.map((line) => (
+                                    <Typography key={line} variant="caption" display="block">
+                                      {line}
+                                    </Typography>
+                                  ))}
+                                </Box>
+                              }
+                              arrow
+                              placement="right"
+                            >
+                              <IconButton size="small" sx={{ p: 0.25 }} aria-label="More employee details">
+                                <InfoOutlinedIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
                         </Box>
                       </Box>
                     </TableCell>
-                    <TableCell>{formatEmployeeId(employee.employeeId)}</TableCell>
-                    <TableCell>{employee.idCard || 'N/A'}</TableCell>
-                    <TableCell>{employee.religion || 'N/A'}</TableCell>
-                    <TableCell>{employee.maritalStatus || 'N/A'}</TableCell>
-                    <TableCell>{employee.qualification || 'N/A'}</TableCell>
-                    <TableCell>{typeof employee.bankName === 'object' ? employee.bankName?.name : employee.bankName || 'N/A'}</TableCell>
-                    <TableCell>{employee.bankAccountNumber || employee.accountNumber || 'N/A'}</TableCell>
-                    <TableCell>{employee.spouseName || 'N/A'}</TableCell>
-                    <TableCell>{employee.appointmentDate ? new Date(employee.appointmentDate).toLocaleDateString() : 'N/A'}</TableCell>
-                    <TableCell>{employee.probationPeriodMonths ? `${employee.probationPeriodMonths} months` : 'N/A'}</TableCell>
-                    <TableCell>{employee.endOfProbationDate ? new Date(employee.endOfProbationDate).toLocaleDateString() : 'N/A'}</TableCell>
-                    <TableCell>{employee.confirmationDate ? new Date(employee.confirmationDate).toLocaleDateString() : 'N/A'}</TableCell>
-                    <TableCell>
-                      <Box>
-                        <Typography variant="caption" display="block">
-                          Company: {employee.placementCompany?.name || 'N/A'}
-                        </Typography>
-                        <Typography variant="caption" display="block">
-                          {employee.placementDepartment?.name ? `Dept: ${employee.placementDepartment.name}` : 'Dept: N/A'}
-                        </Typography>
-                        <Typography variant="caption" display="block">
-                          {employee.placementDesignation?.title ? `Designation: ${employee.placementDesignation.title}` : 'Designation: N/A'}
-                        </Typography>
-                      </Box>
+                    <TableCell sx={{ overflow: 'hidden' }}>
+                      <Typography variant="body2" noWrap fontWeight={600}>
+                        {employee.placementCompany?.name || 'N/A'}
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary" noWrap display="block">
+                        {employee.placementDepartment?.name || 'N/A'}
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary" noWrap display="block">
+                        {employee.placementDesignation?.title || 'N/A'}
+                      </Typography>
                     </TableCell>
-                    <TableCell>{employee.email}</TableCell>
-                    <TableCell>{employee.phone}</TableCell>
+                    <TableCell sx={{ overflow: 'hidden' }}>
+                      <Tooltip title={employee.email || ''} arrow>
+                        <Typography variant="body2" noWrap>
+                          {employee.email || 'N/A'}
+                        </Typography>
+                      </Tooltip>
+                      <Typography variant="caption" color="textSecondary" noWrap display="block">
+                        {employee.phone || 'N/A'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell sx={{ overflow: 'hidden' }}>
+                      <Typography variant="caption" display="block" noWrap>
+                        Appt: {employee.appointmentDate ? new Date(employee.appointmentDate).toLocaleDateString() : 'N/A'}
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary" display="block" noWrap>
+                        Prob. end: {employee.endOfProbationDate ? new Date(employee.endOfProbationDate).toLocaleDateString() : 'N/A'}
+                      </Typography>
+                    </TableCell>
                     <TableCell>
                       <Chip
                         label={getStatusText(employee)}
                         color={getStatusColor(employee)}
                         size="small"
+                        sx={{ maxWidth: '100%' }}
                       />
                     </TableCell>
-                    <TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
                       <IconButton
                         size="small"
                         onClick={() => navigate(`/hr/employees/${employee._id}`, { state: { page } })}
                         title="View Details"
                       >
-                        <ViewIcon />
+                        <ViewIcon fontSize="small" />
                       </IconButton>
                       <IconButton
                         size="small"
                         onClick={() => navigate(`/hr/employees/${employee._id}/edit`, { state: { page } })}
                         title="Edit Employee"
                       >
-                        <EditIcon />
+                        <EditIcon fontSize="small" />
                       </IconButton>
                       <IconButton
                         size="small"
@@ -1060,15 +1048,17 @@ const EmployeeList = () => {
                           setSelectedEmployee(employee);
                           setDeleteDialogOpen(true);
                         }}
+                        title="Delete Employee"
                       >
-                        <DeleteIcon />
+                        <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={17} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                     <Box sx={{ textAlign: 'center' }}>
                       <Typography variant="h6" color="textSecondary" gutterBottom>
                         {dataLoading.employees ? 'Loading employees...' : 'No employees found'}
