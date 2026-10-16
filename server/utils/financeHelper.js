@@ -268,66 +268,13 @@ const FinanceHelper = {
   ensureStaffAdvanceAccount,
 
   /**
-   * Post a Journal Entry to the General Ledger (idempotent).
-   * Never inserts a second copy of the same JE lines — that caused duplicate
-   * Unpresented rows in Bank Reconciliation (e.g. JV-003795 shown twice).
+   * Post a Journal Entry to the General Ledger
    */
   postToGeneralLedger: async (journalEntryId) => {
     try {
       const entry = await JournalEntry.findById(journalEntryId).populate('lines.account');
       if (!entry || entry.status !== 'posted') {
         throw new Error('Journal entry not found or not posted');
-      }
-
-      const moneyKey = (n) => Math.round((Number(n) || 0) * 100);
-      const lineFp = (accountId, debit, credit) =>
-        `${String(accountId)}|${moneyKey(debit)}|${moneyKey(credit)}`;
-
-      const existing = await GeneralLedger.find({ journalEntry: entry._id }).lean();
-      const expectedCounts = new Map();
-      for (const line of entry.lines || []) {
-        const accountRef = (line.account && line.account._id) ? line.account._id : line.account;
-        if (!accountRef) continue;
-        const key = lineFp(accountRef, line.debit, line.credit);
-        expectedCounts.set(key, (expectedCounts.get(key) || 0) + 1);
-      }
-
-      const existingByFp = new Map();
-      for (const gl of existing) {
-        const key = lineFp(gl.account, gl.debit, gl.credit);
-        if (!existingByFp.has(key)) existingByFp.set(key, []);
-        existingByFp.get(key).push(gl);
-      }
-
-      let alreadyPerfect =
-        existing.length === (entry.lines || []).length && expectedCounts.size > 0;
-      if (alreadyPerfect) {
-        for (const [key, need] of expectedCounts.entries()) {
-          if ((existingByFp.get(key) || []).length !== need) {
-            alreadyPerfect = false;
-            break;
-          }
-        }
-      }
-      if (alreadyPerfect) {
-        return true;
-      }
-
-      // Preserve bank-recon clearance when rebuilding a corrupted/partial GL set
-      const clearanceByFp = new Map();
-      for (const [key, rows] of existingByFp.entries()) {
-        const preferred =
-          rows.find((r) => r.clearanceStatus === 'cleared' || r.isReconciled) || rows[0];
-        clearanceByFp.set(key, {
-          clearanceStatus: preferred.clearanceStatus || 'pending',
-          clearedAt: preferred.clearedAt || null,
-          isReconciled: Boolean(preferred.isReconciled),
-          reconciledAt: preferred.reconciledAt || null
-        });
-      }
-
-      if (existing.length) {
-        await GeneralLedger.deleteMany({ journalEntry: entry._id });
       }
 
       const ledgerEntries = [];
@@ -344,8 +291,6 @@ const FinanceHelper = {
 
         const rawDept = line.department || entry.department;
         const resolvedDeptString = await FinanceHelper.resolveDepartmentStringFromId(rawDept);
-        const key = lineFp(accountRef, line.debit, line.credit);
-        const clearance = clearanceByFp.get(key) || {};
 
         ledgerEntries.push({
           companyId: entry.companyId || currentAccount.companyId || null,
@@ -366,17 +311,11 @@ const FinanceHelper = {
           party: line.party || null,
           status: 'posted',
           createdBy: entry.createdBy,
-          runningBalance: currentAccount.balance,
-          clearanceStatus: clearance.clearanceStatus || 'pending',
-          clearedAt: clearance.clearedAt || undefined,
-          isReconciled: Boolean(clearance.isReconciled),
-          reconciledAt: clearance.reconciledAt || undefined
+          runningBalance: currentAccount.balance
         });
       }
 
-      if (ledgerEntries.length) {
-        await GeneralLedger.insertMany(ledgerEntries);
-      }
+      await GeneralLedger.insertMany(ledgerEntries);
       return true;
     } catch (error) {
       console.error('❌ Error posting to General Ledger:', error);
