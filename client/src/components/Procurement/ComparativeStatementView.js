@@ -23,6 +23,7 @@ import { comparativeAuthoritySelectionLocked } from '../../utils/comparativeStat
 import {
   getQuoteItemForIndentItem as matchQuoteItemForIndentItem,
   getQuoteLineAmount,
+  getComparativeIndentItems,
   getComparativeQuoteVisibleTotal,
   getComparativeQuoteGrandTotal,
   isBlankQuoteItem
@@ -126,6 +127,15 @@ const ComparativeStatementView = ({
   // Per-item vendor assignment: { itemIndex: quotationId }
   const [vendorAssignments, setVendorAssignments] = useState({});
 
+  // One dynamic scope for EVERY CS consumer (Procurement CS, Pre-Audit, PO, Payments, etc.):
+  // only show indent lines that exist on the quotations in view (and selected lot when set).
+  const indentItems = React.useMemo(() => {
+    const sourceItems = (selectedRequisition?.csItems?.length
+      ? selectedRequisition.csItems
+      : selectedRequisition?.items) || [];
+    return getComparativeIndentItems(sourceItems, quotations, selectedLot);
+  }, [selectedRequisition?.csItems, selectedRequisition?.items, quotations, selectedLot]);
+
   React.useEffect(() => {
     const saved = selectedRequisition?.splitPOAssignments;
     if (saved && typeof saved === 'object') {
@@ -133,7 +143,7 @@ const ComparativeStatementView = ({
     } else {
       setVendorAssignments({});
     }
-  }, [selectedRequisition?._id, selectedRequisition?.splitPOAssignments]);
+  }, [selectedRequisition?._id, selectedRequisition?.splitPOAssignments, selectedLot]);
 
   const handleAssignVendorToItem = useCallback((itemIndex, quotationId) => {
     setVendorAssignments(prev => {
@@ -147,9 +157,9 @@ const ComparativeStatementView = ({
     });
   }, []);
 
-  const pendingItems = (selectedRequisition?.items || []).filter(item => (item.orderedQuantity || 0) < item.quantity);
+  const pendingItems = indentItems.filter(item => (item.orderedQuantity || 0) < item.quantity);
   const totalPendingItems = pendingItems.length;
-  const assignedPendingCount = (selectedRequisition?.items || []).reduce((count, item, idx) => {
+  const assignedPendingCount = indentItems.reduce((count, item, idx) => {
     if ((item.orderedQuantity || 0) < item.quantity && vendorAssignments[idx]) {
       return count + 1;
     }
@@ -167,8 +177,6 @@ const ComparativeStatementView = ({
       onCreateSplitPOs({ vendorAssignments });
     }
   };
-
-  const indentItems = selectedRequisition?.items || [];
 
   const getQuoteItemForIndentItem = (quote, item, itemIndex) =>
     matchQuoteItemForIndentItem(quote, item, itemIndex, indentItems);

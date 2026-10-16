@@ -123,12 +123,61 @@ export const getQuoteItemForIndentItem = (quote, item, itemIndex, indentItems = 
     }
   }
 
-  // 4) Same index as indent row
-  if (itemIndex != null && itemIndex < items.length) {
-    return pickNonBlank(items[itemIndex]);
+  // 4) Same index ONLY when that quote line is clearly the same item.
+  // Blind index fallback remaps Lot B lines onto Lot A indent rows (e.g. Gutka ← Chips)
+  // and inflates CS totals on every screen that reuses this matcher.
+  if (itemIndex != null && itemIndex < items.length && indentLabel) {
+    const qi = items[itemIndex];
+    const qDesc = normalizeComparativeText(qi?.description);
+    const qSpec = normalizeComparativeText(qi?.specification);
+    const sameItem =
+      (qDesc && (qDesc === indentLabel || (indentName && qDesc === indentName) || (indentSpec && qDesc === indentSpec))) ||
+      (qSpec && (qSpec === indentLabel || (indentName && qSpec === indentName) || (indentSpec && qSpec === indentSpec)));
+    if (sameItem) {
+      return pickNonBlank(qi);
+    }
   }
 
   return null;
+};
+
+/**
+ * Dynamically scope indent rows to items actually quoted in the CS quotations.
+ * Works for lot-wise CS (selectedLot) and read-only CS tabs that pass mixed quotes.
+ */
+export const getComparativeIndentItems = (indentItems = [], quotations = [], selectedLot) => {
+  const items = Array.isArray(indentItems) ? indentItems : [];
+  if (!items.length || !quotations?.length) return items;
+
+  let scopedQuotes = quotations;
+  if (selectedLot != null && selectedLot !== '') {
+    const lotQuotes = quotations.filter((q) => (q.lotNumber || 'A') === selectedLot);
+    if (lotQuotes.length) scopedQuotes = lotQuotes;
+  } else {
+    const lots = [...new Set(quotations.map((q) => q.lotNumber || 'A'))];
+    if (lots.length === 1) {
+      scopedQuotes = quotations.filter((q) => (q.lotNumber || 'A') === lots[0]);
+    }
+  }
+
+  const quotedLabels = new Set();
+  scopedQuotes.forEach((q) => {
+    (q.items || []).forEach((qi) => {
+      const d = normalizeComparativeText(qi?.description);
+      const s = normalizeComparativeText(qi?.specification);
+      if (d) quotedLabels.add(d);
+      if (s) quotedLabels.add(s);
+    });
+  });
+  if (!quotedLabels.size) return items;
+
+  const filtered = items.filter((item) => {
+    const name = normalizeComparativeText(item?.itemName);
+    const desc = normalizeComparativeText(item?.description);
+    return (name && quotedLabels.has(name)) || (desc && quotedLabels.has(desc));
+  });
+
+  return filtered.length ? filtered : items;
 };
 
 /**
