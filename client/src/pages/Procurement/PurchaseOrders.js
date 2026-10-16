@@ -66,6 +66,10 @@ import {
   sanitizeApprovalAuthorities,
   formatPurchaseOrderCostCenter
 } from '../../utils/purchaseOrderAuthority';
+import {
+  isBlankQuoteItem,
+  isQuoteLineStillOrderable
+} from '../../utils/comparativeQuoteItemMatch';
 
 const PO_APPROVAL_AUTHORITY_FIELDS = [
   { key: 'preparedBy', label: 'Prepared By' },
@@ -296,23 +300,21 @@ const PurchaseOrders = () => {
         const approvals = indent.comparativeStatementApprovals || {};
 
         const indentItems = indent.items || [];
-        const totalQuoteItems = q.items?.length || 0;
-        const filteredItems = (q.items && q.items.length > 0)
-          ? q.items
-              .filter((item, idx) => {
-                const indentItem = indentItems[idx] || indentItems.find(ii => (ii.itemName || '').trim().toLowerCase() === (item.description || '').trim().toLowerCase());
-                if (!indentItem) return true;
-                return (indentItem.orderedQuantity || 0) < indentItem.quantity;
-              })
-              .map(item => ({
-                description: item.description || '',
-                quantity: item.quantity || 1,
-                unit: item.unit || 'pcs',
-                unitPrice: item.unitPrice || 0,
-                taxRate: item.taxRate || 0,
-                discount: item.discount || 0
-              }))
-          : [];
+        // Count / include by quotation lines (name-matched to indent). Blind index drops lot items.
+        const orderableQuoteItems = (q.items || []).filter((item, idx) =>
+          isQuoteLineStillOrderable(indentItems, item, idx)
+        );
+        const totalQuoteItems = (q.items || []).filter((item) => !isBlankQuoteItem(item)).length;
+        const filteredItems = orderableQuoteItems.map((item) => ({
+          description: item.description || '',
+          specification: item.specification || '',
+          brand: item.brand || '',
+          quantity: item.quantity || 1,
+          unit: item.unit || 'pcs',
+          unitPrice: item.unitPrice || 0,
+          taxRate: item.taxRate || 0,
+          discount: item.discount || 0
+        }));
 
         const isFullyOrdered = totalQuoteItems > 0 && filteredItems.length === 0;
         const isPartiallyOrdered = totalQuoteItems > 0 && filteredItems.length > 0 && filteredItems.length < totalQuoteItems;

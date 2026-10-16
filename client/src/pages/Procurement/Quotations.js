@@ -53,6 +53,10 @@ import { formatPKR } from '../../utils/currency';
 import dayjs from 'dayjs';
 import QuotationDetailView from '../../components/Procurement/QuotationDetailView';
 import ComparativeRejectionObservationsAlert from '../../components/Procurement/ComparativeRejectionObservationsAlert';
+import {
+  isBlankQuoteItem,
+  isQuoteLineStillOrderable
+} from '../../utils/comparativeQuoteItemMatch';
 
 const Quotations = () => {
   const navigate = useNavigate();
@@ -777,13 +781,11 @@ const Quotations = () => {
                                   )}
                                   {quote.status === 'Finalized' && (() => {
                                   const indentItems = group.indent?.items || [];
-                                  const quoteItems = quote.items || [];
+                                  const quoteItems = (quote.items || []).filter((qItem) => !isBlankQuoteItem(qItem));
                                   const isFullyOrdered = quoteItems.length > 0 && quoteItems.every((qItem, qIdx) => {
-                                    const matchedIndent = indentItems[qIdx] || indentItems.find(ii => (ii.itemName || '').trim().toLowerCase() === (qItem.description || '').trim().toLowerCase());
-                                    if (matchedIndent) {
-                                      return (matchedIndent.orderedQuantity || 0) >= (matchedIndent.quantity || 1);
-                                    }
-                                    return (qItem.orderedQuantity || 0) >= (qItem.quantity || 1);
+                                    // Use original index among full quote.items for matching helpers
+                                    const fullIdx = (quote.items || []).indexOf(qItem);
+                                    return !isQuoteLineStillOrderable(indentItems, qItem, fullIdx >= 0 ? fullIdx : qIdx);
                                   });
 
                                   if (isFullyOrdered) {

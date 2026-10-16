@@ -150,6 +150,53 @@ export const getQuoteItemForIndentItem = (quote, item, itemIndex, indentItems = 
   return null;
 };
 
+/**
+ * Resolve indent line for a quotation line by name first.
+ * Never use blind index alone — lot quotes are shorter / differently ordered than the indent.
+ * Never treat a shared generic specification (e.g. "Branded") as the item identity.
+ */
+export const findIndentItemForQuoteLine = (indentItems = [], quoteItem, quoteItemIndex) => {
+  const items = Array.isArray(indentItems) ? indentItems : [];
+  if (!quoteItem || !items.length) return null;
+
+  const qDesc = normalizeComparativeText(quoteItem?.description);
+  const qSpec = normalizeComparativeText(quoteItem?.specification);
+
+  // 1) Quote description is the item name on most quotations
+  if (qDesc) {
+    const byDesc = items.find((ii) => {
+      const name = normalizeComparativeText(ii?.itemName);
+      const desc = normalizeComparativeText(ii?.description);
+      return name === qDesc || desc === qDesc;
+    });
+    if (byDesc) return byDesc;
+  }
+
+  // 2) Spec only as a name fallback (indent itemName === quote specification)
+  if (qSpec) {
+    const bySpecName = items.find((ii) => normalizeComparativeText(ii?.itemName) === qSpec);
+    if (bySpecName) return bySpecName;
+  }
+
+  // 3) Index only when that indent row is the same named item
+  if (quoteItemIndex != null && quoteItemIndex < items.length && qDesc) {
+    const atIdx = items[quoteItemIndex];
+    const name = normalizeComparativeText(atIdx?.itemName);
+    const desc = normalizeComparativeText(atIdx?.description);
+    if (name === qDesc || desc === qDesc) return atIdx;
+  }
+
+  return null;
+};
+
+/** True when this quote line should still appear on a new PO (not blank, not fully ordered). */
+export const isQuoteLineStillOrderable = (indentItems = [], quoteItem, quoteItemIndex) => {
+  if (isBlankQuoteItem(quoteItem)) return false;
+  const indentItem = findIndentItemForQuoteLine(indentItems, quoteItem, quoteItemIndex);
+  if (!indentItem) return true;
+  return (Number(indentItem.orderedQuantity) || 0) < (Number(indentItem.quantity) || 0);
+};
+
 const getScopedQuotations = (quotations = [], selectedLot) => {
   if (!quotations?.length) return [];
   if (selectedLot != null && selectedLot !== '') {
