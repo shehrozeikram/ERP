@@ -319,18 +319,32 @@ export default function BankReconciliation() {
     }
   }, [selectedCompanyId]);
 
-  const load = useCallback(async () => {
+  // scope: 'all' | 'unpresented' | 'period' — date controls only refresh their section
+  const load = useCallback(async (scope = 'all') => {
     if (!filters.bankAccountId) return;
 
     const asOfDate = String(filters.asOfDate || '').trim();
     const fromDate = String(filters.fromDate || '').trim();
     const toDate = String(filters.toDate || '').trim();
 
-    if (!isValidYmd(asOfDate) || !isValidYmd(fromDate) || !isValidYmd(toDate)) {
+    if (scope === 'unpresented') {
+      if (!isValidYmd(asOfDate)) {
+        setError('Please enter a valid As of Date.');
+        return;
+      }
+    } else if (scope === 'period') {
+      if (!isValidYmd(fromDate) || !isValidYmd(toDate)) {
+        setError('Please enter valid Date From / Date To.');
+        return;
+      }
+      if (fromDate > toDate) {
+        setError('Date From cannot be after Date To.');
+        return;
+      }
+    } else if (!isValidYmd(asOfDate) || !isValidYmd(fromDate) || !isValidYmd(toDate)) {
       setError('Please enter valid As of / From / To dates.');
       return;
-    }
-    if (fromDate > toDate) {
+    } else if (fromDate > toDate) {
       setError('Date From cannot be after Date To.');
       return;
     }
@@ -340,9 +354,9 @@ export default function BankReconciliation() {
     try {
       const params = {
         accountId: filters.bankAccountId,
-        asOfDate,
-        fromDate,
-        toDate,
+        asOfDate: isValidYmd(asOfDate) ? asOfDate : filters.asOfDate,
+        fromDate: isValidYmd(fromDate) ? fromDate : filters.fromDate,
+        toDate: isValidYmd(toDate) ? toDate : filters.toDate,
         _t: new Date().getTime() // Cache buster
       };
       const res = await api.get('/finance/reports/bank-reconciliation', { params });
@@ -366,14 +380,49 @@ export default function BankReconciliation() {
           reportData.periodTransactions.sort((a, b) => getClearingSortTime(a) - getClearingSortTime(b));
         }
       }
-      setData(reportData);
-      setUnpresentedScrollTop(0);
-      setPeriodScrollTop(0);
-      setSelectedUnpresented(new Set());
-      unpresentedBucketRef.current = 0;
-      periodBucketRef.current = 0;
-      if (unpresentedScrollRef.current) unpresentedScrollRef.current.scrollTop = 0;
-      if (periodScrollRef.current) periodScrollRef.current.scrollTop = 0;
+      setData((prev) => {
+        if (!reportData) return prev;
+        if (!prev || scope === 'all') return reportData;
+        if (scope === 'unpresented') {
+          return {
+            ...prev,
+            asOfDate: reportData.asOfDate,
+            reconciledUpTo: reportData.reconciledUpTo,
+            glBalance: reportData.glBalance,
+            glBalanceType: reportData.glBalanceType,
+            difference: reportData.difference,
+            differenceType: reportData.differenceType,
+            bankStatementBalance: reportData.bankStatementBalance,
+            bankStatementBalanceType: reportData.bankStatementBalanceType,
+            unpresentedTransactions: reportData.unpresentedTransactions,
+            unpresentedTotal: reportData.unpresentedTotal
+          };
+        }
+        if (scope === 'period') {
+          return {
+            ...prev,
+            fromDate: reportData.fromDate,
+            toDate: reportData.toDate,
+            openingBalance: reportData.openingBalance,
+            openingBalanceType: reportData.openingBalanceType,
+            periodTransactions: reportData.periodTransactions,
+            statementTotal: reportData.statementTotal,
+            statementTotalType: reportData.statementTotalType
+          };
+        }
+        return reportData;
+      });
+      if (scope === 'all' || scope === 'unpresented') {
+        setUnpresentedScrollTop(0);
+        setSelectedUnpresented(new Set());
+        unpresentedBucketRef.current = 0;
+        if (unpresentedScrollRef.current) unpresentedScrollRef.current.scrollTop = 0;
+      }
+      if (scope === 'all' || scope === 'period') {
+        setPeriodScrollTop(0);
+        periodBucketRef.current = 0;
+        if (periodScrollRef.current) periodScrollRef.current.scrollTop = 0;
+      }
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to load reconciliation data');
     } finally {
@@ -687,22 +736,19 @@ export default function BankReconciliation() {
               size="small"
               value={filters.asOfDate}
               onChange={(e) => {
-                const asOfDate = e.target.value;
                 setFilters((prev) => ({
                   ...prev,
-                  asOfDate,
-                  // Keep period end aligned with as-of when user had them in sync
-                  toDate: prev.toDate === prev.asOfDate ? asOfDate : prev.toDate
+                  asOfDate: e.target.value
                 }));
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  load();
+                  load('unpresented');
                 }
               }}
               InputLabelProps={{ shrink: true }}
-              helperText="Then click Generate — applies to ledger & unpresented"
+              helperText="Then click Generate — Unpresented / Uncleared only"
             />
           </Grid>
           <Grid item xs={12} sm={6} md={3}>
@@ -710,7 +756,7 @@ export default function BankReconciliation() {
               fullWidth
               variant="contained"
               startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <SearchIcon />}
-              onClick={load}
+              onClick={() => load('unpresented')}
               disabled={loading || !filters.bankAccountId}
               sx={{ height: 40 }}
             >
@@ -1108,7 +1154,7 @@ export default function BankReconciliation() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    load();
+                    load('period');
                   }
                 }}
                 InputLabelProps={{ shrink: true }}
@@ -1123,7 +1169,7 @@ export default function BankReconciliation() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    load();
+                    load('period');
                   }
                 }}
                 InputLabelProps={{ shrink: true }}
@@ -1134,7 +1180,7 @@ export default function BankReconciliation() {
                 variant="outlined"
                 size="small"
                 startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
-                onClick={load}
+                onClick={() => load('period')}
                 disabled={loading || !filters.bankAccountId}
                 sx={{ height: 40 }}
               >

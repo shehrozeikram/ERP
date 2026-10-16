@@ -7934,6 +7934,7 @@ router.get('/reports/bank-reconciliation',
       const clearDateRaw = gle.clearedAt || gle.reconciledAt || null;
       const clearDate = clearDateRaw || (markedCleared && gle.date ? gle.date : null);
       const clearedAtTime = clearDate ? new Date(clearDate).getTime() : NaN;
+      // As-of clearance: drives Unpresented only. Period Activity uses clearingDate + From/To.
       const isCleared = Boolean(
         markedCleared &&
         !Number.isNaN(clearedAtTime) &&
@@ -7956,7 +7957,8 @@ router.get('/reports/bank-reconciliation',
         type: isCredit ? 'Cr' : 'Dr',
         isCleared,
         clearanceStatus: isCleared ? 'cleared' : (gle.clearanceStatus || 'pending'),
-        clearingDate: isCleared ? clearDate : null,
+        // Always expose clear date when known so Period Activity is not gated by As of
+        clearingDate: clearDate,
         attachments: je.attachments || [],
         signedDocumentStatus: je.signedDocumentStatus || 'not_signed',
         signedDocumentAt: je.signedDocumentAt || null,
@@ -8061,18 +8063,14 @@ router.get('/reports/bank-reconciliation',
     const bankStatementBalance = netGlBalance - unpresentedTotal;
 
     // 4. Period Activity / Cleared Bank Transactions (Lower Table with Date.From & Date.To)
-    // Cleared transactions: transactions that have cleared in the bank statement
-    const clearedTxns = allBankTxns.filter((t) => t.isCleared && t.clearingDate && new Date(t.clearingDate) <= periodEndDate);
-
-    // Opening Balance of cleared statement transactions before periodStartDate
+    // Scoped only by clearingDate + From/To — not by As of Date.
     const openingClearedTxns = allBankTxns.filter((t) => {
-      return t.isCleared && t.clearingDate && new Date(t.clearingDate) < periodStartDate;
+      return t.clearingDate && new Date(t.clearingDate) < periodStartDate;
     });
     const openingBalance = openingClearedTxns.reduce((s, r) => s + (Number(r.debit) || 0) - (Number(r.credit) || 0), 0);
 
-    // Period cleared transactions between periodStartDate and periodEndDate (by clearingDate)
     const periodTransactions = allBankTxns.filter((t) => {
-      if (!t.isCleared || !t.clearingDate) return false;
+      if (!t.clearingDate) return false;
       const cDate = new Date(t.clearingDate);
       return cDate >= periodStartDate && cDate <= periodEndDate;
     });
