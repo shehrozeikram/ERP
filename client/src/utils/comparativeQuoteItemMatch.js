@@ -93,14 +93,21 @@ export const getQuoteItemForIndentItem = (quote, item, itemIndex, indentItems = 
     if (picked) return picked;
   }
 
-  // 3) Specification-only ONLY when unique among quote lines
+  // 3) Specification-only ONLY when unique among quote lines.
+  // Never remap a named indent line onto a differently named quote line
+  // (e.g. Gutka + Chips both "Branded" must not share a price).
   if (indentSpec) {
     const specMatches = items
       .map((qi, idx) => ({ qi, idx }))
       .filter(({ qi }) => {
         const qDesc = normalizeComparativeText(qi?.description);
         const qSpec = normalizeComparativeText(qi?.specification);
-        return (qDesc && qDesc === indentSpec) || (qSpec && qSpec === indentSpec);
+        const specHit = (qDesc && qDesc === indentSpec) || (qSpec && qSpec === indentSpec);
+        if (!specHit) return false;
+        if (indentName && qDesc && qDesc !== indentName && qDesc !== indentSpec) {
+          return false;
+        }
+        return true;
       });
     if (specMatches.length === 1) {
       return pickNonBlank(specMatches[0].qi);
@@ -123,16 +130,18 @@ export const getQuoteItemForIndentItem = (quote, item, itemIndex, indentItems = 
     }
   }
 
-  // 4) Same index ONLY when that quote line is clearly the same item.
-  // Blind index fallback remaps Lot B lines onto Lot A indent rows (e.g. Gutka ← Chips)
-  // and inflates CS totals on every screen that reuses this matcher.
+  // 4) Same index ONLY when that quote line is clearly the same item by name.
+  // Do not treat a shared generic specification (e.g. "Branded") as identity —
+  // that remaps Lot B lines onto Lot A indent rows (Gutka ← Chips).
   if (itemIndex != null && itemIndex < items.length && indentLabel) {
     const qi = items[itemIndex];
     const qDesc = normalizeComparativeText(qi?.description);
     const qSpec = normalizeComparativeText(qi?.specification);
     const sameItem =
-      (qDesc && (qDesc === indentLabel || (indentName && qDesc === indentName) || (indentSpec && qDesc === indentSpec))) ||
-      (qSpec && (qSpec === indentLabel || (indentName && qSpec === indentName) || (indentSpec && qSpec === indentSpec)));
+      (qDesc && (qDesc === indentLabel || (indentName && qDesc === indentName))) ||
+      (qSpec && (qSpec === indentLabel || (indentName && qSpec === indentName))) ||
+      // Spec may be the only name when indent has no itemName
+      (!indentName && indentSpec && ((qDesc && qDesc === indentSpec) || (qSpec && qSpec === indentSpec)));
     if (sameItem) {
       return pickNonBlank(qi);
     }
@@ -141,50 +150,88 @@ export const getQuoteItemForIndentItem = (quote, item, itemIndex, indentItems = 
   return null;
 };
 
-/**
- * Dynamically scope indent rows to items actually quoted in the CS quotations.
- * Works for lot-wise CS (selectedLot) and read-only CS tabs that pass mixed quotes.
- */
-export const getComparativeIndentItems = (indentItems = [], quotations = [], selectedLot) => {
-  const items = Array.isArray(indentItems) ? indentItems : [];
-  if (!items.length || !quotations?.length) return items;
-
-  let scopedQuotes = quotations;
+const getScopedQuotations = (quotations = [], selectedLot) => {
+  if (!quotations?.length) return [];
   if (selectedLot != null && selectedLot !== '') {
     const lotQuotes = quotations.filter((q) => (q.lotNumber || 'A') === selectedLot);
-    if (lotQuotes.length) scopedQuotes = lotQuotes;
+    if (lotQuotes.length) return lotQuotes;
   } else {
     const lots = [...new Set(quotations.map((q) => q.lotNumber || 'A'))];
     if (lots.length === 1) {
-      scopedQuotes = quotations.filter((q) => (q.lotNumber || 'A') === lots[0]);
+      return quotations.filter((q) => (q.lotNumber || 'A') === lots[0]);
     }
   }
-
-  const quotedLabels = new Set();
-  scopedQuotes.forEach((q) => {
-    (q.items || []).forEach((qi) => {
-      const d = normalizeComparativeText(qi?.description);
-      const s = normalizeComparativeText(qi?.specification);
-      if (d) quotedLabels.add(d);
-      if (s) quotedLabels.add(s);
-    });
-  });
-  if (!quotedLabels.size) return items;
-
-  const filtered = items.filter((item) => {
-    const name = normalizeComparativeText(item?.itemName);
-    const desc = normalizeComparativeText(item?.description);
-    return (name && quotedLabels.has(name)) || (desc && quotedLabels.has(desc));
-  });
-
-  return filtered.length ? filtered : items;
+  return quotations;
 };
 
 /**
- * Sum of matched line amounts for one quotation across indent items.
- * Falls back to quotation subtotal/total when nothing matched.
+ * Dynamically scope indent rows to items actually quoted in the CS quotations.
+ * Uses the same matcher as CS cells, and adds rows for quote-only lines so
+ * every lot quotation item appears (and totals can match the quotation).
+ */
+export const getComparativeIndentItems = (indentItems = [], quotations = [], selectedLot) => {
+  const items = Array.isArray(indentItems) ? indentItems : [];
+  if (!quotations?.length) return items;
+
+  const scopedQuotes = getScopedQuotations(quotations, selectedLot);
+  if (!scopedQuotes.length) return items;
+
+  const claimedQuoteItems = new Set();
+  const matched = [];
+  const matchedLabels = new Set();
+
+  items.forEach((item, itemIndex) => {
+    let hit = false;
+    scopedQuotes.forEach((q) => {
+      const qi = getQuoteItemForIndentItem(q, item, itemIndex, items);
+      if (qi) {
+        claimedQuoteItems.add(qi);
+        hit = true;
+      }
+    });
+    if (hit) {
+      matched.push(item);
+      const label =
+        normalizeComparativeText(item?.itemName) || normalizeComparativeText(item?.description);
+      if (label) matchedLabels.add(label);
+    }
+  });
+
+  // Quote lines that never matched an indent row still belong on this lot's CS
+  const synthetics = [];
+  const seenSynthetic = new Set();
+  scopedQuotes.forEach((q) => {
+    (q.items || []).forEach((qi) => {
+      if (isBlankQuoteItem(qi) || claimedQuoteItems.has(qi)) return;
+      const label =
+        normalizeComparativeText(qi?.description) || normalizeComparativeText(qi?.specification);
+      if (!label || matchedLabels.has(label) || seenSynthetic.has(label)) return;
+      seenSynthetic.add(label);
+      matchedLabels.add(label);
+      synthetics.push({
+        itemName: qi.description || qi.specification || 'Item',
+        description: qi.specification || qi.description || '',
+        quantity: qi.quantity,
+        unit: qi.unit || 'Nos',
+        orderedQuantity: 0,
+        _fromQuoteOnly: true
+      });
+    });
+  });
+
+  const result = [...matched, ...synthetics];
+  return result.length ? result : items;
+};
+
+/**
+ * Sum of line amounts for one quotation on the CS.
+ * Prefer the quotation's own non-blank lines so the column total equals the quote.
+ * Fall back to matched indent rows, then stored subtotal/total.
  */
 export const getComparativeQuoteVisibleTotal = (quote, indentItems = [], quotations = []) => {
+  const lineSum = (quote?.items || []).reduce((sum, qi) => sum + getQuoteLineAmount(qi), 0);
+  if (lineSum > 0) return lineSum;
+
   const visibleTotal = (indentItems || []).reduce((sum, item, itemIndex) => {
     const isQuoted = (quotations || []).some(
       (q) => getQuoteItemForIndentItem(q, item, itemIndex, indentItems) != null

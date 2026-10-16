@@ -128,13 +128,12 @@ const ComparativeStatementView = ({
   const [vendorAssignments, setVendorAssignments] = useState({});
 
   // One dynamic scope for EVERY CS consumer (Procurement CS, Pre-Audit, PO, Payments, etc.):
-  // only show indent lines that exist on the quotations in view (and selected lot when set).
+  // always start from the full indent so lot CS can include every quoted line
+  // (do not trust a pre-filtered csItems list — exact string filters drop valid rows).
   const indentItems = React.useMemo(() => {
-    const sourceItems = (selectedRequisition?.csItems?.length
-      ? selectedRequisition.csItems
-      : selectedRequisition?.items) || [];
+    const sourceItems = selectedRequisition?.items || [];
     return getComparativeIndentItems(sourceItems, quotations, selectedLot);
-  }, [selectedRequisition?.csItems, selectedRequisition?.items, quotations, selectedLot]);
+  }, [selectedRequisition?.items, quotations, selectedLot]);
 
   React.useEffect(() => {
     const saved = selectedRequisition?.splitPOAssignments;
@@ -302,16 +301,16 @@ const ComparativeStatementView = ({
               <tbody>
                 {(() => {
                   let visibleItemCounter = 0;
-                  return selectedRequisition?.items?.length > 0 ? selectedRequisition.items.map((item, itemIndex) => {
-                    // Check if this item exists in ANY quotation
+                  return indentItems.length > 0 ? indentItems.map((item, itemIndex) => {
+                    // Lot-scoped indentItems already only contains quoted rows; keep guard for safety
                     const isQuoted = quotations.some(quote => getQuoteItemForIndentItem(quote, item, itemIndex) != null);
-                    if (!isQuoted) return null; // Hide row if no vendor quoted this item
+                    if (!isQuoted) return null;
 
                     visibleItemCounter += 1;
                     const assignedQuotationId = vendorAssignments[itemIndex];
                     const isAlreadyOrdered = (item.orderedQuantity || 0) >= item.quantity;
                     return (
-                      <React.Fragment key={itemIndex}>
+                      <React.Fragment key={`${item.itemName || item.description || 'item'}-${itemIndex}`}>
                         <tr style={{ border: '1px solid #000', backgroundColor: isAlreadyOrdered ? '#fafafa' : assignedQuotationId ? '#f0fff0' : undefined }}>
                           <td style={{ border: '1px solid #000', padding: '6px 6px', textAlign: 'center', verticalAlign: 'top', fontSize: '0.8rem' }}>{visibleItemCounter}</td>
                           <td style={{ border: '1px solid #000', padding: '6px 6px', verticalAlign: 'top', fontSize: '0.8rem' }}>

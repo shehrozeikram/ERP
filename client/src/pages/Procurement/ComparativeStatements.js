@@ -794,14 +794,7 @@ const ComparativeStatements = () => {
 
             <ComparativeStatementView
               selectedLot={selectedLot}
-              requisition={{
-                ...selectedRequisition,
-                // Filter items to only those that have a quotation in this lot
-                csItems: selectedRequisition.items.filter(item => 
-                  quotations.some(q => (q.lotNumber || 'A') === selectedLot && q.items?.some(qi => qi.description === item.itemName))
-                )
-              }}
-
+              requisition={selectedRequisition}
               quotations={(() => {
                 const lotQuotes = quotations.filter((q) => (q.lotNumber || 'A') === selectedLot);
                 const selectedLotQuotes = activeQuotations.filter((q) => (q.lotNumber || 'A') === selectedLot);
