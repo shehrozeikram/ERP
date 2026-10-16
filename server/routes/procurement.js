@@ -6149,13 +6149,6 @@ router.put('/requisitions/:id/comparative-approvers',
         message: 'Only the assigned procurement user or an assignment manager can configure approvers.'
       });
     }
-    if (!canMutateComparativeAuthorityUsers(req.user, indent)) {
-      return res.status(403).json({
-        success: false,
-        message:
-          'Only Prepared By, Procurement Manager (GM), or Super Admin can change comparative approvers after approval authorities have been set.'
-      });
-    }
     if (!['Approved', 'Partially Fulfilled', 'Fulfilled'].includes(indent.status) || indent.storeRoutingStatus !== 'moved_to_procurement') {
       return res.status(400).json({
         success: false,
@@ -6175,7 +6168,17 @@ router.put('/requisitions/:id/comparative-approvers',
       return res.status(400).json({ success: false, message: 'Selected approvers must be active users.' });
     }
 
-    const ca = ensureComparativeApprovalObject(indent, req.body.lotNumber || 'A');
+    const targetLot = req.body.lotNumber || 'A';
+    const ca = ensureComparativeApprovalObject(indent, targetLot);
+    // Another lot already approved must not block setting up a new lot (e.g. Lot B after Lot A).
+    const lotNeedsSetup = ['not_configured', 'draft', 'rejected'].includes(ca.status || 'not_configured');
+    if (!lotNeedsSetup && !canMutateComparativeAuthorityUsers(req.user, indent)) {
+      return res.status(403).json({
+        success: false,
+        message:
+          'Only Prepared By, Procurement Manager (GM), or Super Admin can change comparative approvers after approval authorities have been set.'
+      });
+    }
     const previousStatus = ca.status;
     ca.approvers = filteredIds.map((id) => ({
       approver: id,
@@ -6238,6 +6241,18 @@ router.post('/requisitions/:id/comparative-submit',
     const ca = ensureComparativeApprovalObject(indent, req.body.lotNumber || 'A');
     if (!Array.isArray(ca.approvers) || ca.approvers.length === 0) {
       return res.status(400).json({ success: false, message: 'Configure comparative approvers first.' });
+    }
+    if (ca.status === 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: `Comparative statement for Lot ${ca.lotNumber || 'A'} is already approved.`
+      });
+    }
+    if (ca.status === 'submitted') {
+      return res.status(400).json({
+        success: false,
+        message: `Comparative statement for Lot ${ca.lotNumber || 'A'} is already submitted for approval.`
+      });
     }
 
     const previousStatus = ca.status;
@@ -6305,6 +6320,7 @@ router.post('/requisitions/:id/comparative-submit',
       module: 'Procurement'
     });
 
+    indent.markModified('comparativeApprovals');
     indent.markModified('comparativeApproval');
     await indent.save();
 
@@ -6327,8 +6343,8 @@ router.post('/requisitions/:id/comparative-submit',
             : 'Comparative Statement needs your approval',
         message:
           previousStatus === 'rejected'
-            ? `Requisition ${indent.indentNumber || ''} comparative was resubmitted. Only approvers with a pending step need to act (previous approvals are kept).`
-            : `Requisition ${indent.indentNumber || ''} comparative statement is submitted for approval.`,
+            ? `Requisition ${indent.indentNumber || ''} Lot ${ca.lotNumber || 'A'} comparative was resubmitted. Only approvers with a pending step need to act (previous approvals are kept).`
+            : `Requisition ${indent.indentNumber || ''} Lot ${ca.lotNumber || 'A'} comparative statement is submitted for approval.`,
         actionUrl: '/procurement/comparative-statements',
         entityId: indent._id,
         entityType: 'Indent',
@@ -6339,10 +6355,12 @@ router.post('/requisitions/:id/comparative-submit',
     }
 
     const updated = await Indent.findById(indent._id)
+      .populate('comparativeApprovals.approvers.approver', 'firstName lastName email employeeId digitalSignature')
+      .populate('comparativeApproval.approvers.approver', 'firstName lastName email employeeId digitalSignature');
 
     res.json({
       success: true,
-      message: 'Comparative statement submitted for approvals.',
+      message: `Lot ${ca.lotNumber || 'A'} comparative statement submitted for approvals.`,
       data: updated
     });
   })

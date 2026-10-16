@@ -418,6 +418,67 @@ export async function exportBankReconciliationPDF(data, filters, bankName, compa
   doc.save(`Bank-Reconciliation-${filters.asOfDate}.pdf`);
 }
 
+/** Excel export for Bank Statement & Period Activity section only. */
+export async function exportBankStatementPeriodExcel(data, filters, bankName, companyName) {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+  const fmtAmt = (n) => Number(Math.abs(n || 0));
+  const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-PK') : '');
+
+  const rows = [
+    [companyName || COMPANY],
+    ['Bank Statement & Period Activity'],
+    [`Bank: ${bankName || '—'}`],
+    [`Period: ${filters.fromDate || ''} to ${filters.toDate || ''}`],
+    [`Generated: ${todayStr()}`],
+    [],
+    ['Date', 'VrNo', 'Narration', 'Reference', 'Amount', 'Type', 'Clearing Date'],
+    [
+      '',
+      '',
+      'Opening Balance',
+      '',
+      fmtAmt(data.openingBalance),
+      data.openingBalanceType || '',
+      ''
+    ],
+    ...(data.periodTransactions || []).map((t) => [
+      fmtDate(t.date),
+      t.vrNo || '',
+      t.narration || '',
+      t.reference || '',
+      fmtAmt(t.amount),
+      t.type || '',
+      fmtDate(t.clearingDate)
+    ]),
+    [
+      '',
+      '',
+      'Total / Closing Balance',
+      '',
+      fmtAmt(data.statementTotal),
+      data.statementTotalType || '',
+      ''
+    ]
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 14 },
+    { wch: 16 },
+    { wch: 45 },
+    { wch: 18 },
+    { wch: 16 },
+    { wch: 8 },
+    { wch: 14 }
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'Period Activity');
+  XLSX.writeFile(
+    wb,
+    `Bank-Statement-Period-${filters.fromDate || 'from'}-${filters.toDate || 'to'}.xlsx`
+  );
+}
+
 export async function exportTaxSummaryExcel(data, filters) {
   const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();

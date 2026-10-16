@@ -242,9 +242,16 @@ const ComparativeStatements = () => {
   const isAssignedProcurementUser = assignedToId && String(assignedToId) === String(userId || '');
   const canConfigureComparative = Boolean(selectedRequisition?._id) && (canManageAssignments || isAssignedProcurementUser);
   const hasVendorSelection = Boolean(
-    (Array.isArray(quotations) && quotations.some((q) => ['Shortlisted', 'Finalized'].includes(q?.status))) ||
+    (Array.isArray(quotations) &&
+      quotations.some(
+        (q) =>
+          (q.lotNumber || 'A') === selectedLot &&
+          ['Shortlisted', 'Finalized'].includes(q?.status)
+      )) ||
     (selectedRequisition?.splitPOAssignments && Object.keys(selectedRequisition.splitPOAssignments).length > 0)
   );
+  // Lot B (etc.) must still be configurable after Lot A is already approved.
+  const lotComparativeNeedsSetup = ['not_configured', 'draft', 'rejected'].includes(comparativeStatus);
   const canSubmitComparative =
     canConfigureComparative &&
     ['draft', 'rejected'].includes(comparativeStatus) &&
@@ -253,6 +260,8 @@ const ComparativeStatements = () => {
   const canApproveComparative = comparativeStatus === 'submitted' && isPendingApprover;
   const canEditAuthoritySlots =
     Boolean(canConfigureComparative && selectedRequisition && canEditComparativeAuthorityUsers(user, selectedRequisition));
+  // Allow Save for the selected lot even when indent-wide lock is on from another approved lot.
+  const canSaveLotAuthorities = Boolean(canConfigureComparative && (canEditAuthoritySlots || lotComparativeNeedsSetup));
 
   const handleAuthorityUserChange = (fieldKey, userObj) => {
     if (fieldKey === 'preparedBy') return;
@@ -303,6 +312,7 @@ const ComparativeStatements = () => {
       setSubmittingComparative(true);
       setError('');
       const res = await api.post(`/procurement/requisitions/${selectedRequisition._id}/comparative-submit`, {
+        lotNumber: selectedLot,
         resolutionNote: resolutionNote.trim()
       });
       if (res.data?.success) {
@@ -825,7 +835,7 @@ const ComparativeStatements = () => {
               onRejectComparative={() => setRejectDialogOpen(true)}
               canApproveComparative={canApproveComparative}
               approvingComparative={approvingComparative}
-              canEditApprovalAuthorities={canEditAuthoritySlots}
+              canEditApprovalAuthorities={canSaveLotAuthorities}
             />
           </>
         )}

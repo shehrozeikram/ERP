@@ -12,6 +12,7 @@ import {
   ReceiptLong as VoucherIcon,
   Search as SearchIcon,
   PictureAsPdf as PdfIcon,
+  GridOn as ExcelIcon,
   EditCalendar as EditDateIcon,
   AttachFile as AttachIcon,
   CloudUpload as UploadIcon,
@@ -32,7 +33,7 @@ import { useFinanceCompany } from '../../context/FinanceCompanyContext';
 import { useFinanceCompanyReload } from '../../hooks/useFinanceCompanyReload';
 import { fetchPayFromAccounts } from '../../utils/payFromAccounts';
 import { formatDate } from '../../utils/dateUtils';
-import { exportBankReconciliationPDF } from '../../utils/reportExport';
+import { exportBankReconciliationPDF, exportBankStatementPeriodExcel } from '../../utils/reportExport';
 
 const fmt = (n) => Number(Math.abs(n || 0)).toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -1138,6 +1139,21 @@ export default function BankReconciliation() {
                 sx={{ height: 40 }}
               >
                 Filter
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                color="success"
+                startIcon={<ExcelIcon />}
+                disabled={!data}
+                onClick={() => {
+                  const bankName = bankAccounts.find((a) => a._id === filters.bankAccountId)?.accountName || 'Bank';
+                  const companyName = companies.find((c) => c._id === selectedCompanyId)?.name || 'SGC International';
+                  exportBankStatementPeriodExcel(data, filters, bankName, companyName);
+                }}
+                sx={{ height: 40, textTransform: 'none', fontWeight: 600 }}
+              >
+                Excel
               </Button>
             </Stack>
           </Stack>
