@@ -34,7 +34,6 @@ import {
   updateRegistry
 } from '../../services/landAcquisitionRegistryService';
 import { formatKMS } from '../../utils/landAreaUnits';
-import { resolveUploadFileHref } from '../../utils/uploadPaths';
 
 const formatDate = (value) => {
   if (!value) return '—';
@@ -202,8 +201,40 @@ const RegistryViewer = () => {
     }
   };
 
+  const cellEllipsisSx = {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: 0,
+    px: { xs: 0.5, md: 0.75 }
+  };
+
+  const renderDocCount = (attachments, color = 'primary') => {
+    const list = attachments || [];
+    if (!list.length) {
+      return (
+        <Typography variant="caption" color="text.secondary">
+          —
+        </Typography>
+      );
+    }
+    const names = list.map((a, i) => a.originalName || `Doc ${i + 1}`).join(', ');
+    return (
+      <Tooltip title={names}>
+        <Chip
+          size="small"
+          color={color}
+          variant="outlined"
+          icon={<AttachFile fontSize="small" />}
+          label={`${list.length}`}
+          sx={{ maxWidth: '100%', '& .MuiChip-label': { px: 0.5 } }}
+        />
+      </Tooltip>
+    );
+  };
+
   return (
-    <Box>
+    <Box sx={{ width: '100%', maxWidth: '100%', overflowX: 'hidden', boxSizing: 'border-box' }}>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
       {/* KPI Balance Banner factor in Land Exchanges */}
@@ -216,7 +247,10 @@ const RegistryViewer = () => {
             borderRadius: 2,
             border: '1px solid',
             borderColor: 'divider',
-            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50'
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.50',
+            width: '100%',
+            maxWidth: '100%',
+            overflow: 'hidden'
           }}
         >
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} justifyContent="space-between">
@@ -265,13 +299,20 @@ const RegistryViewer = () => {
         </Paper>
       )}
 
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }} alignItems={{ sm: 'center' }}>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        spacing={1}
+        sx={{ mb: 2, width: '100%', maxWidth: '100%' }}
+        alignItems={{ sm: 'center' }}
+        flexWrap="wrap"
+        useFlexGap
+      >
         <TextField
           size="small"
           placeholder="Search registry no, inteqal, khewat…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          sx={{ maxWidth: 280 }}
+          sx={{ flex: '1 1 200px', maxWidth: { sm: 280 } }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -286,7 +327,7 @@ const RegistryViewer = () => {
           label="Moza"
           value={mozaFilter}
           onChange={(e) => setMozaFilter(e.target.value)}
-          sx={{ minWidth: 180 }}
+          sx={{ flex: '0 1 160px', minWidth: 140 }}
         >
           <MenuItem value="">All mouzas</MenuItem>
           {mozas.map((m) => (
@@ -294,7 +335,7 @@ const RegistryViewer = () => {
           ))}
         </TextField>
 
-        <Box sx={{ flexGrow: 1 }} />
+        <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'block' } }} />
         <Button variant="outlined" startIcon={exporting ? <CircularProgress size={20} /> : <DownloadIcon />} onClick={handleExport} disabled={exporting || loading}>
           Export
         </Button>
@@ -317,29 +358,38 @@ const RegistryViewer = () => {
           </Button>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
+        <Paper variant="outlined" sx={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+        <TableContainer
+          sx={{
+            width: '100%',
+            maxWidth: '100%',
+            maxHeight: 'min(70vh, 720px)',
+            overflowX: 'hidden',
+            overflowY: 'auto'
+          }}
+        >
+          <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
             <TableHead>
               <TableRow>
-                <TableCell><strong>Date</strong></TableCell>
-                <TableCell><strong>Deal No.</strong></TableCell>
-                <TableCell><strong>Moza</strong></TableCell>
-                <TableCell><strong>Khewat</strong></TableCell>
-                <TableCell><strong>Registry No.</strong></TableCell>
-                <TableCell><strong>Inteqal No.</strong></TableCell>
-                <TableCell><strong>Seller</strong></TableCell>
-                <TableCell><strong>Purchaser</strong></TableCell>
-                <TableCell><strong>Dealer</strong></TableCell>
-                <TableCell><strong>Total Acquired</strong></TableCell>
-                <TableCell>
-                  <Tooltip title="Total effective acquired land holding in this registry after exchanges">
-                    <span><strong>Total Acquired Holding</strong></span>
+                <TableCell sx={{ ...cellEllipsisSx, width: '7%', bgcolor: 'background.paper' }}><strong>Date</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '5%', bgcolor: 'background.paper' }}><strong>Deal</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '7%', bgcolor: 'background.paper' }}><strong>Moza</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '6%', bgcolor: 'background.paper' }}><strong>Khewat</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '8%', bgcolor: 'background.paper' }}><strong>Registry</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '7%', bgcolor: 'background.paper' }}><strong>Inteqal</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '8%', bgcolor: 'background.paper' }}><strong>Seller</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '8%', bgcolor: 'background.paper' }}><strong>Purchaser</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '7%', bgcolor: 'background.paper' }}><strong>Dealer</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '9%', bgcolor: 'background.paper' }}><strong>Acquired</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '9%', bgcolor: 'background.paper' }}>
+                  <Tooltip title="Total effective acquired land holding after exchanges">
+                    <span><strong>Holding</strong></span>
                   </Tooltip>
                 </TableCell>
-                <TableCell><strong>Registry Docs</strong></TableCell>
-                <TableCell><strong>Inteqal Docs</strong></TableCell>
-                <TableCell><strong>Lines</strong></TableCell>
-                <TableCell align="center" width={128}><strong>Actions</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '5%', bgcolor: 'background.paper' }} align="center"><strong>Reg. Docs</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '5%', bgcolor: 'background.paper' }} align="center"><strong>Int. Docs</strong></TableCell>
+                <TableCell sx={{ ...cellEllipsisSx, width: '5%', bgcolor: 'background.paper' }} align="center"><strong>Lines</strong></TableCell>
+                <TableCell sx={{ width: '7%', px: 0.5, bgcolor: 'background.paper' }} align="center"><strong>Actions</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -347,144 +397,118 @@ const RegistryViewer = () => {
                 const hasExchangeOut = row.exchangedOutArea && (row.exchangedOutArea.kanal > 0 || row.exchangedOutArea.marla > 0 || row.exchangedOutArea.sarsai > 0);
                 const hasExchangeIn = row.exchangedInArea && (row.exchangedInArea.kanal > 0 || row.exchangedInArea.marla > 0 || row.exchangedInArea.sarsai > 0);
                 const isFullyExchanged = row.netRemainingArea && row.netRemainingArea.kanal === 0 && row.netRemainingArea.marla === 0 && row.netRemainingArea.sarsai === 0;
+                const acquiredTip = [
+                  `Acquired: ${formatKMS(row.totalArea)}`,
+                  hasExchangeOut ? `Out: -${formatKMS(row.exchangedOutArea)}` : null,
+                  hasExchangeIn ? `In: +${formatKMS(row.exchangedInArea)}` : null
+                ].filter(Boolean).join(' · ');
+                const holdingTip = isFullyExchanged
+                  ? 'Fully exchanged'
+                  : `Holding: ${formatKMS(row.netRemainingArea || row.totalArea)}`;
 
                 return (
                   <TableRow key={row._id} hover>
-                    <TableCell>{formatDate(row.registryDate)}</TableCell>
-                    <TableCell><strong>{row.dealNo ? `#${row.dealNo}` : '—'}</strong></TableCell>
-                    <TableCell>{row.moza?.name || '—'}</TableCell>
-                    <TableCell>{row.khewatNo}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
-                        {row.registryNo}
+                    <TableCell sx={cellEllipsisSx}>{formatDate(row.registryDate)}</TableCell>
+                    <TableCell sx={cellEllipsisSx}>
+                      <Typography variant="body2" fontWeight={700} noWrap>
+                        {row.dealNo ? `#${row.dealNo}` : '—'}
                       </Typography>
-                      {row.isExchangeIn && (
-                        <Tooltip title={`Acquired into inventory via Land Exchange Ref ${row.exchangeRef}`}>
-                          <Chip
-                            label="Exchange In"
-                            size="small"
-                            color="success"
-                            variant="filled"
-                            sx={{ fontSize: '0.65rem', height: 18, mt: 0.5, fontWeight: 700 }}
-                          />
-                        </Tooltip>
-                      )}
                     </TableCell>
-                    <TableCell>{row.inteqalNo || '—'}</TableCell>
-                    <TableCell>{row.seller?.name || '—'}</TableCell>
-                    <TableCell>{row.purchaser?.name || '—'}</TableCell>
-                    <TableCell>{row.dealer?.name || '—'}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
-                        {formatKMS(row.totalArea)}
-                      </Typography>
-                      <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.5 }}>
-                        {hasExchangeOut && (
-                          <Tooltip
-                            title={
-                              row.exchanges?.filter(e => e.type === 'OUT')?.length
-                                ? `Exchanged out via: ${row.exchanges.filter(e => e.type === 'OUT').map((e) => `${e.exchangeRef} (${formatKMS(e.surrenderedArea)})`).join(', ')}`
-                                : 'Surrendered in Land Exchange'
-                            }
-                          >
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={row.moza?.name || ''}>
+                        <Typography variant="body2" noWrap>{row.moza?.name || '—'}</Typography>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={row.khewatNo || ''}>
+                        <Typography variant="body2" noWrap>{row.khewatNo || '—'}</Typography>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={`${row.registryNo || ''}${row.isExchangeIn ? ' · Exchange In' : ''}`}>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600} noWrap>
+                            {row.registryNo}
+                          </Typography>
+                          {row.isExchangeIn ? (
                             <Chip
-                              label={`-${formatKMS(row.exchangedOutArea)} (Out)`}
-                              size="small"
-                              color="warning"
-                              variant="outlined"
-                              sx={{ fontSize: '0.7rem', height: 20, fontWeight: 700 }}
-                            />
-                          </Tooltip>
-                        )}
-                        {hasExchangeIn && (
-                          <Tooltip
-                            title={
-                              row.exchanges?.filter(e => e.type === 'IN')?.length
-                                ? `Exchanged in via: ${row.exchanges.filter(e => e.type === 'IN').map((e) => `${e.exchangeRef} (${formatKMS(e.acquiredArea)})`).join(', ')}`
-                                : 'Acquired in Land Exchange'
-                            }
-                          >
-                            <Chip
-                              label={`+${formatKMS(row.exchangedInArea)} (In)`}
+                              label="Exch. In"
                               size="small"
                               color="success"
-                              variant="outlined"
-                              sx={{ fontSize: '0.7rem', height: 20, fontWeight: 700 }}
+                              sx={{ fontSize: '0.6rem', height: 16, mt: 0.25 }}
                             />
-                          </Tooltip>
-                        )}
-                      </Stack>
+                          ) : null}
+                        </Box>
+                      </Tooltip>
                     </TableCell>
-                    <TableCell>
-                      <Typography
-                        variant="body2"
-                        fontWeight={700}
-                        color={isFullyExchanged ? 'error.main' : (hasExchangeOut || hasExchangeIn) ? 'primary.main' : 'text.primary'}
-                      >
-                        {formatKMS(row.netRemainingArea || row.totalArea)}
-                      </Typography>
-                      {isFullyExchanged && (
-                        <Chip label="Fully Exchanged" size="small" color="error" sx={{ fontSize: '0.65rem', height: 18, mt: 0.5 }} />
-                      )}
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={row.inteqalNo || ''}>
+                        <Typography variant="body2" noWrap>{row.inteqalNo || '—'}</Typography>
+                      </Tooltip>
                     </TableCell>
-                    <TableCell>
-                      {(row.registryDocAttachments || []).length > 0 ? (
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                          {row.registryDocAttachments.map((att, i) => {
-                            const href = resolveUploadFileHref(att.path, att.mimetype);
-                            return href ? (
-                              <Chip
-                                key={att._id || i}
-                                icon={<AttachFile fontSize="small" />}
-                                label={att.originalName || `Doc ${i + 1}`}
-                                component="a"
-                                href={href}
-                                target="_blank"
-                                clickable
-                                size="small"
-                                color="primary"
-                                variant="outlined"
-                              />
-                            ) : (
-                              <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
-                            );
-                          })}
-                        </Stack>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">—</Typography>
-                      )}
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={row.seller?.name || ''}>
+                        <Typography variant="body2" noWrap>{row.seller?.name || '—'}</Typography>
+                      </Tooltip>
                     </TableCell>
-                    <TableCell>
-                      {(row.inteqalDocAttachments || []).length > 0 ? (
-                        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
-                          {row.inteqalDocAttachments.map((att, i) => {
-                            const href = resolveUploadFileHref(att.path, att.mimetype);
-                            return href ? (
-                              <Chip
-                                key={att._id || i}
-                                icon={<AttachFile fontSize="small" />}
-                                label={att.originalName || `Doc ${i + 1}`}
-                                component="a"
-                                href={href}
-                                target="_blank"
-                                clickable
-                                size="small"
-                                color="secondary"
-                                variant="outlined"
-                              />
-                            ) : (
-                              <Chip key={att._id || i} label={att.originalName || `Doc ${i + 1}`} size="small" variant="outlined" />
-                            );
-                          })}
-                        </Stack>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">—</Typography>
-                      )}
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={row.purchaser?.name || ''}>
+                        <Typography variant="body2" noWrap>{row.purchaser?.name || '—'}</Typography>
+                      </Tooltip>
                     </TableCell>
-                    <TableCell>
-                      <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={row.dealer?.name || ''}>
+                        <Typography variant="body2" noWrap>{row.dealer?.name || '—'}</Typography>
+                      </Tooltip>
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={acquiredTip}>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography variant="body2" fontWeight={600} noWrap>
+                            {formatKMS(row.totalArea)}
+                          </Typography>
+                          {(hasExchangeOut || hasExchangeIn) ? (
+                            <Typography variant="caption" color="text.secondary" noWrap display="block">
+                              {hasExchangeOut ? `-${formatKMS(row.exchangedOutArea)}` : ''}
+                              {hasExchangeOut && hasExchangeIn ? ' · ' : ''}
+                              {hasExchangeIn ? `+${formatKMS(row.exchangedInArea)}` : ''}
+                            </Typography>
+                          ) : null}
+                        </Box>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell sx={cellEllipsisSx}>
+                      <Tooltip title={holdingTip}>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography
+                            variant="body2"
+                            fontWeight={700}
+                            noWrap
+                            color={isFullyExchanged ? 'error.main' : (hasExchangeOut || hasExchangeIn) ? 'primary.main' : 'text.primary'}
+                          >
+                            {formatKMS(row.netRemainingArea || row.totalArea)}
+                          </Typography>
+                          {isFullyExchanged ? (
+                            <Chip label="Full Exch." size="small" color="error" sx={{ fontSize: '0.6rem', height: 16, mt: 0.25 }} />
+                          ) : null}
+                        </Box>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell sx={cellEllipsisSx} align="center">
+                      {renderDocCount(row.registryDocAttachments, 'primary')}
+                    </TableCell>
+                    <TableCell sx={cellEllipsisSx} align="center">
+                      {renderDocCount(row.inteqalDocAttachments, 'secondary')}
+                    </TableCell>
+                    <TableCell sx={cellEllipsisSx} align="center">
+                      <Chip
+                        size="small"
+                        label={row.lines?.length || 0}
+                        variant="outlined"
+                        sx={{ maxWidth: '100%' }}
+                      />
+                    </TableCell>
+                    <TableCell align="center" sx={{ px: 0.25, whiteSpace: 'nowrap' }}>
                       <Tooltip title="View details">
                         <IconButton
                           size="small"
@@ -525,6 +549,7 @@ const RegistryViewer = () => {
               })}
             </TableBody>
           </Table>
+        </TableContainer>
           <TablePagination
             component="div"
             count={total}
@@ -537,7 +562,7 @@ const RegistryViewer = () => {
             }}
             rowsPerPageOptions={[10, 25, 50]}
           />
-        </TableContainer>
+        </Paper>
       )}
 
       <RegistryFormDialog

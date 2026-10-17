@@ -90,6 +90,18 @@ const registryToForm = (registry) => ({
 const uniqueKhewatNos = (lines) =>
   [...new Set(lines.map((l) => String(l.khewatNo || '').trim()).filter(Boolean))];
 
+const partyId = (party) => {
+  if (!party) return undefined;
+  if (typeof party === 'string') return party;
+  return party._id || undefined;
+};
+
+const matchPartyOption = (value, options) => {
+  const id = partyId(value);
+  if (!id) return null;
+  return (options || []).find((opt) => String(opt._id) === String(id)) || null;
+};
+
 const AreaInputs = ({ value, onChange, readOnly = false, size = 'small' }) => (
   <Stack direction="row" spacing={0.5}>
     {['kanal', 'marla', 'sarsai'].map((unit) => (
@@ -126,6 +138,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
   const [dealers, setDealers] = useState([]);
   const [sellers, setSellers] = useState([]);
   const [purchasers, setPurchasers] = useState([]);
+  const [partiesLoaded, setPartiesLoaded] = useState(false);
   const [mozaKhasras, setMozaKhasras] = useState([]);
   const [registeredTotals, setRegisteredTotals] = useState({});
 
@@ -135,19 +148,28 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
 
   useEffect(() => {
     if (!open) return;
+    setPartiesLoaded(false);
     getMozas().then((res) => setMozas(res.data?.data || [])).catch(() => setMozas([]));
     landAcquisitionPurchaseService.getDeals()
       .then((res) => setDeals(res.data || []))
       .catch(() => setDeals([]));
-    landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100000, page: 1 })
-      .then((res) => setDealers(res.data || []))
-      .catch(() => setDealers([]));
-    landAcquisitionPartyService.getParties({ type: 'seller', limit: 100000, page: 1 })
-      .then((res) => setSellers(res.data || []))
-      .catch(() => setSellers([]));
-    landAcquisitionPartyService.getParties({ type: 'purchaser', limit: 100000, page: 1 })
-      .then((res) => setPurchasers(res.data || []))
-      .catch(() => setPurchasers([]));
+
+    Promise.all([
+      landAcquisitionPartyService.getParties({ type: 'dealer', limit: 100000, page: 1 })
+        .then((res) => res.data || [])
+        .catch(() => []),
+      landAcquisitionPartyService.getParties({ type: 'seller', limit: 100000, page: 1 })
+        .then((res) => res.data || [])
+        .catch(() => []),
+      landAcquisitionPartyService.getParties({ type: 'buyer', limit: 100000, page: 1 })
+        .then((res) => res.data || [])
+        .catch(() => [])
+    ]).then(([nextDealers, nextSellers, nextPurchasers]) => {
+      setDealers(nextDealers);
+      setSellers(nextSellers);
+      setPurchasers(nextPurchasers);
+      setPartiesLoaded(true);
+    });
 
     setNewFiles([]);
     setRemovedAttachmentIds([]);
@@ -169,6 +191,33 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
       });
     }
   }, [open, registry]);
+
+  // Keep party fields aligned to correct party-type lists.
+  // Clears stale/wrong-type refs (e.g. a seller ID stored on dealer → "Dealer not found").
+  useEffect(() => {
+    if (!open || !partiesLoaded) return;
+    setForm((prev) => {
+      const nextSeller = matchPartyOption(prev.seller, sellers);
+      const nextPurchaser = matchPartyOption(prev.purchaser, purchasers);
+      const nextDealer = matchPartyOption(prev.dealer, dealers);
+      if (
+        partyId(nextSeller) === partyId(prev.seller)
+        && partyId(nextPurchaser) === partyId(prev.purchaser)
+        && partyId(nextDealer) === partyId(prev.dealer)
+        && nextSeller === prev.seller
+        && nextPurchaser === prev.purchaser
+        && nextDealer === prev.dealer
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        seller: nextSeller,
+        purchaser: nextPurchaser,
+        dealer: nextDealer
+      };
+    });
+  }, [open, partiesLoaded, sellers, purchasers, dealers]);
 
   useEffect(() => {
     if (!open || !form.moza) {
@@ -225,15 +274,12 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
   const setHeader = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
   const handleMozaChange = (mozaId) => {
-    setForm({
-      registryDate: form.registryDate,
+    setForm((prev) => ({
+      ...prev,
       moza: mozaId,
       totalArea: emptyArea(),
-      registryNo: form.registryNo,
-      inteqalNo: form.inteqalNo,
-      dealer: form.dealer?._id || undefined,
       lines: mozaId ? [emptyLine()] : []
-    });
+    }));
   };
 
   const khasraOptions = useMemo(() => sortKhasraEntries(mozaKhasras), [mozaKhasras]);
@@ -361,8 +407,13 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
 
   const handleSubmit = () => {
     const khewatNos = uniqueKhewatNos(form.lines);
+    const sellerId = partyId(matchPartyOption(form.seller, sellers) || form.seller);
+    const purchaserId = partyId(matchPartyOption(form.purchaser, purchasers) || form.purchaser);
+    // Only send dealer when it resolves to a real dealer option (avoids seller/buyer IDs → "Dealer not found")
+    const dealerId = partyId(matchPartyOption(form.dealer, dealers));
     onSave({
       payload: {
+        dealNo: form.dealNo || undefined,
         registryDate: form.registryDate,
         moza: form.moza,
         khewatNos,
@@ -370,9 +421,9 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
         totalArea: parseAreaForm(form.totalArea),
         registryNo: form.registryNo.trim(),
         inteqalNo: form.inteqalNo.trim(),
-        seller: form.seller?._id || undefined,
-        purchaser: form.purchaser?._id || undefined,
-        dealer: form.dealer?._id || undefined,
+        seller: sellerId,
+        purchaser: purchaserId,
+        dealer: dealerId,
         lines: form.lines.map((line) => ({
           khasraEntry: line.khasraEntry || undefined,
           khewatNo: line.khewatNo.trim(),
@@ -478,6 +529,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
               size="small"
               options={sellers}
               getOptionLabel={(option) => option?.name || ''}
+              isOptionEqualToValue={(opt, val) => String(opt?._id) === String(val?._id)}
               value={form.seller}
               onChange={(_, value) => setForm((prev) => ({ ...prev, seller: value }))}
               renderInput={(params) => (
@@ -490,6 +542,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
               size="small"
               options={purchasers}
               getOptionLabel={(option) => option?.name || ''}
+              isOptionEqualToValue={(opt, val) => String(opt?._id) === String(val?._id)}
               value={form.purchaser}
               onChange={(_, value) => setForm((prev) => ({ ...prev, purchaser: value }))}
               renderInput={(params) => (
@@ -502,6 +555,7 @@ const RegistryFormDialog = ({ open, onClose, onSave, registry, saving }) => {
               size="small"
               options={dealers}
               getOptionLabel={(option) => option?.name || ''}
+              isOptionEqualToValue={(opt, val) => String(opt?._id) === String(val?._id)}
               value={form.dealer}
               onChange={(_, value) => setForm((prev) => ({ ...prev, dealer: value }))}
               renderInput={(params) => (

@@ -290,8 +290,8 @@ const KPIDashboard = () => {
             <Grid item xs={12} sm={6} md={3}>
               <StatCard
                 title="Average KPI score"
-                value={summary.averageScore ?? 0}
-                subtitle={`Based on ${summary.scoredCount || 0} scored sheet(s)`}
+                value={`${summary.averageScore ?? 0} / 5`}
+                subtitle={`Based on ${summary.scoredCount || 0} scored sheet(s) · scale 1–5`}
                 icon={<TrendingUpIcon />}
                 color={theme.palette.info.main}
               />
@@ -373,7 +373,11 @@ const KPIDashboard = () => {
             </Grid>
 
             <Grid item xs={12} md={4}>
-              <ChartCard title="Score distribution" subtitle="Sheets with a computed KPI score" height={260}>
+              <ChartCard
+                title="Score distribution"
+                subtitle="Total KPI score out of 5 (weighted 1–5 scale)"
+                height={260}
+              >
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={scoreBuckets} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -409,7 +413,13 @@ const KPIDashboard = () => {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} />
                     <YAxis yAxisId="left" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      domain={[0, 5]}
+                      tick={{ fontSize: 11 }}
+                      label={{ value: '/5', position: 'insideTopRight', offset: 8, fontSize: 11 }}
+                    />
                     <RechartsTooltip />
                     <Legend />
                     <Area
@@ -425,7 +435,7 @@ const KPIDashboard = () => {
                       yAxisId="right"
                       type="monotone"
                       dataKey="averageScore"
-                      name="Avg score"
+                      name="Avg score / 5"
                       stroke={theme.palette.info.main}
                       fill="transparent"
                       strokeWidth={2}
@@ -582,7 +592,7 @@ const KPIDashboard = () => {
                               </TableCell>
                               <TableCell>{row.department}</TableCell>
                               <TableCell align="right">
-                                <Chip size="small" color="success" label={row.score} />
+                                <Chip size="small" color="success" label={`${row.score} / 5`} />
                               </TableCell>
                             </TableRow>
                           ))}

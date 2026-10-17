@@ -294,66 +294,76 @@ const PossessionViewer = () => {
           <Typography color="text.secondary">No possession records yet.</Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell><strong>Date</strong></TableCell>
-                <TableCell><strong>Moza</strong></TableCell>
-                <TableCell><strong>Khewat</strong></TableCell>
-                <TableCell><strong>Ref</strong></TableCell>
-                <TableCell><strong>Registry</strong></TableCell>
-                <TableCell><strong>Inteqal</strong></TableCell>
-                <TableCell><strong>Khasra</strong></TableCell>
-                <TableCell><strong>Total Registry Area</strong></TableCell>
-                <TableCell><strong>Total Possessed</strong></TableCell>
-                <TableCell><strong>Lines</strong></TableCell>
-                <TableCell align="center" width={128}><strong>Actions</strong></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {registries.map((row) => (
-                <TableRow key={row._id} hover>
-                  <TableCell>{formatDate(row.possessionDate)}</TableCell>
-                  <TableCell>{row.moza?.name || '—'}</TableCell>
-                  <TableCell>{row.khewatNo}</TableCell>
-                  <TableCell>{row.possessionRef || '—'}</TableCell>
-                  <TableCell>{resolveRegistryNo(row)}</TableCell>
-                  <TableCell>{resolveInteqalNo(row)}</TableCell>
-                  <TableCell>{[...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '—'}</TableCell>
-                  <TableCell>{resolveTotalRegistryArea(row)}</TableCell>
-                  <TableCell>{resolvePossessedArea(row)}</TableCell>
-                  <TableCell>
-                    <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="View details">
-                      <IconButton size="small" onClick={() => setDetailId(row._id)}>
-                        <Visibility fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Edit">
-                      <IconButton size="small" onClick={() => openEdit(row)}>
-                        <Edit fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete">
-                      <span>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDelete(row)}
-                          disabled={deletingId === row._id}
-                        >
-                          {deletingId === row._id ? <CircularProgress size={16} /> : <Delete fontSize="small" />}
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </TableCell>
+        <Paper variant="outlined" sx={{ width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          <TableContainer
+            sx={{
+              width: '100%',
+              maxWidth: '100%',
+              maxHeight: 'min(70vh, 720px)',
+              overflowX: 'auto',
+              overflowY: 'auto'
+            }}
+          >
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Date</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Moza</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Khewat</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Ref</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Registry</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Inteqal</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Khasra</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Total Registry Area</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Total Possessed</strong></TableCell>
+                  <TableCell sx={{ bgcolor: 'background.paper' }}><strong>Lines</strong></TableCell>
+                  <TableCell align="center" width={128} sx={{ bgcolor: 'background.paper' }}><strong>Actions</strong></TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {registries.map((row) => (
+                  <TableRow key={row._id} hover>
+                    <TableCell>{formatDate(row.possessionDate)}</TableCell>
+                    <TableCell>{row.moza?.name || '—'}</TableCell>
+                    <TableCell>{row.khewatNo}</TableCell>
+                    <TableCell>{row.possessionRef || '—'}</TableCell>
+                    <TableCell>{resolveRegistryNo(row)}</TableCell>
+                    <TableCell>{resolveInteqalNo(row)}</TableCell>
+                    <TableCell>{[...new Set((row.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', ') || '—'}</TableCell>
+                    <TableCell>{resolveTotalRegistryArea(row)}</TableCell>
+                    <TableCell>{resolvePossessedArea(row)}</TableCell>
+                    <TableCell>
+                      <Chip size="small" label={`${row.lines?.length || 0} khasra`} variant="outlined" />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="View details">
+                        <IconButton size="small" onClick={() => setDetailId(row._id)}>
+                          <Visibility fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit">
+                        <IconButton size="small" onClick={() => openEdit(row)}>
+                          <Edit fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDelete(row)}
+                            disabled={deletingId === row._id}
+                          >
+                            {deletingId === row._id ? <CircularProgress size={16} /> : <Delete fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
           <TablePagination
             component="div"
             count={total}
@@ -366,7 +376,7 @@ const PossessionViewer = () => {
             }}
             rowsPerPageOptions={[10, 25, 50]}
           />
-        </TableContainer>
+        </Paper>
       )}
 
       <PossessionFormDialog

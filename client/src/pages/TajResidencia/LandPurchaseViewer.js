@@ -227,21 +227,28 @@ export default function LandPurchaseViewer() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+        <TableContainer
+          sx={{
+            maxHeight: 'min(70vh, 720px)',
+            overflowX: 'auto',
+            overflowY: 'auto'
+          }}
+        >
+        <Table size="small" stickyHeader>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'grey.50' }}>
-              <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>LAND PURCHASE NO.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>DEAL NO.</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>SELLER NAME</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>DEALER NAME</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>CNIC</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>MOZA</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>SIZE</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">RATE PER KANAAL</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">TOTAL LAND PRICE</TableCell>
-              <TableCell sx={{ fontWeight: 700 }} align="right">Actions</TableCell>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>#</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>LAND PURCHASE NO.</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>DEAL NO.</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>SELLER NAME</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>DEALER NAME</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>CNIC</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>MOZA</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>SIZE</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }} align="right">RATE PER KANAAL</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }} align="right">TOTAL LAND PRICE</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }} align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -332,6 +339,7 @@ export default function LandPurchaseViewer() {
             )}
           </TableBody>
         </Table>
+        </TableContainer>
         <TablePagination
           component="div"
           count={total}
@@ -344,7 +352,7 @@ export default function LandPurchaseViewer() {
           }}
           rowsPerPageOptions={[10, 25, 50, 100]}
         />
-      </TableContainer>
+      </Paper>
 
       <LandPurchasePaymentDialog
         open={paymentDialog.open}

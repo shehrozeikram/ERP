@@ -231,6 +231,49 @@ const buildRegistryPayload = (body) => {
   };
 };
 
+/**
+ * Validate party refs by type. Seller/buyer must match type.
+ * Dealer: if ID points at a non-dealer party (common with "Unknown Seller" bad data), clear it
+ * instead of blocking the whole save.
+ */
+const resolveRegistryParties = async (payload) => {
+  const next = { ...payload };
+
+  if (next.seller) {
+    const seller = await LandParty.findOne({ _id: next.seller, partyType: 'seller', isActive: true });
+    if (!seller) {
+      const err = new Error('Seller not found');
+      err.status = 404;
+      throw err;
+    }
+  }
+
+  if (next.purchaser) {
+    const purchaser = await LandParty.findOne({ _id: next.purchaser, partyType: 'buyer', isActive: true });
+    if (!purchaser) {
+      const err = new Error('Purchaser not found');
+      err.status = 404;
+      throw err;
+    }
+  }
+
+  if (next.dealer) {
+    const dealer = await LandParty.findOne({ _id: next.dealer, partyType: 'dealer', isActive: true });
+    if (!dealer) {
+      const anyParty = await LandParty.findById(next.dealer).select('_id partyType isActive').lean();
+      if (anyParty && anyParty.partyType !== 'dealer') {
+        next.dealer = undefined;
+      } else {
+        const err = new Error('Dealer not found');
+        err.status = 404;
+        throw err;
+      }
+    }
+  }
+
+  return next;
+};
+
 const mapRegistry = (doc) => {
   const obj = doc.toObject ? doc.toObject() : doc;
   const khewatNos = (obj.khewatNos?.length
@@ -711,6 +754,153 @@ router.get('/registries/registered-totals', authMiddleware, asyncHandler(async (
   res.json({ success: true, data: totals });
 }));
 
+// GET /api/taj-residencia/land-acquisition/registries/pending-possession
+// Registries that exist but are not fully possessed
+router.get('/registries/pending-possession', authMiddleware, asyncHandler(async (req, res) => {
+  const LandPossession = require('../models/tajResidencia/LandPossession');
+  const { moza, search = '', page = 1, limit = 25 } = req.query;
+
+  const filter = { isActive: true };
+  if (moza) filter.moza = moza;
+
+  if (search && String(search).trim()) {
+    const escaped = String(search).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, 'i');
+    filter.$or = [
+      { registryNo: re },
+      { inteqalNo: re },
+      { khewatNo: re },
+      { 'lines.khasraNo': re },
+      { 'lines.khewatNo': re }
+    ];
+  }
+
+  const registries = await LandRegistry.find(filter)
+    .populate('moza', 'name slug')
+    .populate('seller', 'name cnic phoneNumber')
+    .populate('purchaser', 'name cnic phoneNumber')
+    .populate('dealer', 'name cnic phoneNumber')
+    .sort({ registryDate: -1, createdAt: -1 })
+    .lean();
+
+  const mapped = await attachExchangeDataToRegistries(registries.map(mapRegistry));
+
+  const mozaIds = [...new Set(mapped.map((r) => String(r.moza?._id || r.moza)).filter(Boolean))];
+  const possessions = mozaIds.length
+    ? await LandPossession.find({ moza: { $in: mozaIds }, isActive: true }).lean()
+    : [];
+
+  const registryByNo = new Map();
+  mapped.forEach((r) => {
+    const key = `${String(r.moza?._id || r.moza)}::${String(r.registryNo || '').trim().toLowerCase()}`;
+    if (r.registryNo) registryByNo.set(key, String(r._id));
+  });
+
+  const possessedByRegistryId = new Map();
+  possessions.forEach((pos) => {
+    const mozaId = String(pos.moza?._id || pos.moza || '');
+    const headerRegId = pos.registry ? String(pos.registry._id || pos.registry) : null;
+    const headerRegNoKey = pos.registryNo
+      ? `${mozaId}::${String(pos.registryNo).trim().toLowerCase()}`
+      : null;
+
+    (pos.lines || []).forEach((line) => {
+      const area = normalizeArea(line.possessedArea);
+      if (!toSarsais(area)) return;
+
+      let regId = line.registry ? String(line.registry._id || line.registry) : null;
+      if (!regId) regId = headerRegId;
+      if (!regId && headerRegNoKey && registryByNo.has(headerRegNoKey)) {
+        regId = registryByNo.get(headerRegNoKey);
+      }
+      if (!regId) return;
+
+      const prev = possessedByRegistryId.get(regId) || { kanal: 0, marla: 0, sarsai: 0 };
+      possessedByRegistryId.set(regId, addAreas(prev, area));
+    });
+
+    // Header-only possession (no lines) — attribute full totalArea if linked
+    if (!(pos.lines || []).length) {
+      const area = normalizeArea(pos.totalArea);
+      if (!toSarsais(area)) return;
+      let regId = headerRegId;
+      if (!regId && headerRegNoKey && registryByNo.has(headerRegNoKey)) {
+        regId = registryByNo.get(headerRegNoKey);
+      }
+      if (!regId) return;
+      const prev = possessedByRegistryId.get(regId) || { kanal: 0, marla: 0, sarsai: 0 };
+      possessedByRegistryId.set(regId, addAreas(prev, area));
+    }
+  });
+
+  let grandRegistered = { kanal: 0, marla: 0, sarsai: 0 };
+  let grandPossessed = { kanal: 0, marla: 0, sarsai: 0 };
+  let grandPending = { kanal: 0, marla: 0, sarsai: 0 };
+
+  const pendingRows = mapped
+    .map((reg) => {
+      const registeredArea = normalizeArea(reg.netRemainingArea || reg.totalArea);
+      const possessedArea = normalizeArea(possessedByRegistryId.get(String(reg._id)) || {
+        kanal: 0,
+        marla: 0,
+        sarsai: 0
+      });
+      // Cap possessed at registered so pending never goes negative from over-attribution
+      const cappedPossessed = toSarsais(possessedArea) > toSarsais(registeredArea)
+        ? registeredArea
+        : possessedArea;
+      const pendingPossession = subtractAreas(registeredArea, cappedPossessed);
+      return {
+        _id: reg._id,
+        registryDate: reg.registryDate,
+        dealNo: reg.dealNo || '',
+        moza: reg.moza,
+        khewatNo: reg.khewatNo || '',
+        registryNo: reg.registryNo || '',
+        inteqalNo: reg.inteqalNo || '',
+        seller: reg.seller || null,
+        purchaser: reg.purchaser || null,
+        dealer: reg.dealer || null,
+        khasras: [...new Set((reg.lines || []).map((l) => l.khasraNo).filter(Boolean))].join(', '),
+        linesCount: (reg.lines || []).length,
+        registeredArea,
+        possessedArea: cappedPossessed,
+        pendingPossession,
+        isFullyPending: toSarsais(cappedPossessed) === 0
+      };
+    })
+    .filter((row) => toSarsais(row.registeredArea) > 0 && toSarsais(row.pendingPossession) > 0);
+
+  pendingRows.forEach((row) => {
+    grandRegistered = addAreas(grandRegistered, row.registeredArea);
+    grandPossessed = addAreas(grandPossessed, row.possessedArea);
+    grandPending = addAreas(grandPending, row.pendingPossession);
+  });
+
+  const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+  const limitNum = Math.min(Math.max(parseInt(limit, 10) || 25, 1), 100000);
+  const skip = (pageNum - 1) * limitNum;
+  const paged = pendingRows.slice(skip, skip + limitNum);
+
+  res.json({
+    success: true,
+    data: {
+      registries: paged,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: pendingRows.length
+      },
+      grandTotal: {
+        registered: grandRegistered,
+        possessed: grandPossessed,
+        pendingPossession: grandPending,
+        count: pendingRows.length
+      }
+    }
+  });
+}));
+
 // GET /api/taj-residencia/land-acquisition/registries/:id
 router.get('/registries/:id', authMiddleware, asyncHandler(async (req, res) => {
   const registry = await LandRegistry.findOne({ _id: req.params.id, isActive: true })
@@ -766,11 +956,10 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     return res.status(404).json({ success: false, message: 'Moza not found' });
   }
 
-  if (payload.dealer) {
-    const dealer = await LandParty.findOne({ _id: payload.dealer, partyType: 'dealer', isActive: true });
-    if (!dealer) {
-      return res.status(404).json({ success: false, message: 'Dealer not found' });
-    }
+  try {
+    payload = await resolveRegistryParties(payload);
+  } catch (err) {
+    return res.status(err.status || 400).json({ success: false, message: err.message });
   }
 
   if (payload.registryNo) {
@@ -809,6 +998,7 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
 
   const filesMap = req.files || {};
   const registry = await LandRegistry.create({
+    dealNo: payload.dealNo,
     registryDate: payload.registryDate,
     moza: payload.moza,
     khewatNo: payload.khewatNo,
@@ -816,9 +1006,9 @@ router.post('/registries', authMiddleware, handleRegistryUpload, asyncHandler(as
     totalArea: payload.totalArea,
     registryNo: payload.registryNo,
     inteqalNo: payload.inteqalNo,
-    seller: payload.seller,
-    purchaser: payload.purchaser,
-    dealer: payload.dealer,
+    seller: payload.seller || null,
+    purchaser: payload.purchaser || null,
+    dealer: payload.dealer || null,
     lines: payload.lines,
     attachments: mapUploadedAttachments(filesMap.attachments || []),
     registryDocAttachments: mapUploadedAttachments(filesMap.registryDocAttachments || []),
@@ -863,11 +1053,10 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
     return res.status(err.status || 400).json({ success: false, message: err.message });
   }
 
-  if (payload.dealer) {
-    const dealer = await LandParty.findOne({ _id: payload.dealer, partyType: 'dealer', isActive: true });
-    if (!dealer) {
-      return res.status(404).json({ success: false, message: 'Dealer not found' });
-    }
+  try {
+    payload = await resolveRegistryParties(payload);
+  } catch (err) {
+    return res.status(err.status || 400).json({ success: false, message: err.message });
   }
 
   if (!payload.registryDate || Number.isNaN(payload.registryDate.getTime())) {
@@ -913,15 +1102,16 @@ router.put('/registries/:id', authMiddleware, handleRegistryUpload, asyncHandler
     return res.status(err.status || 400).json({ success: false, message: err.message });
   }
 
+  if (payload.dealNo !== undefined) registry.dealNo = payload.dealNo;
   registry.registryDate = payload.registryDate;
   registry.khewatNo = payload.khewatNo;
   registry.khewatNos = payload.khewatNos;
   registry.totalArea = payload.totalArea;
   registry.registryNo = payload.registryNo;
   registry.inteqalNo = payload.inteqalNo;
-  registry.seller = payload.seller;
-  registry.purchaser = payload.purchaser;
-  registry.dealer = payload.dealer;
+  registry.seller = payload.seller || null;
+  registry.purchaser = payload.purchaser || null;
+  registry.dealer = payload.dealer || null;
   registry.lines = payload.lines;
 
   const filesMap = req.files || {};

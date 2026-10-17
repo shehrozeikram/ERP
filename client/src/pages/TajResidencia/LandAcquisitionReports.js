@@ -28,6 +28,7 @@ import { formatKMS, addAreas, subtractAreas } from '../../utils/landAreaUnits';
 import RegistryViewer from './RegistryViewer';
 import PossessionViewer from './PossessionViewer';
 import KhasraSummaryViewer from './KhasraSummaryViewer';
+import PendingPossessionRegistryViewer from './PendingPossessionRegistryViewer';
 
 const TABLE_HEAD_SX = {
   fontWeight: 700,
@@ -389,7 +390,7 @@ const MozaReportTable = ({ mozaId, mozaName, active }) => {
 };
 
 const LandAcquisitionReports = () => {
-  const [reportType, setReportType] = useState('acquisition'); // 'acquisition', 'registry', 'possession'
+  const [reportType, setReportType] = useState('acquisition');
   const [mozas, setMozas] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [listLoading, setListLoading] = useState(true);
@@ -426,7 +427,18 @@ const LandAcquisitionReports = () => {
       </Box>
 
       {/* Report Selection Tabs / Pill Cards */}
-      <Paper elevation={0} sx={{ p: 0.5, mb: 3, bgcolor: 'grey.100', borderRadius: 2, display: 'inline-flex', gap: 1 }}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 0.5,
+          mb: 3,
+          bgcolor: 'grey.100',
+          borderRadius: 2,
+          display: 'inline-flex',
+          flexWrap: 'wrap',
+          gap: 1
+        }}
+      >
         <Button
           variant={reportType === 'acquisition' ? 'contained' : 'text'}
           color="primary"
@@ -459,6 +471,14 @@ const LandAcquisitionReports = () => {
         >
           Possession Summary Report
         </Button>
+        <Button
+          variant={reportType === 'pending-possession' ? 'contained' : 'text'}
+          color="primary"
+          onClick={() => setReportType('pending-possession')}
+          sx={{ borderRadius: 1.5, px: 2.5, fontWeight: 700 }}
+        >
+          Pending Possession Registries
+        </Button>
       </Paper>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
@@ -477,6 +497,8 @@ const LandAcquisitionReports = () => {
         <RegistryViewer />
       ) : reportType === 'possession' ? (
         <PossessionViewer />
+      ) : reportType === 'pending-possession' ? (
+        <PendingPossessionRegistryViewer />
       ) : (
         <Stack spacing={1.5}>
           {mozas.map((m) => {

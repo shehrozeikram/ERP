@@ -46,8 +46,8 @@ const LandAcquisition = () => {
   const tabValue = isReportsTab ? 6 : isExchangeTab ? 5 : isPossessionTab ? 4 : isRegistryTab ? 3 : isMozaTab ? 2 : isMapsTab ? 1 : isDashboardTab ? 0 : false;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ mb: 3 }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, width: '100%', maxWidth: '100%', overflowX: 'hidden', boxSizing: 'border-box' }}>
+      <Box sx={{ mb: 3, minWidth: 0 }}>
         <Typography variant="h4" component="h1" fontWeight={700} gutterBottom>
           Land Acquisition
         </Typography>

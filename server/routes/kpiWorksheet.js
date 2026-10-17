@@ -594,16 +594,16 @@ router.get(
       .sort((a, b) => b.completionRate - a.completionRate || b.total - a.total)
       .slice(0, 12);
 
+    // totalKPIScore is weighted on a 1–5 scale (sum of (weight/100)*score1to5)
     const scoreBuckets = [
-      { label: '0–20', min: 0, max: 20, count: 0 },
-      { label: '21–40', min: 21, max: 40, count: 0 },
-      { label: '41–60', min: 41, max: 60, count: 0 },
-      { label: '61–80', min: 61, max: 80, count: 0 },
-      { label: '81–100', min: 81, max: 100, count: 0 },
-      { label: '100+', min: 101, max: null, count: 0 }
+      { label: '1.0–1.9', min: 0, max: 1.999, count: 0 },
+      { label: '2.0–2.9', min: 2, max: 2.999, count: 0 },
+      { label: '3.0–3.9', min: 3, max: 3.999, count: 0 },
+      { label: '4.0–4.4', min: 4, max: 4.499, count: 0 },
+      { label: '4.5–5.0', min: 4.5, max: null, count: 0 }
     ];
     scoredRows.forEach((row) => {
-      const score = row.totalKPIScore;
+      const score = Number(row.totalKPIScore) || 0;
       const bucket = scoreBuckets.find((b) =>
         score >= b.min && (b.max == null || score <= b.max)
       );

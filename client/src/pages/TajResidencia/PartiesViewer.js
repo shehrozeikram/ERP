@@ -193,15 +193,22 @@ const PartiesViewer = () => {
         Register {activeParty.label.toLowerCase()} with name, CNIC, phone number, and date for use in land acquisition records.
       </Alert>
 
-      <TableContainer component={Paper}>
-        <Table size="small">
+      <Paper sx={{ overflow: 'hidden' }}>
+        <TableContainer
+          sx={{
+            maxHeight: 'min(70vh, 720px)',
+            overflowX: 'auto',
+            overflowY: 'auto'
+          }}
+        >
+        <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell>Name</TableCell>
-              <TableCell>CNIC</TableCell>
-              <TableCell>Phone Number</TableCell>
-              <TableCell align="right">Actions</TableCell>
+              <TableCell sx={{ bgcolor: 'background.paper' }}>Date</TableCell>
+              <TableCell sx={{ bgcolor: 'background.paper' }}>Name</TableCell>
+              <TableCell sx={{ bgcolor: 'background.paper' }}>CNIC</TableCell>
+              <TableCell sx={{ bgcolor: 'background.paper' }}>Phone Number</TableCell>
+              <TableCell align="right" sx={{ bgcolor: 'background.paper' }}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -245,6 +252,7 @@ const PartiesViewer = () => {
             )}
           </TableBody>
         </Table>
+        </TableContainer>
         <TablePagination
           component="div"
           count={totalItems}
@@ -257,7 +265,7 @@ const PartiesViewer = () => {
           }}
           rowsPerPageOptions={PAGE_SIZE_OPTIONS}
         />
-      </TableContainer>
+      </Paper>
 
       <Dialog open={dialog.open} onClose={closeDialog} maxWidth="xs" fullWidth>
         <DialogTitle>

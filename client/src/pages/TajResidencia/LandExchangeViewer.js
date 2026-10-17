@@ -107,6 +107,12 @@ const StatCard = ({ title, area, subText, icon: Icon, color, bg }) => (
   </Paper>
 );
 
+const STICKY_HEAD_CELL_SX = {
+  fontWeight: 700,
+  py: 1.5,
+  bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100')
+};
+
 export default function LandExchangeViewer() {
   const [rows, setRows] = useState([]);
   const [mozas, setMozas] = useState([]);
@@ -361,8 +367,7 @@ export default function LandExchangeViewer() {
       )}
 
       {/* Exchanges Data Table */}
-      <TableContainer
-        component={Paper}
+      <Paper
         elevation={0}
         sx={{
           border: '1px solid',
@@ -371,17 +376,24 @@ export default function LandExchangeViewer() {
           overflow: 'hidden'
         }}
       >
-        <Table sx={{ minWidth: 850 }}>
-          <TableHead sx={{ bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100' }}>
+        <TableContainer
+          sx={{
+            maxHeight: 'min(70vh, 720px)',
+            overflowX: 'auto',
+            overflowY: 'auto'
+          }}
+        >
+        <Table stickyHeader sx={{ minWidth: 850 }}>
+          <TableHead>
             <TableRow>
-              <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Exchange Ref</TableCell>
-              <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Date</TableCell>
-              <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Counterparty</TableCell>
-              <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Out Land (Surrendered)</TableCell>
-              <TableCell sx={{ fontWeight: 700, py: 1.5 }}>In Land (Acquired)</TableCell>
-              <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Net Variance</TableCell>
-              <TableCell sx={{ fontWeight: 700, py: 1.5 }}>Financial Adj.</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700, py: 1.5 }}>Actions</TableCell>
+              <TableCell sx={STICKY_HEAD_CELL_SX}>Exchange Ref</TableCell>
+              <TableCell sx={STICKY_HEAD_CELL_SX}>Date</TableCell>
+              <TableCell sx={STICKY_HEAD_CELL_SX}>Counterparty</TableCell>
+              <TableCell sx={STICKY_HEAD_CELL_SX}>Out Land (Surrendered)</TableCell>
+              <TableCell sx={STICKY_HEAD_CELL_SX}>In Land (Acquired)</TableCell>
+              <TableCell sx={STICKY_HEAD_CELL_SX}>Net Variance</TableCell>
+              <TableCell sx={STICKY_HEAD_CELL_SX}>Financial Adj.</TableCell>
+              <TableCell align="right" sx={STICKY_HEAD_CELL_SX}>Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -560,6 +572,7 @@ export default function LandExchangeViewer() {
             )}
           </TableBody>
         </Table>
+        </TableContainer>
 
         <TablePagination
           component="div"
@@ -573,7 +586,7 @@ export default function LandExchangeViewer() {
           }}
           rowsPerPageOptions={[10, 25, 50, 100]}
         />
-      </TableContainer>
+      </Paper>
 
       {/* Form Dialog */}
       <LandExchangeFormDialog

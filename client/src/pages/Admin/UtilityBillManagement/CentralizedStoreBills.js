@@ -293,9 +293,47 @@ const CentralizedStoreBills = () => {
     }
   };
 
+  const cellEllipsisSx = {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: 0,
+    px: { xs: 0.75, md: 1 }
+  };
+
+  const renderChipList = (items, getKey, getLabel, empty = '—') => {
+    if (!items?.length) {
+      return (
+        <Typography variant="body2" color="text.secondary" noWrap>
+          {empty}
+        </Typography>
+      );
+    }
+    const shown = items.slice(0, 1);
+    const extra = items.length - shown.length;
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, maxWidth: '100%' }}>
+        {shown.map((item) => (
+          <Chip
+            key={getKey(item)}
+            label={getLabel(item)}
+            size="small"
+            variant="outlined"
+            sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+          />
+        ))}
+        {extra > 0 ? (
+          <Typography variant="caption" color="text.secondary" noWrap>
+            +{extra}
+          </Typography>
+        ) : null}
+      </Box>
+    );
+  };
+
   if (loading && bills.length === 0) {
     return (
-      <Box sx={{ p: 3 }}>
+      <Box sx={{ p: 3, width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
         <Skeleton variant="text" width="40%" height={48} sx={{ mb: 2 }} />
         <Skeleton variant="rectangular" height={56} sx={{ mb: 2 }} />
         <Skeleton variant="rectangular" height={320} />
@@ -304,10 +342,10 @@ const CentralizedStoreBills = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, width: '100%', maxWidth: '100%', overflowX: 'hidden', boxSizing: 'border-box' }}>
       <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={3} flexWrap="wrap" gap={2}>
-        <Box>
-          <Typography variant="h4" component="h1">
+        <Box sx={{ minWidth: 0, flex: '1 1 220px' }}>
+          <Typography variant="h4" component="h1" sx={{ wordBreak: 'break-word' }}>
             Centralized Store Bills
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -355,7 +393,7 @@ const CentralizedStoreBills = () => {
         </Alert>
       )}
 
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
             <Grid item xs={12} md={4}>
@@ -406,11 +444,11 @@ const CentralizedStoreBills = () => {
               </FormControl>
             </Grid>
             <Grid item xs={12} md={2}>
-              <Stack direction="row" spacing={1}>
+              <Stack direction="row" spacing={1} sx={{ width: '100%' }}>
                 <Button variant="outlined" fullWidth onClick={clearFilters} disabled={!hasActiveFilters && !searchInput}>
                   Clear
                 </Button>
-                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchBills}>
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchBills} sx={{ flexShrink: 0 }}>
                   Refresh
                 </Button>
               </Stack>
@@ -443,7 +481,15 @@ const CentralizedStoreBills = () => {
               defaultExpanded={idx === 0}
               disableGutters
               elevation={0}
-              sx={{ border: 1, borderColor: 'divider', borderRadius: 1, '&:before': { display: 'none' } }}
+              sx={{
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: 1,
+                width: '100%',
+                maxWidth: '100%',
+                overflow: 'hidden',
+                '&:before': { display: 'none' }
+              }}
             >
               <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ bgcolor: (theme) => (theme.palette.mode === 'dark' ? 'action.hover' : 'grey.50') }}>
                 <Box display="flex" alignItems="center" justifyContent="space-between" width="100%" pr={1} flexWrap="wrap" gap={1}>
@@ -454,93 +500,92 @@ const CentralizedStoreBills = () => {
                   </Box>
                 </Box>
               </AccordionSummary>
-              <AccordionDetails sx={{ pt: 0, px: 0 }}>
-                <TableContainer sx={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                  <Table size="small">
+              <AccordionDetails sx={{ pt: 0, px: 0, overflow: 'hidden' }}>
+                <TableContainer
+                  component={Paper}
+                  variant="outlined"
+                  sx={{ width: '100%', maxWidth: '100%', overflowX: 'hidden', border: 0, borderRadius: 0 }}
+                >
+                  <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                     <TableHead>
                       <TableRow>
-                        <TableCell>Bill ID</TableCell>
-                        <TableCell>Bill date</TableCell>
-                        <TableCell>Initiator</TableCell>
-                        <TableCell>Company</TableCell>
-                        <TableCell>Category</TableCell>
-                        <TableCell>Vendor</TableCell>
-                        <TableCell sx={{ minWidth: 180, maxWidth: 280 }}>Narration / Description</TableCell>
-                        <TableCell>Items</TableCell>
-                        <TableCell>Amount</TableCell>
-                        <TableCell>Workflow</TableCell>
-                        <TableCell>Currently With</TableCell>
-                        <TableCell>Due date</TableCell>
-                        <TableCell align="right">Actions</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '8%' }}>Bill ID</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '7%' }}>Bill date</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '9%' }}>Initiator</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '9%' }}>Company</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '9%' }}>Category</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '9%' }}>Vendor</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '12%' }}>Narration</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '4%' }} align="center">Items</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '8%' }} align="right">Amount</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '8%' }}>Workflow</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '9%' }}>With</TableCell>
+                        <TableCell sx={{ ...cellEllipsisSx, width: '7%' }}>Due</TableCell>
+                        <TableCell sx={{ width: '7%', px: 0.5 }} align="right">Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {periodBills.map((bill) => {
                         const billCategories = getBillCategories(bill);
                         const billCompanies = getBillCompanies(bill);
+                        const initiator = bill.createdBy
+                          ? `${bill.createdBy.firstName || ''} ${bill.createdBy.lastName || ''}`.trim() || bill.createdBy.email || '—'
+                          : '—';
+                        const tracker = getCurrentHolder('UtilityBill', bill);
                         return (
                           <TableRow key={bill._id} hover>
-                            <TableCell>{bill.billId}</TableCell>
-                            <TableCell>{formatDate(bill.billDate)}</TableCell>
-                            <TableCell>
-                              {bill.createdBy
-                                ? `${bill.createdBy.firstName || ''} ${bill.createdBy.lastName || ''}`.trim() || bill.createdBy.email || '—'
-                                : '—'}
+                            <TableCell sx={cellEllipsisSx}>
+                              <Tooltip title={bill.billId || ''}>
+                                <Typography variant="body2" noWrap>{bill.billId}</Typography>
+                              </Tooltip>
                             </TableCell>
-                            <TableCell>
-                              {billCompanies.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                  —
-                                </Typography>
-                              ) : (
-                                <Box display="flex" flexWrap="wrap" gap={0.5}>
-                                  {billCompanies.map((name) => (
-                                    <Chip key={name} label={name} size="small" variant="outlined" />
-                                  ))}
-                                </Box>
-                              )}
+                            <TableCell sx={cellEllipsisSx}>{formatDate(bill.billDate)}</TableCell>
+                            <TableCell sx={cellEllipsisSx}>
+                              <Tooltip title={initiator}>
+                                <Typography variant="body2" noWrap>{initiator}</Typography>
+                              </Tooltip>
                             </TableCell>
-                            <TableCell>
-                              {billCategories.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                  —
-                                </Typography>
-                              ) : (
-                                <Box display="flex" flexWrap="wrap" gap={0.5}>
-                                  {billCategories.map((cat) => (
-                                    <Chip key={cat.id} label={cat.name} size="small" variant="outlined" />
-                                  ))}
-                                </Box>
-                              )}
+                            <TableCell sx={cellEllipsisSx}>
+                              {renderChipList(billCompanies, (n) => n, (n) => n)}
                             </TableCell>
-                            <TableCell>{vendorName(bill)}</TableCell>
-                            <NarrationTableCell text={getBillNarrationDisplay(bill)} />
-                            <TableCell>{bill.billLines?.length || 0}</TableCell>
-                            <TableCell>{formatCurrency(bill.amount)}</TableCell>
-                            <TableCell>
-                              <Chip
-                                label={getWorkflowLabel(bill)}
-                                color={getWorkflowColor(bill)}
-                                size="small"
-                                variant="outlined"
-                              />
+                            <TableCell sx={cellEllipsisSx}>
+                              {renderChipList(billCategories, (c) => c.id, (c) => c.name)}
                             </TableCell>
-                            <TableCell>
-                              {(() => {
-                                const tracker = getCurrentHolder('UtilityBill', bill);
-                                return (
-                                  <Chip 
-                                    label={tracker.holder}
-                                    color={tracker.type === 'authority' || tracker.type === 'user' ? 'secondary' : tracker.type === 'department' ? 'info' : 'default'}
-                                    variant="outlined"
-                                    size="small"
-                                  />
-                                );
-                              })()}
+                            <TableCell sx={cellEllipsisSx}>
+                              <Tooltip title={vendorName(bill) || ''}>
+                                <Typography variant="body2" noWrap>{vendorName(bill)}</Typography>
+                              </Tooltip>
                             </TableCell>
-                            <TableCell>{formatDate(bill.dueDate)}</TableCell>
-                            <TableCell align="right">
-                              <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
+                            <NarrationTableCell text={getBillNarrationDisplay(bill)} minWidth={0} maxWidth={140} />
+                            <TableCell sx={cellEllipsisSx} align="center">{bill.billLines?.length || 0}</TableCell>
+                            <TableCell sx={cellEllipsisSx} align="right">
+                              <Typography variant="body2" noWrap>{formatCurrency(bill.amount)}</Typography>
+                            </TableCell>
+                            <TableCell sx={cellEllipsisSx}>
+                              <Tooltip title={getWorkflowLabel(bill)}>
+                                <Chip
+                                  label={getWorkflowLabel(bill)}
+                                  color={getWorkflowColor(bill)}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+                                />
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell sx={cellEllipsisSx}>
+                              <Tooltip title={tracker.holder || ''}>
+                                <Chip
+                                  label={tracker.holder}
+                                  color={tracker.type === 'authority' || tracker.type === 'user' ? 'secondary' : tracker.type === 'department' ? 'info' : 'default'}
+                                  variant="outlined"
+                                  size="small"
+                                  sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+                                />
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell sx={cellEllipsisSx}>{formatDate(bill.dueDate)}</TableCell>
+                            <TableCell align="right" sx={{ px: 0.5, whiteSpace: 'nowrap' }}>
+                              <Stack direction="row" spacing={0.25} justifyContent="flex-end" alignItems="center">
                                 {isUtilityBillDeptApproved(bill) && (
                                   <Tooltip title="Department approval completed (Manager / HOD / optional authorities)">
                                     <CheckCircleIcon fontSize="small" color="success" sx={{ mx: 0.5 }} />

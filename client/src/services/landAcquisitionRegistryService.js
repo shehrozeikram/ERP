@@ -62,6 +62,9 @@ export const deleteRegistry = (id) => api.delete(`${BASE}/registries/${id}`);
 
 export const getKhasraSummary = (params = {}) => api.get(`${BASE}/khasra-summary`, { params });
 
+export const getPendingPossessionRegistries = (params = {}) =>
+  api.get(`${BASE}/registries/pending-possession`, { params });
+
 export default {
   getRegistries,
   getRegistry,
@@ -69,5 +72,6 @@ export default {
   createRegistry,
   updateRegistry,
   deleteRegistry,
-  getKhasraSummary
+  getKhasraSummary,
+  getPendingPossessionRegistries
 };

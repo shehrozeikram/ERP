@@ -395,25 +395,32 @@ export default function LandTransferViewer() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+        <TableContainer
+          sx={{
+            maxHeight: 'min(70vh, 720px)',
+            overflowX: 'auto',
+            overflowY: 'auto'
+          }}
+        >
+        <Table size="small" stickyHeader>
           <TableHead>
-            <TableRow sx={{ bgcolor: 'grey.50' }}>
-              <TableCell sx={{ fontWeight: 700 }}>#</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>DATE</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>REFERENCE NO</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>SELLER</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>PURCHASER</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>DEALER</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>DEAL NO</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>MOZA</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>INTIQAL</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>REGISTRY</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700 }}>DOC (INTIQAL)</TableCell>
-              <TableCell align="center" sx={{ fontWeight: 700 }}>DOC (REGISTRY)</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>SIZE</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>AMOUNT</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700 }}>ACTIONS</TableCell>
+            <TableRow>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>#</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>DATE</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>REFERENCE NO</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>SELLER</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>PURCHASER</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>DEALER</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>DEAL NO</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>MOZA</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>INTIQAL</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>REGISTRY</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>DOC (INTIQAL)</TableCell>
+              <TableCell align="center" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>DOC (REGISTRY)</TableCell>
+              <TableCell sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>SIZE</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>AMOUNT</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, bgcolor: 'grey.50' }}>ACTIONS</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -540,6 +547,7 @@ export default function LandTransferViewer() {
             )}
           </TableBody>
         </Table>
+        </TableContainer>
         <TablePagination
           component="div"
           count={total}
@@ -552,7 +560,7 @@ export default function LandTransferViewer() {
           }}
           rowsPerPageOptions={[10, 25, 50, 100]}
         />
-      </TableContainer>
+      </Paper>
 
       <LandTransferDialog
         open={editDialog.open}
