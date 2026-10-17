@@ -298,7 +298,7 @@ const AuditTrail = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
                     <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                      {statistics.totalActivities || 0}
+                      {statistics.totalActivities ?? statistics.totalActions ?? 0}
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.8 }}>
                       Total Activities
@@ -332,7 +332,7 @@ const AuditTrail = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
                     <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                      {statistics.suspiciousActivities || 0}
+                      {statistics.suspiciousActivities ?? statistics.suspiciousActions ?? 0}
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.8 }}>
                       Suspicious Activities
@@ -349,7 +349,7 @@ const AuditTrail = () => {
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <Box>
                     <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-                      {statistics.modulesAccessed || 0}
+                      {statistics.modulesAccessed ?? statistics.moduleBreakdown?.length ?? 0}
                     </Typography>
                     <Typography variant="body2" sx={{ opacity: 0.8 }}>
                       Modules Accessed

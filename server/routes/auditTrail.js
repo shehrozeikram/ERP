@@ -106,57 +106,75 @@ router.get('/statistics',
   authorize('super_admin', 'audit_manager', 'audit_director'),
   asyncHandler(async (req, res) => {
     const { module, action, startDate, endDate, userId } = req.query;
-    
-    const filters = {};
+    const retentionStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const filters = {
+      timestamp: { $gte: retentionStart }
+    };
     if (module) filters.module = module;
     if (action) filters.action = action;
     if (userId) filters.userId = userId;
     if (startDate || endDate) {
-      filters.timestamp = {};
-      if (startDate) filters.timestamp.$gte = new Date(startDate);
+      filters.timestamp = { $gte: retentionStart };
+      if (startDate) {
+        const requestedStart = new Date(startDate);
+        filters.timestamp.$gte = requestedStart > retentionStart ? requestedStart : retentionStart;
+      }
       if (endDate) filters.timestamp.$lte = new Date(endDate);
     }
 
     const statistics = await AuditTrail.getStatistics(filters);
 
-    // Additional statistics by module and action
-    const moduleStats = await AuditTrail.aggregate([
-      { $match: { timestamp: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }, ...filters } },
-      {
-        $group: {
-          _id: '$module',
-          count: { $sum: 1 },
-          lastActivity: { $max: '$timestamp' }
+    const [moduleStats, actionStats, riskStats, uniqueUsersAgg] = await Promise.all([
+      AuditTrail.aggregate([
+        { $match: filters },
+        {
+          $group: {
+            _id: '$module',
+            count: { $sum: 1 },
+            lastActivity: { $max: '$timestamp' }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]),
+      AuditTrail.aggregate([
+        { $match: filters },
+        {
+          $group: {
+            _id: '$action',
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { count: -1 } }
+      ]),
+      AuditTrail.aggregate([
+        { $match: filters },
+        {
+          $group: {
+            _id: '$riskLevel',
+            count: { $sum: 1 }
+          }
         }
-      },
-      { $sort: { count: -1 } }
+      ]),
+      AuditTrail.aggregate([
+        { $match: filters },
+        { $group: { _id: '$userId' } },
+        { $count: 'count' }
+      ])
     ]);
 
-    const actionStats = await AuditTrail.aggregate([
-      { $match: { timestamp: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }, ...filters } },
-      {
-        $group: {
-          _id: '$action',
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    const riskStats = await AuditTrail.aggregate([
-      { $match: { timestamp: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }, ...filters } },
-      {
-        $group: {
-          _id: '$riskLevel',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    const uniqueUsers = uniqueUsersAgg[0]?.count || 0;
+    const modulesAccessed = moduleStats.length;
 
     res.json({
       success: true,
       data: {
         ...statistics,
+        // Card-friendly aliases expected by the Audit Trail UI
+        totalActivities: statistics.totalActions || 0,
+        uniqueUsers,
+        suspiciousActivities: statistics.suspiciousActions || 0,
+        modulesAccessed,
         moduleBreakdown: moduleStats,
         actionBreakdown: actionStats,
         riskBreakdown: riskStats
