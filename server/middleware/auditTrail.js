@@ -54,6 +54,46 @@ const logRequest = (req, res, next) => {
   next();
 };
 
+const MAX_REQUEST_BODY_CHARS = 4000;
+
+const sanitizeRequestBody = (body) => {
+  if (!body || typeof body !== 'object') return undefined;
+
+  let sanitized;
+  try {
+    sanitized = JSON.parse(JSON.stringify(body));
+  } catch {
+    return undefined;
+  }
+
+  const sensitiveFields = ['password', 'token', 'secret', 'key', 'pin', 'otp', 'authorization'];
+  const redact = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    if (Array.isArray(obj)) {
+      obj.forEach(redact);
+      return;
+    }
+    Object.keys(obj).forEach((field) => {
+      const lower = field.toLowerCase();
+      if (sensitiveFields.some((s) => lower.includes(s))) {
+        obj[field] = '[REDACTED]';
+      } else if (obj[field] && typeof obj[field] === 'object') {
+        redact(obj[field]);
+      }
+    });
+  };
+  redact(sanitized);
+
+  const serialized = JSON.stringify(sanitized);
+  if (serialized.length <= MAX_REQUEST_BODY_CHARS) return sanitized;
+
+  return {
+    _truncated: true,
+    preview: serialized.slice(0, MAX_REQUEST_BODY_CHARS),
+    originalLength: serialized.length
+  };
+};
+
 // Function to log activity
 const logActivity = async (req, res, responseBody, responseStatus) => {
   // Only log if user is authenticated and has _id
@@ -104,99 +144,40 @@ const logActivity = async (req, res, responseBody, responseStatus) => {
         action = 'read';
         riskLevel = 'low';
         break;
+      default:
+        // HEAD/OPTIONS/etc. — ignore
+        return;
     }
+  }
+
+  // Skip routine page/list/detail reads to control volume and storage growth.
+  // Keep meaningful actions only (mutations, auth, export/import, approve/reject).
+  if (action === 'read') {
+    return;
   }
 
   // Determine module based on route
   let module = 'general';
-  if (req.path.includes('/hr/')) module = 'hr';
-  else if (req.path.includes('/finance/')) module = 'finance';
-  else if (req.path.includes('/procurement/')) module = 'procurement';
-  else if (req.path.includes('/admin/')) module = 'admin';
-  else if (req.path.includes('/sales/')) module = 'sales';
-  else if (req.path.includes('/crm/')) module = 'crm';
-  else if (req.path.includes('/auth/')) module = 'auth';
-  else if (req.path.includes('/audit/')) module = 'audit';
+  if (req.path.includes('/hr/') || req.path.startsWith('/api/hr')) module = 'hr';
+  else if (req.path.includes('/finance/') || req.path.startsWith('/api/finance')) module = 'finance';
+  else if (req.path.includes('/procurement/') || req.path.startsWith('/api/procurement')) module = 'procurement';
+  else if (req.path.includes('/admin/') || req.path.startsWith('/api/admin')) module = 'admin';
+  else if (req.path.includes('/sales/') || req.path.startsWith('/api/sales')) module = 'sales';
+  else if (req.path.includes('/crm/') || req.path.startsWith('/api/crm')) module = 'crm';
+  else if (req.path.includes('/auth/') || req.path.startsWith('/api/auth')) module = 'auth';
+  else if (req.path.includes('/audit/') || req.path.startsWith('/api/audit') || req.path.startsWith('/api/pre-audit')) module = 'audit';
+  else if (req.path.includes('/taj-residencia/') || req.path.includes('/land-acquisition')) module = 'taj-residencia';
+  else if (req.path.includes('/centralized-store') || req.path.includes('/store')) module = 'store';
 
-  // Extract entity information from URL with more sophisticated detection
-  const pathParts = req.path.split('/').filter(part => part);
-  let entityType = 'Unknown';
-  let entityId = null;
-  let entityName = null;
+  // Resolve entity from URL (or route-provided override)
+  const resolved = resolveEntityFromPath(req.path, req.params);
+  let entityType = req.auditEntityType || resolved.entityType || titleCase(module) || 'System';
+  let entityId = resolved.entityId;
+  let entityName = resolved.entityName || null;
 
-  // Enhanced entity type detection
-  if (pathParts.length >= 2) {
-    const resource = pathParts[pathParts.length - 2] || pathParts[pathParts.length - 1];
-    
-    // Map resource names to proper entity types
-    const entityMapping = {
-      'employees': 'Employee',
-      'employee': 'Employee',
-      'payroll': 'Payroll',
-      'payrolls': 'Payroll',
-      'departments': 'Department',
-      'department': 'Department',
-      'positions': 'Position',
-      'position': 'Position',
-      'companies': 'Company',
-      'company': 'Company',
-      'projects': 'Project',
-      'project': 'Project',
-      'sections': 'Section',
-      'section': 'Section',
-      'designations': 'Designation',
-      'designation': 'Designation',
-      'locations': 'Location',
-      'location': 'Location',
-      'banks': 'Bank',
-      'bank': 'Bank',
-      'increments': 'Increment',
-      'increment': 'Increment',
-      'users': 'User',
-      'user': 'User',
-      'audits': 'Audit',
-      'audit': 'Audit',
-      'findings': 'AuditFinding',
-      'finding': 'AuditFinding',
-      'actions': 'CorrectiveAction',
-      'action': 'CorrectiveAction',
-      'trail': 'AuditTrail',
-      'schedules': 'AuditSchedule',
-      'schedule': 'AuditSchedule',
-      'reports': 'Report',
-      'report': 'Report',
-      'transactions': 'FinancialTransaction',
-      'transaction': 'FinancialTransaction',
-      'invoices': 'Invoice',
-      'invoice': 'Invoice',
-      'budgets': 'Budget',
-      'budget': 'Budget',
-      'orders': 'PurchaseOrder',
-      'order': 'PurchaseOrder',
-      'suppliers': 'Supplier',
-      'supplier': 'Supplier',
-      'leads': 'Lead',
-      'lead': 'Lead',
-      'opportunities': 'Opportunity',
-      'opportunity': 'Opportunity',
-      'customers': 'Customer',
-      'customer': 'Customer',
-      'contacts': 'Contact',
-      'contact': 'Contact'
-    };
-
-    entityType = entityMapping[resource] || resource.charAt(0).toUpperCase() + resource.slice(1);
-    
-    // Check if last part looks like an ID
-    const lastPart = pathParts[pathParts.length - 1];
-    if (lastPart && (lastPart.length === 24 && /^[0-9a-fA-F]{24}$/.test(lastPart))) {
-      entityId = lastPart;
-    }
-  }
-
-  // Generate realistic entity names based on entity type
-  if (entityType && !entityName) {
-    entityName = generateEntityName(entityType, entityId);
+  if (action === 'login' || action === 'logout') {
+    entityType = 'User';
+    entityName = req.user?.email || 'User session';
   }
 
   // Determine category based on action and entity
@@ -257,23 +238,17 @@ const logActivity = async (req, res, responseBody, responseStatus) => {
     tags: [module, action]
   };
 
-  // Add request body for non-GET requests (be careful with sensitive data)
+  // Add truncated/sanitized request body for non-GET requests
   if (req.method !== 'GET' && req.body) {
-    // Filter out sensitive fields
-    const sanitizedBody = { ...req.body };
-    const sensitiveFields = ['password', 'token', 'secret', 'key', 'pin'];
-    
-    sensitiveFields.forEach(field => {
-      if (sanitizedBody[field]) {
-        sanitizedBody[field] = '[REDACTED]';
-      }
-    });
-
-    auditData.requestBody = sanitizedBody;
+    auditData.requestBody = sanitizeRequestBody(req.body);
   }
 
-  // Log the activity
-  await AuditTrail.logAction(auditData);
+  // Log without blocking the response path further
+  setImmediate(() => {
+    AuditTrail.logAction(auditData).catch((err) => {
+      console.error('Error saving audit trail entry:', err.message);
+    });
+  });
 };
 
 // Middleware for specific entity operations
@@ -405,40 +380,145 @@ const logExportActivity = async (req, entityType, filters = {}, recordCount = 0)
   return await AuditTrail.logAction(auditData);
 };
 
-// Helper function to generate realistic entity names
-const generateEntityName = (entityType, entityId) => {
-  const nameTemplates = {
-    'Employee': ['Employee Record', 'Staff Member', 'Team Member'],
-    'Payroll': ['Monthly Payroll', 'Salary Record', 'Payroll Report'],
-    'Department': ['Department Information', 'Team Department', 'Organizational Unit'],
-    'Position': ['Job Position', 'Role Definition', 'Position Details'],
-    'Company': ['Company Profile', 'Organization Details', 'Business Entity'],
-    'Project': ['Project Information', 'Business Project', 'Development Project'],
-    'Section': ['Section Details', 'Department Section', 'Organizational Section'],
-    'Designation': ['Job Designation', 'Role Title', 'Position Designation'],
-    'Location': ['Office Location', 'Work Location', 'Business Address'],
-    'Bank': ['Bank Account', 'Financial Institution', 'Banking Details'],
-    'Increment': ['Salary Increment', 'Pay Raise', 'Compensation Increase'],
-    'User': ['User Account', 'System User', 'Account Profile'],
-    'Audit': ['Audit Record', 'Compliance Audit', 'System Audit'],
-    'AuditFinding': ['Audit Finding', 'Compliance Issue', 'Audit Observation'],
-    'CorrectiveAction': ['Corrective Action', 'Remedial Action', 'Action Plan'],
-    'AuditTrail': ['Audit Log', 'Activity Log', 'System Trail'],
-    'AuditSchedule': ['Audit Schedule', 'Compliance Calendar', 'Audit Plan'],
-    'Report': ['System Report', 'Business Report', 'Analytics Report'],
-    'FinancialTransaction': ['Financial Transaction', 'Payment Record', 'Money Transfer'],
-    'Invoice': ['Business Invoice', 'Payment Invoice', 'Billing Document'],
-    'Budget': ['Department Budget', 'Financial Budget', 'Cost Budget'],
-    'PurchaseOrder': ['Purchase Order', 'Procurement Order', 'Buying Order'],
-    'Supplier': ['Vendor Information', 'Supplier Profile', 'Business Partner'],
-    'Lead': ['Sales Lead', 'Business Prospect', 'Potential Customer'],
-    'Opportunity': ['Sales Opportunity', 'Business Opportunity', 'Revenue Opportunity'],
-    'Customer': ['Customer Profile', 'Client Information', 'Business Customer'],
-    'Contact': ['Contact Information', 'Communication Contact', 'Business Contact']
-  };
+const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
+const SKIP_SEGMENTS = new Set([
+  'api', 'v1', 'v2',
+  'hr', 'finance', 'procurement', 'admin', 'sales', 'crm', 'auth', 'audit',
+  'taj-residencia', 'land-acquisition', 'centralized-store',
+  'search', 'filter', 'bulk', 'export', 'import', 'approve', 'reject',
+  'login', 'logout', 'dashboard', 'stats', 'statistics', 'next-ref',
+  'registered-totals', 'possessed-totals', 'pending-possession'
+]);
 
-  const templates = nameTemplates[entityType] || [`${entityType} Record`, `${entityType} Information`];
-  return templates[Math.floor(Math.random() * templates.length)];
+const ENTITY_MAPPING = {
+  employees: 'Employee',
+  employee: 'Employee',
+  payroll: 'Payroll',
+  payrolls: 'Payroll',
+  departments: 'Department',
+  department: 'Department',
+  positions: 'Position',
+  position: 'Position',
+  companies: 'Company',
+  company: 'Company',
+  projects: 'Project',
+  project: 'Project',
+  sections: 'Section',
+  section: 'Section',
+  designations: 'Designation',
+  designation: 'Designation',
+  locations: 'Location',
+  location: 'Location',
+  banks: 'Bank',
+  bank: 'Bank',
+  increments: 'Increment',
+  increment: 'Increment',
+  users: 'User',
+  user: 'User',
+  audits: 'Audit',
+  findings: 'AuditFinding',
+  finding: 'AuditFinding',
+  'corrective-actions': 'CorrectiveAction',
+  actions: 'CorrectiveAction',
+  trail: 'AuditTrail',
+  schedules: 'AuditSchedule',
+  schedule: 'AuditSchedule',
+  reports: 'Report',
+  report: 'Report',
+  transactions: 'FinancialTransaction',
+  transaction: 'FinancialTransaction',
+  invoices: 'Invoice',
+  invoice: 'Invoice',
+  budgets: 'Budget',
+  budget: 'Budget',
+  orders: 'PurchaseOrder',
+  order: 'PurchaseOrder',
+  'purchase-orders': 'PurchaseOrder',
+  suppliers: 'Supplier',
+  supplier: 'Supplier',
+  vendors: 'Vendor',
+  vendor: 'Vendor',
+  leads: 'Lead',
+  lead: 'Lead',
+  opportunities: 'Opportunity',
+  opportunity: 'Opportunity',
+  customers: 'Customer',
+  customer: 'Customer',
+  contacts: 'Contact',
+  contact: 'Contact',
+  bills: 'Bill',
+  bill: 'Bill',
+  grns: 'GRN',
+  grn: 'GRN',
+  registries: 'LandRegistry',
+  registry: 'LandRegistry',
+  possessions: 'LandPossession',
+  possession: 'LandPossession',
+  exchanges: 'LandExchange',
+  exchange: 'LandExchange',
+  transfers: 'LandTransfer',
+  transfer: 'LandTransfer',
+  purchases: 'LandPurchase',
+  purchase: 'LandPurchase',
+  parties: 'LandParty',
+  party: 'LandParty',
+  mozas: 'LandMoza',
+  moza: 'LandMoza',
+  'pre-audit': 'PreAudit',
+  vouchers: 'Voucher',
+  voucher: 'Voucher',
+  accounts: 'Account',
+  account: 'Account'
+};
+
+const titleCase = (value) => {
+  if (!value) return '';
+  return String(value)
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\s+/g, '');
+};
+
+/**
+ * Pick the real resource segment from a URL instead of blindly using
+ * second-to-last (which often became "api", module name, or an ObjectId → Unknown/junk).
+ */
+const resolveEntityFromPath = (pathValue = '', params = {}) => {
+  const parts = String(pathValue || '')
+    .split('/')
+    .filter(Boolean)
+    .map((p) => decodeURIComponent(p));
+
+  let entityId = null;
+  const paramId = params.id || params._id || params.registryId || params.purchaseId;
+  if (paramId && OBJECT_ID_RE.test(String(paramId))) {
+    entityId = String(paramId);
+  }
+
+  // Walk from the end: skip ids and action verbs; first meaningful segment wins
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const part = parts[i];
+    if (OBJECT_ID_RE.test(part)) {
+      if (!entityId) entityId = part;
+      continue;
+    }
+    if (SKIP_SEGMENTS.has(part.toLowerCase())) continue;
+    if (/^\d+$/.test(part)) continue;
+
+    const key = part.toLowerCase();
+    const entityType = ENTITY_MAPPING[key] || titleCase(part);
+    return {
+      entityType,
+      entityId,
+      entityName: entityId ? `${entityType} ${String(entityId).slice(-6)}` : entityType
+    };
+  }
+
+  return {
+    entityType: null,
+    entityId,
+    entityName: null
+  };
 };
 
 // Helper function to generate more descriptive audit descriptions

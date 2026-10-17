@@ -30,8 +30,11 @@ router.get('/',
       sortOrder = 'desc'
     } = req.query;
 
-    // Build filter object
-    const filters = {};
+    // Build filter object — never show data older than 30 days
+    const retentionStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const filters = {
+      timestamp: { $gte: retentionStart }
+    };
     
     if (action) filters.action = action;
     if (module) filters.module = module;
@@ -41,8 +44,11 @@ router.get('/',
     if (isSuspicious !== undefined) filters.isSuspicious = isSuspicious === 'true';
     
     if (startDate || endDate) {
-      filters.timestamp = {};
-      if (startDate) filters.timestamp.$gte = new Date(startDate);
+      filters.timestamp = { $gte: retentionStart };
+      if (startDate) {
+        const requestedStart = new Date(startDate);
+        filters.timestamp.$gte = requestedStart > retentionStart ? requestedStart : retentionStart;
+      }
       if (endDate) filters.timestamp.$lte = new Date(endDate);
     }
 
@@ -256,8 +262,11 @@ router.get('/trail/export',
       format = 'csv'
     } = req.query;
 
-    // Build filter object
-    const filters = {};
+    // Build filter object — export limited to last 30 days
+    const retentionStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const filters = {
+      timestamp: { $gte: retentionStart }
+    };
     
     if (module) filters.module = module;
     if (action) filters.action = action;
@@ -266,8 +275,11 @@ router.get('/trail/export',
     if (riskLevel) filters.riskLevel = riskLevel;
     
     if (startDate || endDate) {
-      filters.timestamp = {};
-      if (startDate) filters.timestamp.$gte = new Date(startDate);
+      filters.timestamp = { $gte: retentionStart };
+      if (startDate) {
+        const requestedStart = new Date(startDate);
+        filters.timestamp.$gte = requestedStart > retentionStart ? requestedStart : retentionStart;
+      }
       if (endDate) filters.timestamp.$lte = new Date(endDate);
     }
 
@@ -316,6 +328,24 @@ router.get('/trail/export',
         }
       });
     }
+  })
+);
+
+// @route   POST /api/audit/trail/purge-reads
+// @desc    Delete historical low-value read/view audit rows (one-time cleanup)
+// @access  Private (Super Admin)
+router.post('/purge-reads',
+  authorize('super_admin'),
+  asyncHandler(async (req, res) => {
+    const result = await AuditTrail.deleteMany({
+      action: { $in: ['read', 'view'] }
+    });
+
+    res.json({
+      success: true,
+      message: `Purged ${result.deletedCount || 0} read/view audit trail entries`,
+      data: { deletedCount: result.deletedCount || 0 }
+    });
   })
 );
 

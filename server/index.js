@@ -791,6 +791,17 @@ mongoose.connection.once('open', async () => {
     console.log('🚀 Initializing services in parallel...');
     
     const initPromises = [
+      // Ensure Audit Trail 30-day TTL retention + purge older rows immediately
+      (async () => {
+        const AuditTrail = require('./models/audit/AuditTrail');
+        await AuditTrail.ensureRetentionIndex();
+        const purged = await AuditTrail.purgeOlderThanRetention();
+        console.log(
+          `✅ Audit Trail retention ready (30 days only)`
+          + (purged.deletedCount ? ` — purged ${purged.deletedCount} older entries` : '')
+        );
+      })(),
+
       // Initialize Change Stream service
       (async () => {
         console.log('🚀 Initializing Change Stream service...');

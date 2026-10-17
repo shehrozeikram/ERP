@@ -52,9 +52,19 @@ import {
 } from '@mui/icons-material';
 import api from '../../services/api';
 import { formatDate } from '../../utils/dateUtils';
+import { useAuth } from '../../contexts/AuthContext';
+import toast from 'react-hot-toast';
+
+const defaultStartDate = () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toISOString().slice(0, 10);
+};
 
 const AuditTrail = () => {
   const theme = useTheme();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const [trails, setTrails] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -67,12 +77,13 @@ const AuditTrail = () => {
     module: '',
     action: '',
     user: '',
-    startDate: '',
+    startDate: defaultStartDate(),
     endDate: ''
   });
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [selectedTrail, setSelectedTrail] = useState(null);
   const [statistics, setStatistics] = useState(null);
+  const [purgingReads, setPurgingReads] = useState(false);
 
   const fetchTrails = useCallback(async () => {
     try {
@@ -80,9 +91,11 @@ const AuditTrail = () => {
       setError(null);
       const params = new URLSearchParams({
         page: page + 1,
-        limit: rowsPerPage,
-        search: searchQuery,
-        ...filters
+        limit: rowsPerPage
+      });
+      if (searchQuery) params.set('search', searchQuery);
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value) params.set(key, value);
       });
       const response = await api.get(`/audit/trail?${params.toString()}`);
       const responseData = response.data.data;
@@ -141,6 +154,25 @@ const AuditTrail = () => {
       ...filters,
       [event.target.name]: event.target.value,
     });
+    setPage(0);
+  };
+
+  const handlePurgeReads = async () => {
+    if (!window.confirm(
+      'Delete all historical read/view audit trail entries? New reads are already no longer logged. This cannot be undone.'
+    )) {
+      return;
+    }
+    setPurgingReads(true);
+    try {
+      const res = await api.post('/audit/trail/purge-reads');
+      toast.success(res.data?.message || 'Read logs purged');
+      await Promise.all([fetchTrails(), fetchStatistics()]);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to purge read logs');
+    } finally {
+      setPurgingReads(false);
+    }
   };
 
   const handleViewTrail = (trail) => {
@@ -250,8 +282,11 @@ const AuditTrail = () => {
       <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: theme.palette.primary.dark }}>
         <HistoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} /> Audit Trail
       </Typography>
-      <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 3 }}>
-        Complete activity log of all user actions across the system.
+      <Typography variant="subtitle1" color="textSecondary" sx={{ mb: 1 }}>
+        Meaningful activity log (creates, updates, deletes, auth, exports, approvals). Routine page reads are not logged.
+      </Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 3 }}>
+        Retention: only the last 30 days are kept and shown. Older audit trail entries are removed automatically.
       </Typography>
 
       {/* Statistics Cards */}
@@ -377,7 +412,12 @@ const AuditTrail = () => {
                 <MenuItem value="update">Update</MenuItem>
                 <MenuItem value="delete">Delete</MenuItem>
                 <MenuItem value="login">Login</MenuItem>
-                <MenuItem value="view">View</MenuItem>
+                <MenuItem value="logout">Logout</MenuItem>
+                <MenuItem value="approve">Approve</MenuItem>
+                <MenuItem value="reject">Reject</MenuItem>
+                <MenuItem value="export">Export</MenuItem>
+                <MenuItem value="import">Import</MenuItem>
+                <MenuItem value="read">Read (legacy)</MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -416,6 +456,19 @@ const AuditTrail = () => {
               Export
             </Button>
           </Grid>
+          {isSuperAdmin && (
+            <Grid item xs={12} md={3}>
+              <Button
+                variant="outlined"
+                color="warning"
+                fullWidth
+                disabled={purgingReads}
+                onClick={handlePurgeReads}
+              >
+                {purgingReads ? 'Purging…' : 'Purge Legacy Read Logs'}
+              </Button>
+            </Grid>
+          )}
         </Grid>
       </Paper>
 

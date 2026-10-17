@@ -164,13 +164,20 @@ const auditTrailSchema = new mongoose.Schema({
   timestamps: false // We're using custom timestamp field
 });
 
+// Retention: auto-delete documents 30 days after timestamp (MongoDB TTL monitor)
+const AUDIT_TRAIL_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
 // Compound indexes for better performance
 auditTrailSchema.index({ userId: 1, timestamp: -1 });
 auditTrailSchema.index({ module: 1, action: 1, timestamp: -1 });
 auditTrailSchema.index({ entityType: 1, entityId: 1, timestamp: -1 });
-auditTrailSchema.index({ timestamp: -1 });
+auditTrailSchema.index(
+  { timestamp: 1 },
+  { expireAfterSeconds: AUDIT_TRAIL_RETENTION_SECONDS, name: 'audit_trail_ttl_30d' }
+);
 auditTrailSchema.index({ riskLevel: 1, timestamp: -1 });
 auditTrailSchema.index({ isSuspicious: 1, timestamp: -1 });
+auditTrailSchema.index({ action: 1, timestamp: -1 });
 
 // Text index for search functionality
 auditTrailSchema.index({
@@ -244,27 +251,14 @@ auditTrailSchema.statics.logAction = async function(actionData) {
     }
   }
 
-  // Detect suspicious activities
-  let suspicious = isSuspicious || false;
+  // Detect suspicious activities (lightweight — avoid a count query on every write)
+  let suspicious = Boolean(isSuspicious);
   if (!suspicious) {
-    // Check for unusual patterns
-    const recentActions = await this.find({
-      userId,
-      timestamp: { $gte: new Date(Date.now() - 60 * 60 * 1000) } // Last hour
-    }).countDocuments();
-
-    if (recentActions > 50) {
-      suspicious = true;
-    }
-
-    // Check for bulk operations
     if (action === 'delete' && changedFields && changedFields.length > 10) {
       suspicious = true;
     }
-
-    // Check for sensitive data access
-    if (action === 'read' && (entityType === 'Payroll' || entityType === 'Employee' || entityType === 'FinancialTransaction')) {
-      calculatedRiskLevel = 'medium';
+    if (action === 'delete' && (module === 'finance' || module === 'hr' || module === 'admin')) {
+      calculatedRiskLevel = calculatedRiskLevel === 'low' ? 'high' : calculatedRiskLevel;
     }
   }
 
@@ -431,4 +425,47 @@ auditTrailSchema.statics.detectAnomalies = async function(hours = 24) {
   };
 };
 
+auditTrailSchema.statics.ensureRetentionIndex = async function ensureRetentionIndex() {
+  try {
+    const collection = this.collection;
+    const indexes = await collection.indexes();
+
+    // Drop legacy non-TTL / old 90-day TTL indexes on timestamp
+    for (const idx of indexes) {
+      const isTimestampIndex = idx.key && Object.keys(idx.key).length === 1 && idx.key.timestamp != null;
+      const isLegacyName = idx.name === 'timestamp_-1' || idx.name === 'timestamp_1' || idx.name === 'audit_trail_ttl_90d';
+      const wrongTtl = isTimestampIndex && idx.expireAfterSeconds != null
+        && idx.expireAfterSeconds !== AUDIT_TRAIL_RETENTION_SECONDS;
+      if ((isTimestampIndex && (isLegacyName || wrongTtl || idx.expireAfterSeconds == null)) && idx.name !== 'audit_trail_ttl_30d') {
+        await collection.dropIndex(idx.name);
+      }
+    }
+
+    const ttlExists = (await collection.indexes()).some(
+      (idx) => idx.name === 'audit_trail_ttl_30d'
+        && idx.expireAfterSeconds === AUDIT_TRAIL_RETENTION_SECONDS
+    );
+    if (!ttlExists) {
+      await collection.createIndex(
+        { timestamp: 1 },
+        { expireAfterSeconds: AUDIT_TRAIL_RETENTION_SECONDS, name: 'audit_trail_ttl_30d' }
+      );
+    }
+  } catch (err) {
+    console.error('AuditTrail.ensureRetentionIndex failed:', err.message);
+  }
+};
+
+/** Immediately delete trail rows older than retention window (don't wait for TTL monitor). */
+auditTrailSchema.statics.purgeOlderThanRetention = async function purgeOlderThanRetention() {
+  const cutoff = new Date(Date.now() - AUDIT_TRAIL_RETENTION_SECONDS * 1000);
+  const result = await this.deleteMany({ timestamp: { $lt: cutoff } });
+  return {
+    deletedCount: result.deletedCount || 0,
+    cutoff,
+    retentionDays: Math.round(AUDIT_TRAIL_RETENTION_SECONDS / (24 * 60 * 60))
+  };
+};
+
 module.exports = mongoose.model('AuditTrail', auditTrailSchema);
+module.exports.AUDIT_TRAIL_RETENTION_SECONDS = AUDIT_TRAIL_RETENTION_SECONDS;
